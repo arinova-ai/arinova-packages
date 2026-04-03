@@ -1,0 +1,10 @@
+{
+  "id": "openclaw-arinova-ai",
+  "description": "Arinova Chat channel plugin with Virtual Office integration — agent status tracking via SSE",
+  "channels": ["openclaw-arinova-ai"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

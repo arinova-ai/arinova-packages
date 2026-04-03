@@ -1,0 +1,36 @@
+{
+  "name": "@arinova-ai/agent-sdk",
+  "version": "0.0.16-staging.0",
+  "description": "SDK for connecting AI agents to Arinova Chat",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "arinova",
+    "agent",
+    "sdk",
+    "websocket",
+    "streaming",
+    "ai"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}
