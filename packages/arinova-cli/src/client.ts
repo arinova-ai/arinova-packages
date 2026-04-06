@@ -11,10 +11,10 @@ export class ApiError extends Error {
   }
 }
 
-function headers(): Record<string, string> {
-  const key = getApiKey();
+function headers(apiKey?: string): Record<string, string> {
+  const key = apiKey ?? getApiKey();
   if (!key) {
-    throw new Error("No API key configured. Run: arinova auth set-key <key>");
+    throw new Error("No API key configured. Run: arinova auth login or arinova --profile <name> auth set-token <key>");
   }
   return {
     Authorization: `Bearer ${key}`,
@@ -40,40 +40,40 @@ async function handleResponse(res: Response): Promise<unknown> {
   return parsed;
 }
 
-export async function get(path: string): Promise<unknown> {
-  const res = await fetch(url(path), { method: "GET", headers: headers() });
+export async function get(path: string, apiKey?: string): Promise<unknown> {
+  const res = await fetch(url(path), { method: "GET", headers: headers(apiKey) });
   return handleResponse(res);
 }
 
-export async function post(path: string, body?: unknown): Promise<unknown> {
+export async function post(path: string, body?: unknown, apiKey?: string): Promise<unknown> {
   const res = await fetch(url(path), {
     method: "POST",
-    headers: headers(),
+    headers: headers(apiKey),
     body: body != null ? JSON.stringify(body) : undefined,
   });
   return handleResponse(res);
 }
 
-export async function patch(path: string, body?: unknown): Promise<unknown> {
+export async function patch(path: string, body?: unknown, apiKey?: string): Promise<unknown> {
   const res = await fetch(url(path), {
     method: "PATCH",
-    headers: headers(),
+    headers: headers(apiKey),
     body: body != null ? JSON.stringify(body) : undefined,
   });
   return handleResponse(res);
 }
 
-export async function put(path: string, body?: unknown): Promise<unknown> {
+export async function put(path: string, body?: unknown, apiKey?: string): Promise<unknown> {
   const res = await fetch(url(path), {
     method: "PUT",
-    headers: headers(),
+    headers: headers(apiKey),
     body: body != null ? JSON.stringify(body) : undefined,
   });
   return handleResponse(res);
 }
 
-export async function del(path: string): Promise<unknown> {
-  const res = await fetch(url(path), { method: "DELETE", headers: headers() });
+export async function del(path: string, apiKey?: string): Promise<unknown> {
+  const res = await fetch(url(path), { method: "DELETE", headers: headers(apiKey) });
   return handleResponse(res);
 }
 
@@ -81,10 +81,11 @@ export async function upload(
   path: string,
   filePath: string,
   fieldName: string = "file",
+  apiKey?: string,
 ): Promise<unknown> {
-  const key = getApiKey();
+  const key = apiKey ?? getApiKey();
   if (!key) {
-    throw new Error("No API key configured. Run: arinova auth set-key <key>");
+    throw new Error("No API key configured. Run: arinova auth login");
   }
 
   const fileData = readFileSync(filePath);
@@ -104,10 +105,11 @@ export async function uploadMultipart(
   path: string,
   fields: Record<string, string | Blob>,
   method: "POST" | "PUT" = "POST",
+  apiKey?: string,
 ): Promise<unknown> {
-  const key = getApiKey();
+  const key = apiKey ?? getApiKey();
   if (!key) {
-    throw new Error("No API key configured. Run: arinova auth set-key <key>");
+    throw new Error("No API key configured. Run: arinova auth login");
   }
 
   const form = new FormData();

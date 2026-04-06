@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { setJsonMode } from "./output.js";
+import { migrateConfigIfNeeded } from "./config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, "../package.json"), "utf-8"));
@@ -32,6 +33,7 @@ import { registerAutoSendCommands } from "./commands/auto-send.js";
 import { registerPainterCommands } from "./commands/painter.js";
 import { registerAgentCommands } from "./commands/agent.js";
 import { registerCapsuleCommands } from "./commands/capsule.js";
+import { registerProfile } from "./commands/profile.js";
 
 const program = new Command();
 
@@ -39,7 +41,8 @@ program
   .name("arinova")
   .description("Arinova CLI — manage messages, notes, kanban, memory, creator tools, and more")
   .version(pkg.version)
-  .option("--token <botToken>", "Bot/API token (ari_...)")
+  .option("--token <botToken>", "Bot/API token override (ari_...)")
+  .option("--profile <name>", "Profile to use (required for most commands)")
   .option("--api-url <url>", "API endpoint override")
   .option("--json", "Output in JSON format")
   .hook("preAction", (thisCommand) => {
@@ -47,6 +50,8 @@ program
     if (opts.json) {
       setJsonMode(true);
     }
+    // Auto-migrate legacy config on first run
+    migrateConfigIfNeeded();
   });
 
 // Existing agent commands (bot token based)
@@ -64,6 +69,9 @@ registerAutoSendCommands(program);
 registerPainterCommands(program);
 registerAgentCommands(program);
 registerCapsuleCommands(program);
+
+// Profile management
+registerProfile(program);
 
 // Creator commands (config-based auth)
 registerAuth(program);

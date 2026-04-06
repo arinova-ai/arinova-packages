@@ -1,22 +1,17 @@
 import type { Command } from "commander";
-import { getApiKey, getEndpoint } from "./config.js";
+import { resolveApiKey, getEndpoint } from "./config.js";
 
-export function getOpts(cmd: Command): { token: string; apiUrl: string } {
+export function getOpts(cmd: Command): { token: string; apiUrl: string; profileName: string } {
   const opts = cmd.optsWithGlobals();
 
-  // Priority: --token flag > config file apiKey > error
-  let token = opts.token as string | undefined;
-  if (!token) {
-    token = getApiKey();
-  }
-  if (!token) {
-    console.error("Error: No token provided. Use --token flag or run: arinova auth set-key <key>");
-    process.exit(1);
-  }
+  const { apiKey, profileName } = resolveApiKey({
+    token: opts.token as string | undefined,
+    profile: opts.profile as string | undefined,
+  });
 
   const apiUrl = (opts.apiUrl as string) ?? getEndpoint();
 
-  return { token, apiUrl };
+  return { token: apiKey, apiUrl, profileName };
 }
 
 export async function apiCall(opts: {

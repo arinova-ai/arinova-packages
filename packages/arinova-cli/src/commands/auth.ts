@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { loadConfig, saveConfig, getApiKey, getEndpoint } from "../config.js";
+import { loadConfig, saveConfig, setProfile, getEndpoint, getEnvironmentLabel, resolveApiKey, resolveProfileName, getProfile, listProfiles } from "../config.js";
 import { printResult, printError, printSuccess } from "../output.js";
 
 export function registerAuth(program: Command): void {
@@ -8,7 +8,7 @@ export function registerAuth(program: Command): void {
 
   auth
     .command("login")
-    .description("Log in via browser (opens Arinova to generate a CLI key)")
+    .description("Log in via browser (creates a user profile with your username)")
     .option("-p, --port <port>", "Local callback port", "9876")
     .action(async function (this: Command, opts: { port: string }) {
       const port = parseInt(opts.port, 10);
@@ -61,10 +61,24 @@ export function registerAuth(program: Command): void {
 
       try {
         const key = await keyPromise;
-        const config = loadConfig();
-        config.apiKey = key;
-        saveConfig(config);
-        printSuccess(`Logged in! API key saved (prefix: ${key.slice(0, 12)}...)`);
+
+        // Fetch username to use as profile name
+        let profileName = "user";
+        try {
+          const res = await fetch(`${apiEndpoint}/api/v1/creator/api-keys/whoami`, {
+            headers: { Authorization: `Bearer ${key}` },
+          });
+          if (res.ok) {
+            const data = await res.json() as Record<string, unknown>;
+            const name = (data.username ?? data.name ?? "") as string;
+            if (name) profileName = name.toLowerCase().replace(/\s+/g, "-");
+          }
+        } catch { /* use default name */ }
+
+        setProfile(profileName, { type: "user", apiKey: key });
+
+        printSuccess(`Logged in! Profile '${profileName}' created (user, key: ${key.slice(0, 12)}...)`);
+        console.log(`\nTo use: arinova --profile ${profileName} <command>`);
       } catch (err) {
         printError(err);
       }
@@ -72,52 +86,112 @@ export function registerAuth(program: Command): void {
 
   auth
     .command("logout")
-    .description("Remove stored API key")
+    .description("Remove the current profile's API key")
     .action(() => {
-      const config = loadConfig();
-      if (!config.apiKey) {
-        console.log("No API key configured. Already logged out.");
-        return;
+      const profileFlag = program.optsWithGlobals().profile as string | undefined;
+      try {
+        const name = resolveProfileName(profileFlag);
+        const profile = getProfile(name);
+        if (!profile) {
+          printError(new Error(`Profile '${name}' not found.`));
+          return;
+        }
+        // Remove the profile entirely
+        const { removeProfile } = require("../config.js") as typeof import("../config.js");
+        removeProfile(name);
+        printSuccess(`Profile '${name}' removed.`);
+      } catch {
+        printError(new Error("No active profile to log out from."));
       }
-      delete config.apiKey;
-      saveConfig(config);
-      printSuccess("Logged out. API key removed.");
     });
 
   auth
-    .command("set-key <key>")
-    .description("Set your API key")
+    .command("set-token <key>")
+    .description("Set a bot token for the current profile (requires --profile)")
     .action((key: string) => {
+      const profileFlag = program.optsWithGlobals().profile as string | undefined;
+      if (!profileFlag) {
+        printError(new Error("Must specify --profile <name> when setting a bot token.\nExample: arinova --profile linda auth set-token ari_xxx"));
+        return;
+      }
       if (!key.startsWith("ari_")) {
         printError(new Error("Invalid key format. Expected key starting with ari_"));
         return;
       }
-      const config = loadConfig();
-      config.apiKey = key;
-      saveConfig(config);
-      printSuccess(`API key saved (prefix: ${key.slice(0, 12)}...)`);
+      const name = profileFlag;
+      setProfile(name, { type: "bot", apiKey: key });
+      printSuccess(`Bot profile '${name}' saved (key: ${key.slice(0, 12)}...)`);
+      console.log(`\nTo use: arinova --profile ${name} <command>`);
+    });
+
+  // Keep set-key as hidden alias for backwards compat
+  auth
+    .command("set-key <key>", { hidden: true })
+    .description("(deprecated) Use 'auth set-token' instead")
+    .action((key: string) => {
+      console.error("Warning: 'set-key' is deprecated. Use 'arinova --profile <name> auth set-token <key>' instead.\n");
+      const profileFlag = program.optsWithGlobals().profile as string | undefined;
+      if (!key.startsWith("ari_")) {
+        printError(new Error("Invalid key format. Expected key starting with ari_"));
+        return;
+      }
+      const name = profileFlag ?? process.env.ARINOVA_PROFILE ?? "default";
+      setProfile(name, { type: "bot", apiKey: key });
+      printSuccess(`Profile '${name}' saved (key: ${key.slice(0, 12)}...)`);
     });
 
   auth
     .command("whoami")
-    .description("Show current user info")
+    .description("Show current identity and environment")
     .action(async () => {
       try {
-        const key = getApiKey();
-        if (!key) {
-          printError(new Error("No API key configured. Run: arinova auth login"));
-          return;
-        }
-        const res = await fetch(`${getEndpoint()}/api/v1/creator/api-keys/whoami`, {
-          headers: { Authorization: `Bearer ${key}` },
-        });
-        if (!res.ok) {
-          const body = await res.text();
-          printError(new Error(`API error ${res.status}: ${body}`));
-          return;
-        }
-        const data = await res.json();
-        printResult(data);
+        const profileFlag = program.optsWithGlobals().profile as string | undefined;
+        const tokenFlag = program.optsWithGlobals().token as string | undefined;
+        const { apiKey, profileName, source } = resolveApiKey({ token: tokenFlag, profile: profileFlag });
+        const env = getEnvironmentLabel();
+        const endpoint = getEndpoint();
+
+        const identity: Record<string, unknown> = {
+          profile: profileName,
+          source,
+          environment: env,
+          endpoint,
+          keyPrefix: `${apiKey.slice(0, 12)}...`,
+        };
+
+        // Try to resolve actual identity from server
+        // Try bot endpoint first
+        try {
+          const botRes = await fetch(`${endpoint}/api/agent/me`, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+          });
+          if (botRes.ok) {
+            const bot = await botRes.json() as Record<string, unknown>;
+            identity.identityType = "bot";
+            identity.agentName = bot.name;
+            identity.agentId = bot.id;
+            printResult(identity);
+            return;
+          }
+        } catch { /* fall through */ }
+
+        // Try user endpoint
+        try {
+          const userRes = await fetch(`${endpoint}/api/v1/creator/api-keys/whoami`, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+          });
+          if (userRes.ok) {
+            const user = await userRes.json() as Record<string, unknown>;
+            identity.identityType = "user";
+            identity.userName = user.name ?? user.username;
+            identity.userId = user.id ?? user.userId;
+            printResult(identity);
+            return;
+          }
+        } catch { /* fall through */ }
+
+        identity.status = "unauthorized — token may be expired or revoked";
+        printResult(identity);
       } catch (err) {
         printError(err);
       }
@@ -151,10 +225,13 @@ export function registerAuth(program: Command): void {
     .command("show")
     .description("Show current configuration")
     .action(() => {
-      const cfg = loadConfig();
+      const profiles = listProfiles();
       printResult({
-        endpoint: cfg.endpoint ?? "https://chat.arinova.ai (default)",
-        apiKey: cfg.apiKey ? `${cfg.apiKey.slice(0, 12)}...(set)` : "(not set)",
+        environment: getEnvironmentLabel(),
+        endpoint: getEndpoint(),
+        profiles: profiles.length > 0
+          ? Object.fromEntries(profiles.map((p) => [p.name, { type: p.profile.type, key: `${p.profile.apiKey.slice(0, 12)}...` }]))
+          : "(none)",
       });
     });
 }
