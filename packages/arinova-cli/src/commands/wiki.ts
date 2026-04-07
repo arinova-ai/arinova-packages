@@ -5,12 +5,13 @@ export function registerWikiCommands(program: Command): void {
   const wiki = program.command("wiki").description("Wiki page commands");
 
   wiki.command("list")
-    .requiredOption("--conversation-id <id>", "Conversation ID")
+    .option("--conversation-id <id>", "Conversation ID (omit to list all)")
     .option("--search <query>", "Search wiki pages")
-    .description("List wiki pages in a conversation")
-    .action(async (opts: { conversationId: string; search?: string }) => {
+    .description("List wiki pages (all or by conversation)")
+    .action(async (opts: { conversationId?: string; search?: string }) => {
       const { token, apiUrl } = getOpts(wiki);
-      const params = new URLSearchParams({ conversationId: opts.conversationId });
+      const params = new URLSearchParams();
+      if (opts.conversationId) params.set("conversationId", opts.conversationId);
       if (opts.search) params.set("search", opts.search);
       output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/wiki?${params.toString()}`, token }));
     });
