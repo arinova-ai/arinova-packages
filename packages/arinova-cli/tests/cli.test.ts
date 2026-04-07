@@ -34,6 +34,7 @@ function run(args: string): string {
   return execSync(`node ${CLI} --token ${TOKEN} --api-url ${API_URL} ${args}`, {
     encoding: "utf-8",
     timeout: 60_000,
+    maxBuffer: 10 * 1024 * 1024,
     env: { ...process.env, NODE_NO_WARNINGS: "1" },
   });
 }
@@ -44,6 +45,7 @@ function runSafe(args: string): { stdout: string; stderr: string; status: number
     const stdout = execSync(`node ${CLI} --token ${TOKEN} --api-url ${API_URL} ${args}`, {
       encoding: "utf-8",
       timeout: 60_000,
+      maxBuffer: 10 * 1024 * 1024,
       env: { ...process.env, NODE_NO_WARNINGS: "1" },
     });
     return { stdout, stderr: "", status: 0 };
