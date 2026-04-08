@@ -39,6 +39,7 @@ import type {
 const DEFAULT_RECONNECT_INTERVAL = 5_000;
 const DEFAULT_PING_INTERVAL = 30_000;
 const TASK_HEARTBEAT_INTERVAL = 60_000;
+const MAX_QUEUE_SIZE = 10;
 
 export class ArinovaAgent {
   private readonly serverUrl: string;
@@ -187,6 +188,11 @@ export class ArinovaAgent {
       } catch {}
       this.ws = null;
     }
+    // Abort all active tasks so handlers stop running
+    for (const controller of this.taskAbortControllers.values()) {
+      controller.abort();
+    }
+    this.taskAbortControllers.clear();
     this.activeConversationTasks.clear();
     this.conversationQueues.clear();
   }
@@ -1255,6 +1261,11 @@ export class ArinovaAgent {
       if (!queue) {
         queue = [];
         this.conversationQueues.set(conversationId, queue);
+      }
+      // Overflow: drop oldest queued task when queue is full
+      if (queue.length >= MAX_QUEUE_SIZE) {
+        const dropped = queue.shift()!;
+        this.send({ type: "agent_error", taskId: dropped.taskId as string, error: "queue_overflow" });
       }
       queue.push(data);
       return;
