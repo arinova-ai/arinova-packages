@@ -55,6 +55,8 @@ export class ArinovaAgent {
   private agentId: string | null = null;
   private taskHandler: TaskHandler | null = null;
   private taskAbortControllers: Map<string, AbortController> = new Map();
+  private activeConversationTasks: Map<string, string> = new Map(); // conversationId → taskId
+  private conversationQueues: Map<string, Array<Record<string, unknown>>> = new Map(); // conversationId → queued task data
 
   private listeners: Record<string, Array<(...args: unknown[]) => void>> = {
     connected: [],
@@ -185,6 +187,8 @@ export class ArinovaAgent {
       } catch {}
       this.ws = null;
     }
+    this.activeConversationTasks.clear();
+    this.conversationQueues.clear();
   }
 
   private scheduleReconnect(): void {
@@ -284,6 +288,18 @@ export class ArinovaAgent {
 
         if (data.type === "cancel_task") {
           const taskId = data.taskId as string;
+
+          // Check if the task is still queued (not yet started)
+          for (const [convId, queue] of this.conversationQueues) {
+            const idx = queue.findIndex((t) => t.taskId === taskId);
+            if (idx !== -1) {
+              queue.splice(idx, 1);
+              if (queue.length === 0) this.conversationQueues.delete(convId);
+              return;
+            }
+          }
+
+          // Active task — abort it (processNextTask will be called via markFinished)
           const controller = this.taskAbortControllers.get(taskId);
           if (controller) {
             controller.abort();
@@ -1230,9 +1246,31 @@ export class ArinovaAgent {
   private handleTask(data: Record<string, unknown>): void {
     if (!this.taskHandler) return;
 
+    const conversationId = data.conversationId as string;
+    const activeTaskId = this.activeConversationTasks.get(conversationId);
+
+    // If this conversation already has an active task, queue the new one
+    if (activeTaskId && this.taskAbortControllers.has(activeTaskId)) {
+      let queue = this.conversationQueues.get(conversationId);
+      if (!queue) {
+        queue = [];
+        this.conversationQueues.set(conversationId, queue);
+      }
+      queue.push(data);
+      return;
+    }
+
+    this.executeTask(data);
+  }
+
+  private executeTask(data: Record<string, unknown>): void {
+    if (!this.taskHandler) return;
+
     const taskId = data.taskId as string;
+    const conversationId = data.conversationId as string;
     const abortController = new AbortController();
     this.taskAbortControllers.set(taskId, abortController);
+    this.activeConversationTasks.set(conversationId, taskId);
 
     // Auto heartbeat: keep task alive while processing
     const heartbeatTimer = setInterval(() => {
@@ -1249,12 +1287,14 @@ export class ArinovaAgent {
       taskFinished = true;
       stopHeartbeat();
       this.taskAbortControllers.delete(taskId);
+      this.activeConversationTasks.delete(conversationId);
+      this.processNextTask(conversationId);
       return true;
     };
 
     const ctx: TaskContext = {
       taskId,
-      conversationId: data.conversationId as string,
+      conversationId,
       content: data.content as string,
       conversationType: data.conversationType as string | undefined,
       senderUserId: data.senderUserId as string | undefined,
@@ -1282,9 +1322,9 @@ export class ArinovaAgent {
       },
       signal: abortController.signal,
       uploadFile: (file, fileName, fileType?) =>
-        this.uploadFile(data.conversationId as string, file, fileName, fileType),
+        this.uploadFile(conversationId, file, fileName, fileType),
       fetchHistory: (options?) =>
-        this.fetchHistory(data.conversationId as string, options),
+        this.fetchHistory(conversationId, options),
     };
 
     // When task is aborted (user cancelled), immediately send cancellation
@@ -1298,6 +1338,17 @@ export class ArinovaAgent {
       const errorMsg = err instanceof Error ? err.message : String(err);
       ctx.sendError(errorMsg);
     });
+  }
+
+  private processNextTask(conversationId: string): void {
+    const queue = this.conversationQueues.get(conversationId);
+    if (!queue || queue.length === 0) {
+      this.conversationQueues.delete(conversationId);
+      return;
+    }
+    const nextTask = queue.shift()!;
+    if (queue.length === 0) this.conversationQueues.delete(conversationId);
+    this.executeTask(nextTask);
   }
 }
 
