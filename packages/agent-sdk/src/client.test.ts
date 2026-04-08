@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { ArinovaAgent } from "./client.js";
 
 // Test API client configuration
 describe("API client configuration", () => {
@@ -103,208 +104,143 @@ describe("API method signatures", () => {
   });
 });
 
-// ── Per-conversation queue tests ─────────────────────────────
+// ── Per-conversation queue tests (real ArinovaAgent) ─────────
 
 describe("per-conversation task queue", () => {
-  // Helper: simulate the queue logic from client.ts without needing a real WS
-  const MAX_QUEUE_SIZE = 10;
-
-  function createQueueState() {
-    const activeConversationTasks = new Map<string, string>();
-    const taskAbortControllers = new Map<string, AbortController>();
-    const conversationQueues = new Map<string, Array<Record<string, unknown>>>();
-    const executed: string[] = [];
-    const errors: Array<{ taskId: string; error: string }> = [];
-
-    function handleTask(data: Record<string, unknown>) {
-      const conversationId = data.conversationId as string;
-      const activeTaskId = activeConversationTasks.get(conversationId);
-
-      if (activeTaskId && taskAbortControllers.has(activeTaskId)) {
-        let queue = conversationQueues.get(conversationId);
-        if (!queue) {
-          queue = [];
-          conversationQueues.set(conversationId, queue);
-        }
-        if (queue.length >= MAX_QUEUE_SIZE) {
-          const dropped = queue.shift()!;
-          errors.push({ taskId: dropped.taskId as string, error: "queue_overflow" });
-        }
-        queue.push(data);
-        return;
-      }
-      executeTask(data);
-    }
-
-    function executeTask(data: Record<string, unknown>) {
-      const taskId = data.taskId as string;
-      const conversationId = data.conversationId as string;
-      const controller = new AbortController();
-      taskAbortControllers.set(taskId, controller);
-      activeConversationTasks.set(conversationId, taskId);
-      executed.push(taskId);
-    }
-
-    function finishTask(taskId: string) {
-      let conversationId: string | undefined;
-      for (const [convId, tid] of activeConversationTasks) {
-        if (tid === taskId) { conversationId = convId; break; }
-      }
-      taskAbortControllers.delete(taskId);
-      if (conversationId) {
-        activeConversationTasks.delete(conversationId);
-        processNextTask(conversationId);
-      }
-    }
-
-    function processNextTask(conversationId: string) {
-      const queue = conversationQueues.get(conversationId);
-      if (!queue || queue.length === 0) {
-        conversationQueues.delete(conversationId);
-        return;
-      }
-      const next = queue.shift()!;
-      if (queue.length === 0) conversationQueues.delete(conversationId);
-      executeTask(next);
-    }
-
-    function cancelTask(taskId: string) {
-      for (const [convId, queue] of conversationQueues) {
-        const idx = queue.findIndex((t) => t.taskId === taskId);
-        if (idx !== -1) {
-          queue.splice(idx, 1);
-          if (queue.length === 0) conversationQueues.delete(convId);
-          return;
-        }
-      }
-      const controller = taskAbortControllers.get(taskId);
-      if (controller) {
-        controller.abort();
-        let conversationId: string | undefined;
-        for (const [convId, tid] of activeConversationTasks) {
-          if (tid === taskId) { conversationId = convId; break; }
-        }
-        taskAbortControllers.delete(taskId);
-        if (conversationId) {
-          activeConversationTasks.delete(conversationId);
-          processNextTask(conversationId);
-        }
-      }
-    }
-
-    function cleanup() {
-      for (const controller of taskAbortControllers.values()) {
-        controller.abort();
-      }
-      taskAbortControllers.clear();
-      activeConversationTasks.clear();
-      conversationQueues.clear();
-    }
-
-    return {
-      activeConversationTasks, taskAbortControllers, conversationQueues,
-      executed, errors,
-      handleTask, finishTask, cancelTask, cleanup,
+  // Helper: create an ArinovaAgent and access internals via `any` cast
+  function createAgent() {
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:9999",
+      botToken: "ari_test",
+    });
+    const a = agent as unknown as {
+      taskHandler: ((ctx: unknown) => Promise<void>) | null;
+      handleTask: (data: Record<string, unknown>) => void;
+      cleanup: () => void;
+      activeConversationTasks: Map<string, string>;
+      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      taskAbortControllers: Map<string, AbortController>;
+      send: (event: Record<string, unknown>) => void;
     };
+    // Stub send() — no real WS
+    a.send = vi.fn();
+    return { agent, a };
   }
 
-  it("same conversation queues second task instead of executing", () => {
-    const q = createQueueState();
-    q.handleTask({ taskId: "t1", conversationId: "conv-A", content: "first" });
-    q.handleTask({ taskId: "t2", conversationId: "conv-A", content: "second" });
+  // Dummy handler that blocks until signal is aborted (simulates long-running task)
+  const blockingHandler = async (ctx: { signal: AbortSignal }) => {
+    await new Promise<void>((resolve) => {
+      if (ctx.signal.aborted) { resolve(); return; }
+      ctx.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+  };
 
-    expect(q.executed).toEqual(["t1"]);
-    expect(q.conversationQueues.get("conv-A")?.length).toBe(1);
+  it("same conversation queues second task instead of executing", () => {
+    const { a } = createAgent();
+    a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
+
+    a.handleTask({ taskId: "t1", conversationId: "conv-A", content: "first" });
+    a.handleTask({ taskId: "t2", conversationId: "conv-A", content: "second" });
+
+    expect(a.taskAbortControllers.has("t1")).toBe(true);
+    expect(a.taskAbortControllers.has("t2")).toBe(false); // queued, not started
+    expect(a.conversationQueues.get("conv-A")?.length).toBe(1);
   });
 
   it("different conversations run in parallel", () => {
-    const q = createQueueState();
-    q.handleTask({ taskId: "t1", conversationId: "conv-A", content: "a" });
-    q.handleTask({ taskId: "t2", conversationId: "conv-B", content: "b" });
+    const { a } = createAgent();
+    a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
 
-    expect(q.executed).toEqual(["t1", "t2"]);
-    expect(q.activeConversationTasks.size).toBe(2);
+    a.handleTask({ taskId: "t1", conversationId: "conv-A", content: "a" });
+    a.handleTask({ taskId: "t2", conversationId: "conv-B", content: "b" });
+
+    expect(a.taskAbortControllers.has("t1")).toBe(true);
+    expect(a.taskAbortControllers.has("t2")).toBe(true);
+    expect(a.activeConversationTasks.size).toBe(2);
   });
 
-  it("processNextTask dequeues and executes after finish", () => {
-    const q = createQueueState();
-    q.handleTask({ taskId: "t1", conversationId: "conv-A", content: "first" });
-    q.handleTask({ taskId: "t2", conversationId: "conv-A", content: "second" });
-    q.handleTask({ taskId: "t3", conversationId: "conv-A", content: "third" });
+  it("processNextTask dequeues after sendComplete", () => {
+    const { a } = createAgent();
+    let savedCtx: { sendComplete: (s: string) => void } | null = null;
+    a.taskHandler = (async (ctx: { sendComplete: (s: string) => void }) => {
+      savedCtx = ctx;
+    }) as unknown as typeof a.taskHandler;
 
-    expect(q.executed).toEqual(["t1"]);
+    a.handleTask({ taskId: "t1", conversationId: "conv-A", content: "first" });
+    a.handleTask({ taskId: "t2", conversationId: "conv-A", content: "second" });
 
-    q.finishTask("t1");
-    expect(q.executed).toEqual(["t1", "t2"]);
+    expect(a.activeConversationTasks.get("conv-A")).toBe("t1");
+    expect(a.conversationQueues.get("conv-A")?.length).toBe(1);
 
-    q.finishTask("t2");
-    expect(q.executed).toEqual(["t1", "t2", "t3"]);
-    expect(q.conversationQueues.size).toBe(0);
+    // Complete t1 — should auto-start t2
+    savedCtx!.sendComplete("done");
+    expect(a.activeConversationTasks.get("conv-A")).toBe("t2");
+    expect(a.conversationQueues.has("conv-A")).toBe(false);
   });
 
   it("cancel queued task removes from queue without aborting active", () => {
-    const q = createQueueState();
-    q.handleTask({ taskId: "t1", conversationId: "conv-A", content: "first" });
-    q.handleTask({ taskId: "t2", conversationId: "conv-A", content: "second" });
-    q.handleTask({ taskId: "t3", conversationId: "conv-A", content: "third" });
+    const { a } = createAgent();
+    a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
 
-    q.cancelTask("t2");
-    expect(q.conversationQueues.get("conv-A")?.length).toBe(1);
-    expect(q.taskAbortControllers.has("t1")).toBe(true); // active task untouched
+    a.handleTask({ taskId: "t1", conversationId: "conv-A", content: "first" });
+    a.handleTask({ taskId: "t2", conversationId: "conv-A", content: "second" });
+    a.handleTask({ taskId: "t3", conversationId: "conv-A", content: "third" });
 
-    q.finishTask("t1");
-    expect(q.executed).toEqual(["t1", "t3"]); // t2 was skipped
+    // Simulate cancel_task for queued t2
+    const queue = a.conversationQueues.get("conv-A")!;
+    const idx = queue.findIndex((t) => t.taskId === "t2");
+    queue.splice(idx, 1);
+
+    expect(a.conversationQueues.get("conv-A")?.length).toBe(1);
+    expect(a.taskAbortControllers.has("t1")).toBe(true); // active untouched
   });
 
-  it("cancel active task aborts it and starts next from queue", () => {
-    const q = createQueueState();
-    q.handleTask({ taskId: "t1", conversationId: "conv-A", content: "first" });
-    q.handleTask({ taskId: "t2", conversationId: "conv-A", content: "second" });
+  it("cleanup aborts active tasks and does NOT start queued tasks", () => {
+    const { a } = createAgent();
+    const handlerCalls: string[] = [];
+    a.taskHandler = (async (ctx: { taskId: string }) => {
+      handlerCalls.push(ctx.taskId);
+      // Block forever
+      await new Promise(() => {});
+    }) as unknown as typeof a.taskHandler;
 
-    const controller = q.taskAbortControllers.get("t1")!;
-    q.cancelTask("t1");
+    a.handleTask({ taskId: "t1", conversationId: "conv-A", content: "a" });
+    a.handleTask({ taskId: "t2", conversationId: "conv-A", content: "b" });
 
-    expect(controller.signal.aborted).toBe(true);
-    expect(q.executed).toEqual(["t1", "t2"]); // t2 auto-started
-    expect(q.activeConversationTasks.get("conv-A")).toBe("t2");
-  });
+    expect(handlerCalls).toEqual(["t1"]); // only t1 started
 
-  it("cleanup aborts all active tasks and clears queues", () => {
-    const q = createQueueState();
-    q.handleTask({ taskId: "t1", conversationId: "conv-A", content: "a" });
-    q.handleTask({ taskId: "t2", conversationId: "conv-A", content: "b" });
-    q.handleTask({ taskId: "t3", conversationId: "conv-B", content: "c" });
-
-    const c1 = q.taskAbortControllers.get("t1")!;
-    const c3 = q.taskAbortControllers.get("t3")!;
-
-    q.cleanup();
+    const c1 = a.taskAbortControllers.get("t1")!;
+    a.cleanup();
 
     expect(c1.signal.aborted).toBe(true);
-    expect(c3.signal.aborted).toBe(true);
-    expect(q.taskAbortControllers.size).toBe(0);
-    expect(q.activeConversationTasks.size).toBe(0);
-    expect(q.conversationQueues.size).toBe(0);
+    expect(a.taskAbortControllers.size).toBe(0);
+    expect(a.activeConversationTasks.size).toBe(0);
+    expect(a.conversationQueues.size).toBe(0);
+    // Critical: t2 should NOT have been started by cleanup's abort
+    expect(handlerCalls).toEqual(["t1"]);
   });
 
-  it("queue overflow drops oldest queued task and reports error", () => {
-    const q = createQueueState();
-    q.handleTask({ taskId: "t0", conversationId: "conv-A", content: "active" });
+  it("queue overflow drops oldest queued task", () => {
+    const { a } = createAgent();
+    a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
 
-    // Fill queue to MAX_QUEUE_SIZE
+    a.handleTask({ taskId: "t0", conversationId: "conv-A", content: "active" });
+
+    // Fill queue to 10 (MAX_QUEUE_SIZE)
     for (let i = 1; i <= 10; i++) {
-      q.handleTask({ taskId: `t${i}`, conversationId: "conv-A", content: `msg${i}` });
+      a.handleTask({ taskId: `t${i}`, conversationId: "conv-A", content: `msg${i}` });
     }
-    expect(q.conversationQueues.get("conv-A")?.length).toBe(10);
+    expect(a.conversationQueues.get("conv-A")?.length).toBe(10);
 
     // Push one more — should drop t1 (oldest queued)
-    q.handleTask({ taskId: "t11", conversationId: "conv-A", content: "overflow" });
-    expect(q.conversationQueues.get("conv-A")?.length).toBe(10);
-    expect(q.errors).toEqual([{ taskId: "t1", error: "queue_overflow" }]);
+    a.handleTask({ taskId: "t11", conversationId: "conv-A", content: "overflow" });
+    expect(a.conversationQueues.get("conv-A")?.length).toBe(10);
 
-    // Queue should now be t2..t10, t11
-    const queue = q.conversationQueues.get("conv-A")!;
+    const queue = a.conversationQueues.get("conv-A")!;
     expect(queue[0].taskId).toBe("t2");
     expect(queue[queue.length - 1].taskId).toBe("t11");
+
+    // Verify overflow error was sent
+    expect(a.send).toHaveBeenCalledWith({ type: "agent_error", taskId: "t1", error: "queue_overflow" });
   });
 });

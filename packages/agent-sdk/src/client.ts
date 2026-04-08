@@ -188,13 +188,14 @@ export class ArinovaAgent {
       } catch {}
       this.ws = null;
     }
-    // Abort all active tasks so handlers stop running
+    // Clear queues BEFORE aborting — abort triggers markFinished → processNextTask,
+    // which would dequeue and start tasks during disconnect if queues aren't empty.
+    this.conversationQueues.clear();
+    this.activeConversationTasks.clear();
     for (const controller of this.taskAbortControllers.values()) {
       controller.abort();
     }
     this.taskAbortControllers.clear();
-    this.activeConversationTasks.clear();
-    this.conversationQueues.clear();
   }
 
   private scheduleReconnect(): void {
