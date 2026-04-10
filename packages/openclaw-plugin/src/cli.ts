@@ -220,18 +220,18 @@ export function registerCli(api: OpenClawPluginApi): void {
 
       memory
         .command("query")
-        .description("Search memories across all granted memory capsules")
+        .description("Search agent memories using hybrid search")
         .requiredOption("--query <text>", "Search keywords or semantic query")
         .option("--limit <n>", "Number of results (default 10, max 20)")
         .action(async (opts: { query: string; limit?: string }) => {
           const account = resolveAccountWithOverrides(arinova.opts());
           if (!account.botToken) { console.error("Not connected. Use --token or run: arinova setup-openclaw --token <bot-token>"); process.exit(1); }
           const qs = new URLSearchParams();
-          qs.set("query", opts.query);
+          qs.set("q", opts.query);
           if (opts.limit) qs.set("limit", String(Math.min(Number(opts.limit), 20)));
           const result = await apiCall({
             method: "GET",
-            url: `${account.apiUrl}/api/v1/capsules?${qs.toString()}`,
+            url: `${account.apiUrl}/api/v1/memories/search?${qs.toString()}`,
             token: account.botToken,
           });
           console.log(JSON.stringify(result, null, 2));

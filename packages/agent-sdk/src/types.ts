@@ -324,10 +324,8 @@ export interface QueryMemoryOptions {
 /** A memory search result entry. */
 export interface MemoryEntry {
   content: string;
-  capsuleName: string;
-  capsuleId: string;
+  category: string;
   score: number;
-  importance: number;
 }
 
 // ── Note share types ──────────────────────────────────────────

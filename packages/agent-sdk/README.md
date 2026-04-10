@@ -359,11 +359,11 @@ Remove a label from a card.
 
 #### `agent.queryMemory(options)`
 
-Search memories across all memory capsules granted to this agent. Uses hybrid search (embedding + text).
+Search agent memories using hybrid search (embedding + keyword + recency).
 
 ```ts
 const memories = await agent.queryMemory({ query: "deployment process", limit: 5 });
-memories.forEach((m) => console.log(m.capsuleName, m.content));
+memories.forEach((m) => console.log(m.category, m.content));
 ```
 
 ---
@@ -388,7 +388,7 @@ interface CreateLabelBody { name: string; color?: string }
 interface UpdateLabelBody { name?: string; color?: string }
 interface ArchivedCardsResult { cards: KanbanCard[]; total: number; page: number; limit: number }
 interface Note { id: string; conversationId: string; title: string; content: string; tags?: string[]; createdAt: string; updatedAt: string }
-interface MemoryEntry { content: string; capsuleName: string; capsuleId: string; score: number; importance: number }
+interface MemoryEntry { content: string; category: string; score: number }
 ```
 
 ## Getting a Bot Token

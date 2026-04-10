@@ -1149,8 +1149,7 @@ export class ArinovaAgent {
   // ── Memory API ───────────────────────────────────────────────
 
   /**
-   * Search memories across all memory capsules granted to this agent.
-   * Uses hybrid search (embedding + text) to find relevant memories.
+   * Search agent memories using hybrid search (embedding + keyword + recency).
    * @param options - Query string and optional limit.
    */
   async queryMemory(options: QueryMemoryOptions): Promise<MemoryEntry[]> {
@@ -1159,10 +1158,10 @@ export class ArinovaAgent {
       .replace(/^wss:/, "https:");
 
     const params = new URLSearchParams();
-    params.set("query", options.query);
+    params.set("q", options.query);
     if (options.limit != null) params.set("limit", String(options.limit));
 
-    const res = await fetch(`${httpUrl}/api/v1/capsules?${params}`, {
+    const res = await fetch(`${httpUrl}/api/v1/memories/search?${params}`, {
       method: "GET",
       headers: { Authorization: `Bearer ${this.botToken}` },
     });
@@ -1172,21 +1171,18 @@ export class ArinovaAgent {
       throw new Error(`queryMemory failed (${res.status}): ${body}`);
     }
 
-    // Server returns snake_case, map to camelCase
     const raw = (await res.json()) as Array<{
-      content: string;
-      capsule_name: string;
-      capsule_id: string;
+      id: string;
+      category: string;
+      summary: string;
+      detail: string | null;
       score: number;
-      importance: number;
     }>;
 
     return raw.map((r) => ({
-      content: r.content,
-      capsuleName: r.capsule_name,
-      capsuleId: r.capsule_id,
+      content: r.summary + (r.detail ? `\n${r.detail}` : ""),
+      category: r.category,
       score: r.score,
-      importance: r.importance,
     }));
   }
 

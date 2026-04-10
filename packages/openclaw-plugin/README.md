@@ -294,7 +294,7 @@ Returns array of linked notes.
 
 | Tool | Description |
 |------|-------------|
-| `arinova_query_memory` | Search memories across granted memory capsules |
+| `arinova_query_memory` | Search agent memories using hybrid search |
 
 #### arinova_query_memory
 
@@ -303,7 +303,7 @@ Returns array of linked notes.
 | `query` | string | Yes | Search keywords or semantic query |
 | `limit` | number | No | Number of results (default 10, max 20) |
 
-Uses hybrid search (embedding + text) to find relevant memories from capsules granted to the agent.
+Uses hybrid search (embedding + keyword + recency) to find relevant agent memories.
 
 ---
 
@@ -434,7 +434,7 @@ curl -s -X POST "$BASE_URL/api/agent/kanban/boards/<BOARD_ID>/columns/reorder" \
 ### Memory
 
 ```bash
-curl -s "$BASE_URL/api/agent/capsules?query=search+terms&limit=10" \
+curl -s "$BASE_URL/api/v1/memories/search?q=search+terms&limit=10" \
   -H "Authorization: Bearer <TOKEN>"
 ```
 

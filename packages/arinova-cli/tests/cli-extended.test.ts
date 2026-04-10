@@ -68,23 +68,6 @@ describe.skipIf(!HAS_TOKEN)("agent commands", () => {
   });
 });
 
-describe.skipIf(!HAS_TOKEN)("capsule commands", () => {
-  it("capsule list returns response", () => {
-    const r = runSafe("capsule list");
-    expect(typeof r.status).toBe("number");
-  });
-
-  it("capsule query returns response", () => {
-    const r = runSafe('capsule query --query "test"');
-    expect(typeof r.status).toBe("number");
-  });
-
-  it("capsule grant with invalid ids does not crash", () => {
-    const r = runSafe("capsule grant --capsule-id 00000000-0000-0000-0000-000000000000 --agent-id 00000000-0000-0000-0000-000000000000");
-    expect(typeof r.status).toBe("number");
-  });
-});
-
 describe.skipIf(!HAS_TOKEN)("conversation create", () => {
   it("conversation create with invalid agent returns error", () => {
     const r = runSafe("conversation create --agent-id 00000000-0000-0000-0000-000000000000");

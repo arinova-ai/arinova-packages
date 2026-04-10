@@ -1,0 +1,56 @@
+{
+  "name": "@arinova-ai/openclaw-arinova-ai",
+  "version": "0.0.72-staging.4",
+  "description": "OpenClaw plugin for Arinova Chat — channel (A2A streaming) + Virtual Office (agent status tracking via SSE)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "channel": {
+      "id": "openclaw-arinova-ai",
+      "label": "Arinova Chat",
+      "selectionLabel": "Arinova Chat (A2A streaming)",
+      "docsPath": "/channels/openclaw-arinova-ai",
+      "docsLabel": "openclaw-arinova-ai",
+      "blurb": "Human-to-AI messaging via Arinova Chat with native streaming.",
+      "aliases": [
+        "arinova"
+      ],
+      "order": 70,
+      "quickstartAllowFrom": true
+    }
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026"
+  },
+  "dependencies": {
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "@arinova-ai/agent-sdk": "workspace:*",
+    "@types/node": "^22",
+    "openclaw": "latest",
+    "tsup": "^8",
+    "typescript": "^5"
+  }
+}

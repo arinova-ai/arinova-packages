@@ -32,7 +32,6 @@ import { registerWikiCommands } from "./commands/wiki.js";
 import { registerAutoSendCommands } from "./commands/auto-send.js";
 import { registerPainterCommands } from "./commands/painter.js";
 import { registerAgentCommands } from "./commands/agent.js";
-import { registerCapsuleCommands } from "./commands/capsule.js";
 import { registerProfile } from "./commands/profile.js";
 
 const program = new Command();
@@ -68,7 +67,6 @@ registerWikiCommands(program);
 registerAutoSendCommands(program);
 registerPainterCommands(program);
 registerAgentCommands(program);
-registerCapsuleCommands(program);
 
 // Profile management
 registerProfile(program);
