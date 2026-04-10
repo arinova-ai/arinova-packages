@@ -84,7 +84,10 @@ registerApp(program);
 registerSetupOpenclaw(program);
 
 program.parseAsync().then(
-  () => process.exit(0),
+  () => {
+    // Flush stdout before exiting — process.exit(0) can truncate piped output
+    process.stdout.write("", () => process.exit(0));
+  },
   (err) => {
     if (err instanceof Error) console.error(err.message);
     process.exit(1);

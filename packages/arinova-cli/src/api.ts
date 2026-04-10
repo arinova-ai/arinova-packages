@@ -46,5 +46,6 @@ export async function apiCall(opts: {
 }
 
 export function output(data: unknown): void {
-  console.log(JSON.stringify(data, null, 2));
+  const json = JSON.stringify(data, null, 2);
+  process.stdout.write(json + "\n");
 }
