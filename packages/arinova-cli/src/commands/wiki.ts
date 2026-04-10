@@ -18,10 +18,16 @@ export function registerWikiCommands(program: Command): void {
 
   wiki.command("get")
     .requiredOption("--page-id <id>", "Wiki page ID")
-    .description("Get a wiki page")
+    .description("Get a wiki page (includes comments)")
     .action(async (opts: { pageId: string }) => {
       const { token, apiUrl } = getOpts(wiki);
-      output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/wiki/${opts.pageId}`, token }));
+      const [page, commentsRes] = await Promise.all([
+        apiCall({ method: "GET", url: `${apiUrl}/api/v1/wiki/${opts.pageId}`, token }),
+        apiCall({ method: "GET", url: `${apiUrl}/api/v1/wiki/${opts.pageId}/comments`, token }),
+      ]);
+      const pageObj = page as Record<string, unknown>;
+      const commentsObj = commentsRes as Record<string, unknown>;
+      output({ ...pageObj, comments: commentsObj?.comments ?? [] });
     });
 
   wiki.command("create")
@@ -61,5 +67,38 @@ export function registerWikiCommands(program: Command): void {
     .action(async (opts: { pageId: string }) => {
       const { token, apiUrl } = getOpts(wiki);
       output(await apiCall({ method: "DELETE", url: `${apiUrl}/api/v1/wiki/${opts.pageId}`, token }));
+    });
+
+  // ── Comment subcommands ──
+  const comment = wiki.command("comment").description("Wiki comment commands");
+
+  comment.command("list")
+    .requiredOption("--page-id <id>", "Wiki page ID")
+    .description("List comments on a wiki page")
+    .action(async (opts: { pageId: string }) => {
+      const { token, apiUrl } = getOpts(wiki);
+      output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/wiki/${opts.pageId}/comments`, token }));
+    });
+
+  comment.command("add")
+    .requiredOption("--page-id <id>", "Wiki page ID")
+    .requiredOption("--content <text>", "Comment content")
+    .description("Add a comment to a wiki page")
+    .action(async (opts: { pageId: string; content: string }) => {
+      const { token, apiUrl } = getOpts(wiki);
+      output(await apiCall({
+        method: "POST",
+        url: `${apiUrl}/api/v1/wiki/${opts.pageId}/comments`,
+        token,
+        body: { content: opts.content },
+      }));
+    });
+
+  comment.command("delete")
+    .requiredOption("--id <id>", "Comment ID")
+    .description("Delete a wiki comment")
+    .action(async (opts: { id: string }) => {
+      const { token, apiUrl } = getOpts(wiki);
+      output(await apiCall({ method: "DELETE", url: `${apiUrl}/api/v1/wiki/comments/${opts.id}`, token }));
     });
 }
