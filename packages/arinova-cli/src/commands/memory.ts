@@ -8,12 +8,14 @@ export function registerMemoryCommands(program: Command): void {
     .description("List agent memories")
     .option("--agent <id>", "Agent ID (required for bot token)")
     .option("--category <cat>", "Filter by category")
+    .option("--tier <tier>", "Filter by tier (hot/warm/cold)")
     .option("--limit <n>", "Max results", "20")
-    .action(async (opts: { agent?: string; category?: string; limit?: string }) => {
+    .action(async (opts: { agent?: string; category?: string; tier?: string; limit?: string }) => {
       const { token, apiUrl } = getOpts(memory);
       const qs = new URLSearchParams();
       if (opts.agent) qs.set("agentId", opts.agent);
       if (opts.category) qs.set("category", opts.category);
+      if (opts.tier) qs.set("tier", opts.tier);
       if (opts.limit) qs.set("limit", opts.limit);
       output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/memories?${qs}`, token }));
     });
@@ -41,13 +43,14 @@ export function registerMemoryCommands(program: Command): void {
     });
 
   memory.command("query")
-    .description("Search memories by query (capsules)")
+    .description("Semantic search across agent memories")
     .requiredOption("--query <text>", "Search query")
-    .option("--limit <n>", "Max results")
-    .action(async (opts: { query: string; limit?: string }) => {
+    .requiredOption("--agent <id>", "Agent ID")
+    .option("--limit <n>", "Max results", "10")
+    .action(async (opts: { query: string; agent: string; limit?: string }) => {
       const { token, apiUrl } = getOpts(memory);
-      const qs = new URLSearchParams({ q: opts.query });
+      const qs = new URLSearchParams({ q: opts.query, agentId: opts.agent });
       if (opts.limit) qs.set("limit", opts.limit);
-      output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/capsules?${qs}`, token }));
+      output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/memories?${qs}`, token }));
     });
 }
