@@ -13,7 +13,7 @@ export function registerMemoryCommands(program: Command): void {
     .action(async (opts: { agent?: string; category?: string; tier?: string; limit?: string }) => {
       const { token, apiUrl } = getOpts(memory);
       const qs = new URLSearchParams();
-      if (opts.agent) qs.set("agentId", opts.agent);
+      if (opts.agent) qs.set("agent_id", opts.agent);
       if (opts.category) qs.set("category", opts.category);
       if (opts.tier) qs.set("tier", opts.tier);
       if (opts.limit) qs.set("limit", opts.limit);
@@ -49,8 +49,8 @@ export function registerMemoryCommands(program: Command): void {
     .option("--limit <n>", "Max results", "10")
     .action(async (opts: { query: string; agent: string; limit?: string }) => {
       const { token, apiUrl } = getOpts(memory);
-      const qs = new URLSearchParams({ q: opts.query, agentId: opts.agent });
+      const qs = new URLSearchParams({ query: opts.query, agent_id: opts.agent });
       if (opts.limit) qs.set("limit", opts.limit);
-      output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/memories?${qs}`, token }));
+      output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/capsules?${qs}`, token }));
     });
 }
