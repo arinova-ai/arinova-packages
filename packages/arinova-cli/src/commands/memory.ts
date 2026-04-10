@@ -45,11 +45,12 @@ export function registerMemoryCommands(program: Command): void {
   memory.command("query")
     .description("Semantic search across agent memories")
     .requiredOption("--query <text>", "Search query")
-    .requiredOption("--agent <id>", "Agent ID")
+    .option("--agent <id>", "Agent ID (optional when using --profile)")
     .option("--limit <n>", "Max results", "10")
-    .action(async (opts: { query: string; agent: string; limit?: string }) => {
+    .action(async (opts: { query: string; agent?: string; limit?: string }) => {
       const { token, apiUrl } = getOpts(memory);
-      const qs = new URLSearchParams({ query: opts.query, agent_id: opts.agent });
+      const qs = new URLSearchParams({ query: opts.query });
+      if (opts.agent) qs.set("agent_id", opts.agent);
       if (opts.limit) qs.set("limit", opts.limit);
       output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/capsules?${qs}`, token }));
     });
