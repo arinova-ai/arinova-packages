@@ -350,7 +350,7 @@ export interface SkillPrompt {
 export type TaskHandler = (task: TaskContext) => void | Promise<void>;
 
 /** Agent lifecycle event types. */
-export type AgentEvent = "connected" | "disconnected" | "error";
+export type AgentEvent = "connected" | "disconnected" | "error" | "auth_failed";
 
 /** Event listener signatures. */
 export type AgentEventListener<T extends AgentEvent> = T extends "error"

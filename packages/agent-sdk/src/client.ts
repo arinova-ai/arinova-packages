@@ -40,6 +40,9 @@ const DEFAULT_RECONNECT_INTERVAL = 5_000;
 const DEFAULT_PING_INTERVAL = 30_000;
 const TASK_HEARTBEAT_INTERVAL = 60_000;
 const MAX_QUEUE_SIZE = 10;
+const AUTH_ERROR_MAX_RETRIES = 5;
+const AUTH_ERROR_BASE_DELAY = 5_000; // 5s, 10s, 20s, 40s, 60s cap
+const AUTH_ERROR_MAX_DELAY = 60_000;
 
 export class ArinovaAgent {
   private readonly serverUrl: string;
@@ -53,6 +56,7 @@ export class ArinovaAgent {
   private commandHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private authErrorCount = 0;
   private agentId: string | null = null;
   private taskHandler: TaskHandler | null = null;
   private taskAbortControllers: Map<string, AbortController> = new Map();
@@ -63,6 +67,7 @@ export class ArinovaAgent {
     connected: [],
     disconnected: [],
     error: [],
+    auth_failed: [],
   };
 
   // Used to resolve/reject the connect() promise on first auth
@@ -155,7 +160,7 @@ export class ArinovaAgent {
     this.send({ type: "hud_update", data });
   }
 
-  private emit(event: "connected" | "disconnected"): void;
+  private emit(event: "connected" | "disconnected" | "auth_failed"): void;
   private emit(event: "error", error: Error): void;
   private emit(event: string, ...args: unknown[]): void {
     for (const listener of this.listeners[event] ?? []) {
@@ -260,6 +265,9 @@ export class ArinovaAgent {
             }, 60_000);
           }
 
+          // Auth succeeded — reset error counter
+          this.authErrorCount = 0;
+
           // Resolve the connect() promise on first successful auth
           if (this.connectResolve) {
             this.connectResolve();
@@ -270,16 +278,29 @@ export class ArinovaAgent {
         }
 
         if (data.type === "auth_error") {
-          const error = new Error(`Agent auth failed: ${data.error}`);
+          this.authErrorCount++;
+          const error = new Error(`Agent auth failed (attempt ${this.authErrorCount}/${AUTH_ERROR_MAX_RETRIES}): ${data.error}`);
           this.emit("error", error);
-          // Don't reconnect on auth error
-          this.stopped = true;
           this.cleanup();
-          // Reject the connect() promise
-          if (this.connectReject) {
-            this.connectReject(error);
-            this.connectResolve = null;
-            this.connectReject = null;
+
+          if (this.authErrorCount >= AUTH_ERROR_MAX_RETRIES) {
+            // Exhausted retries — emit auth_failed and stop
+            this.stopped = true;
+            this.emit("auth_failed");
+            if (this.connectReject) {
+              this.connectReject(error);
+              this.connectResolve = null;
+              this.connectReject = null;
+            }
+          } else {
+            // Exponential backoff retry: 5s, 10s, 20s, 40s, 60s cap
+            const delay = Math.min(
+              AUTH_ERROR_BASE_DELAY * Math.pow(2, this.authErrorCount - 1),
+              AUTH_ERROR_MAX_DELAY
+            );
+            this.reconnectTimer = setTimeout(() => {
+              if (!this.stopped) this.doConnect();
+            }, delay);
           }
           return;
         }
