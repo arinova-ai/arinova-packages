@@ -57,6 +57,7 @@ export class ArinovaAgent {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
   private authErrorCount = 0;
+  private isAuthRetrying = false;
   private agentId: string | null = null;
   private taskHandler: TaskHandler | null = null;
   private taskAbortControllers: Map<string, AbortController> = new Map();
@@ -100,6 +101,8 @@ export class ArinovaAgent {
    */
   connect(): Promise<void> {
     this.stopped = false;
+    this.authErrorCount = 0;
+    this.isAuthRetrying = false;
     return new Promise<void>((resolve, reject) => {
       this.connectResolve = resolve;
       this.connectReject = reject;
@@ -265,8 +268,9 @@ export class ArinovaAgent {
             }, 60_000);
           }
 
-          // Auth succeeded — reset error counter
+          // Auth succeeded — reset error state
           this.authErrorCount = 0;
+          this.isAuthRetrying = false;
 
           // Resolve the connect() promise on first successful auth
           if (this.connectResolve) {
@@ -279,6 +283,7 @@ export class ArinovaAgent {
 
         if (data.type === "auth_error") {
           this.authErrorCount++;
+          this.isAuthRetrying = true; // Prevent onclose from overriding backoff
           const error = new Error(`Agent auth failed (attempt ${this.authErrorCount}/${AUTH_ERROR_MAX_RETRIES}): ${data.error}`);
           this.emit("error", error);
           this.cleanup();
@@ -347,7 +352,10 @@ export class ArinovaAgent {
     this.ws.onclose = () => {
       this.cleanup();
       this.emit("disconnected");
-      this.scheduleReconnect();
+      // Don't schedule regular reconnect if auth retry is handling it
+      if (!this.isAuthRetrying) {
+        this.scheduleReconnect();
+      }
     };
   }
 
