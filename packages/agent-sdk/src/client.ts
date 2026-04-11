@@ -352,10 +352,12 @@ export class ArinovaAgent {
     this.ws.onclose = () => {
       this.cleanup();
       this.emit("disconnected");
-      // Don't schedule regular reconnect if auth retry is handling it
-      if (!this.isAuthRetrying) {
-        this.scheduleReconnect();
+      // Skip this one close if auth retry already scheduled its own reconnect
+      if (this.isAuthRetrying) {
+        this.isAuthRetrying = false; // Only skip once — subsequent closes reconnect normally
+        return;
       }
+      this.scheduleReconnect();
     };
   }
 
