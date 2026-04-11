@@ -55,6 +55,7 @@ export class ArinovaAgent {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private commandHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private authRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
   private authErrorCount = 0;
   private isAuthRetrying = false;
@@ -103,6 +104,7 @@ export class ArinovaAgent {
     this.stopped = false;
     this.authErrorCount = 0;
     this.isAuthRetrying = false;
+    if (this.authRetryTimer) { clearTimeout(this.authRetryTimer); this.authRetryTimer = null; }
     return new Promise<void>((resolve, reject) => {
       this.connectResolve = resolve;
       this.connectReject = reject;
@@ -113,6 +115,7 @@ export class ArinovaAgent {
   /** Disconnect and stop reconnecting. */
   disconnect(): void {
     this.stopped = true;
+    if (this.authRetryTimer) { clearTimeout(this.authRetryTimer); this.authRetryTimer = null; }
     this.cleanup();
   }
 
@@ -303,7 +306,7 @@ export class ArinovaAgent {
               AUTH_ERROR_BASE_DELAY * Math.pow(2, this.authErrorCount - 1),
               AUTH_ERROR_MAX_DELAY
             );
-            this.reconnectTimer = setTimeout(() => {
+            this.authRetryTimer = setTimeout(() => {
               if (!this.stopped) this.doConnect();
             }, delay);
           }
