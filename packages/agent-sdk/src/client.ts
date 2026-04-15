@@ -457,6 +457,7 @@ export class ArinovaAgent {
     const params = new URLSearchParams();
     if (options?.before) params.set("before", options.before);
     if (options?.limit != null) params.set("limit", String(options.limit));
+    if (options?.offset != null) params.set("offset", String(options.offset));
     if (options?.tags?.length) params.set("tags", options.tags.join(","));
     if (options?.archived) params.set("archived", "true");
 
@@ -844,14 +845,25 @@ export class ArinovaAgent {
   }
 
   /**
-   * List all kanban cards for the agent's owner.
+   * List kanban cards for the agent's owner.
+   * @param options - Pagination and search options.
    */
-  async listCards(): Promise<KanbanCard[]> {
+  async listCards(options?: {
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<KanbanCard[]> {
     const httpUrl = this.serverUrl
       .replace(/^ws:/, "http:")
       .replace(/^wss:/, "https:");
 
-    const res = await fetch(`${httpUrl}/api/v1/kanban/cards`, {
+    const params = new URLSearchParams();
+    if (options?.search) params.set("search", options.search);
+    if (options?.limit != null) params.set("limit", String(options.limit));
+    if (options?.offset != null) params.set("offset", String(options.offset));
+    const qs = params.toString();
+
+    const res = await fetch(`${httpUrl}/api/v1/kanban/cards${qs ? `?${qs}` : ""}`, {
       method: "GET",
       headers: { Authorization: `Bearer ${this.botToken}` },
     });

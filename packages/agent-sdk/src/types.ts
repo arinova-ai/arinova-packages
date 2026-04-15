@@ -142,6 +142,8 @@ export interface ListNotesOptions {
   before?: string;
   /** Max notes to return (default 20, max 50). */
   limit?: number;
+  /** Skip first N notes (offset-based pagination). Ignored when `before` is set. */
+  offset?: number;
   /** Filter by tags (AND logic). */
   tags?: string[];
   /** If true, list archived notes instead of active. */
