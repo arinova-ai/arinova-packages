@@ -569,8 +569,21 @@ describe.skipIf(!HAS_TOKEN)("file commands", () => {
 describe.skipIf(!HAS_CONV)("auto-send commands", () => {
   const scheduleIds: string[] = [];
 
+  // Cancel orphaned __cli_test_* schedules from previous crashed runs
+  beforeAll(async () => {
+    try {
+      const data = await apiFetch("GET", `/api/v1/auto-send?conversationId=${CONV_ID}`);
+      const schedules = data?.schedules ?? [];
+      for (const s of schedules) {
+        if (typeof s.content === "string" && s.content.startsWith("__cli_test_")) {
+          try { await apiFetch("DELETE", `/api/v1/auto-send/${s.id}`); } catch {}
+        }
+      }
+    } catch {}
+  });
+
   afterAll(async () => {
-    // Cleanup: cancel any test schedules
+    // Cleanup: cancel any test schedules created in this run
     for (const id of scheduleIds) {
       try { await apiFetch("DELETE", `/api/v1/auto-send/${id}`); } catch {}
     }
@@ -584,7 +597,7 @@ describe.skipIf(!HAS_CONV)("auto-send commands", () => {
 
   it("auto-send create once schedule", () => {
     const out = run(
-      `auto-send create --conversation-id ${CONV_ID} --mode once --content "__cli_test_auto_send__" --minutes 30`,
+      `auto-send create --conversation-id ${CONV_ID} --mode once --content "__cli_test_auto_send__" --minutes 1440`,
     );
     const json = JSON.parse(out);
     expect(json).toHaveProperty("id");
@@ -593,7 +606,7 @@ describe.skipIf(!HAS_CONV)("auto-send commands", () => {
 
   it("auto-send create recurring schedule", () => {
     const out = run(
-      `auto-send create --conversation-id ${CONV_ID} --mode recurring --content "__cli_test_auto_send_recurring__" --interval 3600`,
+      `auto-send create --conversation-id ${CONV_ID} --mode recurring --content "__cli_test_auto_send_recurring__" --interval 86400`,
     );
     const json = JSON.parse(out);
     expect(json).toHaveProperty("id");
