@@ -7,12 +7,16 @@ export function registerWikiCommands(program: Command): void {
   wiki.command("list")
     .option("--conversation-id <id>", "Conversation ID (omit to list all)")
     .option("--search <query>", "Search wiki pages")
+    .option("--limit <n>", "Max pages to return (default 20)", parseInt)
+    .option("--offset <n>", "Skip first N pages (pagination)", parseInt)
     .description("List wiki pages (all or by conversation)")
-    .action(async (opts: { conversationId?: string; search?: string }) => {
+    .action(async (opts: { conversationId?: string; search?: string; limit?: number; offset?: number }) => {
       const { token, apiUrl } = getOpts(wiki);
       const params = new URLSearchParams();
       if (opts.conversationId) params.set("conversationId", opts.conversationId);
       if (opts.search) params.set("search", opts.search);
+      if (opts.limit) params.set("limit", String(opts.limit));
+      if (opts.offset) params.set("offset", String(opts.offset));
       output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/wiki?${params.toString()}`, token }));
     });
 

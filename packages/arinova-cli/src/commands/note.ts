@@ -8,15 +8,17 @@ export function registerNoteCommands(program: Command): void {
     .option("--notebook-id <id>", "Filter by notebook")
     .option("--search <query>", "Search notes by title or content")
     .option("--limit <n>", "Max notes to return (default 20, max 50)", parseInt)
-    .option("--cursor <id>", "Fetch notes before this note ID (pagination)")
+    .option("--offset <n>", "Skip first N notes (pagination)", parseInt)
+    .option("--cursor <id>", "Fetch notes before this note ID (cursor pagination)")
     .option("--tags <tags...>", "Filter by tags")
     .option("--archived", "List archived notes instead of active")
-    .action(async (opts: { notebookId?: string; search?: string; limit?: number; cursor?: string; tags?: string[]; archived?: boolean }) => {
+    .action(async (opts: { notebookId?: string; search?: string; limit?: number; offset?: number; cursor?: string; tags?: string[]; archived?: boolean }) => {
       const { token, apiUrl } = getOpts(note);
       const params = new URLSearchParams();
       if (opts.notebookId) params.set("notebookId", opts.notebookId);
       if (opts.search) params.set("search", opts.search);
       if (opts.limit) params.set("limit", String(opts.limit));
+      if (opts.offset) params.set("offset", String(opts.offset));
       if (opts.cursor) params.set("before", opts.cursor);
       if (opts.tags) opts.tags.forEach(t => params.append("tags", t));
       if (opts.archived) params.set("archived", "true");

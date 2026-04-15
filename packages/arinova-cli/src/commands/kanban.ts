@@ -46,11 +46,19 @@ export function registerKanbanCommands(program: Command): void {
 
   // Card commands
   const card = kanban.command("card").description("Card management");
-  card.command("list").option("--search <query>", "Search cards by title or description").action(async (opts: { search?: string }) => {
-    const { token, apiUrl } = getOpts(card);
-    const qs = opts.search ? `?search=${encodeURIComponent(opts.search)}` : "";
-    output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/kanban/cards${qs}`, token }));
-  });
+  card.command("list")
+    .option("--search <query>", "Search cards by title or description")
+    .option("--limit <n>", "Max cards to return (default 20)", parseInt)
+    .option("--offset <n>", "Skip first N cards (pagination)", parseInt)
+    .action(async (opts: { search?: string; limit?: number; offset?: number }) => {
+      const { token, apiUrl } = getOpts(card);
+      const params = new URLSearchParams();
+      if (opts.search) params.set("search", opts.search);
+      if (opts.limit) params.set("limit", String(opts.limit));
+      if (opts.offset) params.set("offset", String(opts.offset));
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/kanban/cards${qs}`, token }));
+    });
   card.command("create").requiredOption("--title <title>", "Card title").option("--board-id <id>", "Board ID").option("--column-name <name>", "Column name").option("--description <desc>", "Description").action(async (opts: { title: string; boardId?: string; columnName?: string; description?: string }) => {
     const { token, apiUrl } = getOpts(card);
     output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/cards`, token, body: opts }));
