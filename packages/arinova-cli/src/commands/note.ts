@@ -5,7 +5,7 @@ export function registerNoteCommands(program: Command): void {
   const note = program.command("note").description("Note commands");
 
   note.command("list")
-    .option("--notebook-id <id>", "Filter by notebook")
+    .option("--notebook-id <id>", "Filter by notebook ID (defaults to your default notebook)")
     .option("--search <query>", "Search notes by title or content")
     .option("--limit <n>", "Max notes to return (default 20, max 50)", parseInt)
     .option("--cursor <id>", "Fetch notes before this note ID (pagination)")
