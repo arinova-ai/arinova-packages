@@ -7,11 +7,19 @@ export function registerNoteCommands(program: Command): void {
   note.command("list")
     .option("--notebook-id <id>", "Filter by notebook")
     .option("--search <query>", "Search notes by title or content")
-    .action(async (opts: { notebookId?: string; search?: string }) => {
+    .option("--limit <n>", "Max notes to return (default 20, max 50)", parseInt)
+    .option("--cursor <id>", "Fetch notes before this note ID (pagination)")
+    .option("--tags <tags...>", "Filter by tags")
+    .option("--archived", "List archived notes instead of active")
+    .action(async (opts: { notebookId?: string; search?: string; limit?: number; cursor?: string; tags?: string[]; archived?: boolean }) => {
       const { token, apiUrl } = getOpts(note);
       const params = new URLSearchParams();
       if (opts.notebookId) params.set("notebookId", opts.notebookId);
       if (opts.search) params.set("search", opts.search);
+      if (opts.limit) params.set("limit", String(opts.limit));
+      if (opts.cursor) params.set("before", opts.cursor);
+      if (opts.tags) opts.tags.forEach(t => params.append("tags", t));
+      if (opts.archived) params.set("archived", "true");
       const qs = params.toString() ? `?${params.toString()}` : "";
       output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/notes${qs}`, token }));
     });
