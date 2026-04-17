@@ -27,4 +27,5 @@ export type {
   MemoryEntry,
   ShareNoteResult,
   SkillPrompt,
+  ToolCallReport,
 } from "./types.js";

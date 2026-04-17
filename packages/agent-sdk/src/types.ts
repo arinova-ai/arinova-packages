@@ -348,6 +348,30 @@ export interface SkillPrompt {
   parameters: unknown[];
 }
 
+// ── Tool call report types ───────────────────────────────────
+
+/** A single tool call report, emitted immediately after each tool completes. */
+export interface ToolCallReport {
+  /** Agent session ID (same as telemetry session_id). */
+  sessionId: string;
+  /** Turn ID — one UUID per sendMessage() call; shared across all tool calls in that turn. */
+  turnId: string;
+  /** 0-based order of this tool call within the turn. */
+  seqOrder: number;
+  /** Tool name (e.g. "bash", "read_file"). */
+  toolName: string;
+  /** Raw tool input as JSON-serialisable object. */
+  input: Record<string, unknown>;
+  /** Tool output (any JSON value) — omitted on failure or when not applicable. */
+  output?: unknown;
+  /** Duration in milliseconds. */
+  durationMs?: number;
+  /** Whether the tool call succeeded. */
+  success: boolean;
+  /** Error message if success === false. */
+  error?: string;
+}
+
 /** Task handler function. */
 export type TaskHandler = (task: TaskContext) => void | Promise<void>;
 

@@ -34,6 +34,7 @@ import type {
   MemoryEntry,
   ShareNoteResult,
   SkillPrompt,
+  ToolCallReport,
 } from "./types.js";
 
 const DEFAULT_RECONNECT_INTERVAL = 5_000;
@@ -164,6 +165,16 @@ export class ArinovaAgent {
    */
   sendHud(data: Record<string, unknown>): void {
     this.send({ type: "hud_update", data });
+  }
+
+  /**
+   * Report a single tool call to the server over the existing WebSocket.
+   * Intended to be called immediately after each tool finishes so the
+   * server can build a real-time activity log. Silently no-ops if the
+   * WebSocket is not connected.
+   */
+  async reportToolCall(report: ToolCallReport): Promise<void> {
+    this.send({ type: "tool_call_report", report });
   }
 
   private emit(event: "connected" | "disconnected" | "auth_failed"): void;
