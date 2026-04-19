@@ -3,7 +3,30 @@ import { listProfiles, removeProfile, getEndpoint, getEnvironmentLabel, resolveP
 import { printResult, printError, printSuccess, table } from "../output.js";
 
 export function registerProfile(program: Command): void {
-  const profile = program.command("profile").description("Profile management — manage identities (user/bot)");
+  const profile = program
+    .command("profile")
+    .description("Profile management — manage identities (user/bot)")
+    .addHelpText(
+      "after",
+      `
+Add a profile:
+  User profile (your own account, opens browser):
+    arinova auth login
+
+  Bot profile (for an agent — requires an existing ari_ token):
+    arinova --profile <name> auth set-token ari_xxxxxxxx
+
+Use a profile:
+    arinova --profile <name> <command>
+
+Inspect profiles:
+    arinova profile list
+    arinova --profile <name> profile show
+
+Remove a profile:
+    arinova profile remove <name>
+`,
+    );
 
   profile
     .command("list")
