@@ -26,6 +26,8 @@ export interface ArinovaAgentOptions {
 export interface TaskContext {
   /** Unique task ID assigned by the server. */
   taskId: string;
+  /** ID of the user message that triggered this task. */
+  userMessageId?: string;
   /** Conversation ID this task belongs to. */
   conversationId: string;
   /** The user's message content. */

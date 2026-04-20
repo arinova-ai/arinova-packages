@@ -1359,6 +1359,7 @@ export class ArinovaAgent {
 
     const ctx: TaskContext = {
       taskId,
+      userMessageId: data.userMessageId as string | undefined,
       conversationId,
       content: data.content as string,
       conversationType: data.conversationType as string | undefined,
