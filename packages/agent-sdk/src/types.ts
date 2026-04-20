@@ -370,6 +370,10 @@ export interface ToolCallReport {
   success: boolean;
   /** Error message if success === false. */
   error?: string;
+  /** UUID of the user message that triggered this turn. Optional for backwards
+   *  compatibility — older callers that don't thread a message UUID through
+   *  will simply omit it and the server-side row keeps message_id NULL. */
+  messageId?: string;
 }
 
 /** Task handler function. */
