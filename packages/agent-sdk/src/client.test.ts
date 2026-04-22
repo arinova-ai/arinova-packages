@@ -333,14 +333,29 @@ describe("agent-wide task queue", () => {
       a.handleTask({ taskId: `t${i}`, conversationId: "conv-A", content: "" });
     }
 
-    expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "t1", conversationId: "conv-A", queuePosition: 0 });
-    expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "t5", conversationId: "conv-A", queuePosition: 4 });
-    expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "t10", conversationId: "conv-A", queuePosition: 9 });
+    expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "t1", conversationId: "conv-A", queuePosition: 0, globalQueueSize: 1 });
+    expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "t5", conversationId: "conv-A", queuePosition: 4, globalQueueSize: 5 });
+    expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "t10", conversationId: "conv-A", queuePosition: 9, globalQueueSize: 10 });
 
     // Overflow: pushing t11 drops oldest queued (t1). t11 lands at tail (pos 9).
     a.handleTask({ taskId: "t11", conversationId: "conv-A", content: "" });
     expect(a.send).toHaveBeenCalledWith({ type: "agent_error", taskId: "t1", error: "queue_overflow" });
-    expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "t11", conversationId: "conv-A", queuePosition: 9 });
+    expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "t11", conversationId: "conv-A", queuePosition: 9, globalQueueSize: 10 });
     expect(a.conversationQueues.get("conv-A")?.length).toBe(10);
+  });
+
+  it("task_queued globalQueueSize spans multiple conversations", () => {
+    const { a } = createAgentWide();
+    a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
+
+    // a1 runs, a2 queues under conv-A, b1 queues under conv-B.
+    a.handleTask({ taskId: "a1", conversationId: "conv-A", content: "" });
+    a.handleTask({ taskId: "a2", conversationId: "conv-A", content: "" });
+    a.handleTask({ taskId: "b1", conversationId: "conv-B", content: "" });
+
+    // a2 push — only a2 queued → globalQueueSize=1, queuePosition=0 (first in conv-A).
+    expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "a2", conversationId: "conv-A", queuePosition: 0, globalQueueSize: 1 });
+    // b1 push — a2 in conv-A + b1 in conv-B → globalQueueSize=2, queuePosition=0 (first in conv-B).
+    expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "b1", conversationId: "conv-B", queuePosition: 0, globalQueueSize: 2 });
   });
 });

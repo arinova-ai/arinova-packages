@@ -1346,11 +1346,16 @@ export class ArinovaAgent {
       // Notify the server that this task has been queued (not yet running).
       // The rust-server side maps this onto its stream_queued broadcast so
       // the web/iOS clients can render a "position N in queue" indicator.
+      // globalQueueSize spans every conv's queue — the UI uses it for the
+      // "跨 conv 前面 N 則" cross-conversation count.
+      let globalQueueSize = 0;
+      for (const q of this.conversationQueues.values()) globalQueueSize += q.length;
       this.send({
         type: "task_queued",
         taskId: data.taskId as string,
         conversationId,
         queuePosition: queue.length - 1,
+        globalQueueSize,
       });
       return;
     }
