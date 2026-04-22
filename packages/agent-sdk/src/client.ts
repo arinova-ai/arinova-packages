@@ -1343,6 +1343,15 @@ export class ArinovaAgent {
         this.send({ type: "agent_error", taskId: dropped.taskId as string, error: "queue_overflow" });
       }
       queue.push(data);
+      // Notify the server that this task has been queued (not yet running).
+      // The rust-server side maps this onto its stream_queued broadcast so
+      // the web/iOS clients can render a "position N in queue" indicator.
+      this.send({
+        type: "task_queued",
+        taskId: data.taskId as string,
+        conversationId,
+        queuePosition: queue.length - 1,
+      });
       return;
     }
 
