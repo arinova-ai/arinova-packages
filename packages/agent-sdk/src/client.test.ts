@@ -244,3 +244,103 @@ describe("per-conversation task queue", () => {
     expect(a.send).toHaveBeenCalledWith({ type: "agent_error", taskId: "t1", error: "queue_overflow" });
   });
 });
+
+// ── agent-wide queue tests (real ArinovaAgent) ───────────────
+
+describe("agent-wide task queue", () => {
+  function createAgentWide(maxConsecutive = 2) {
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:9999",
+      botToken: "ari_test",
+      concurrencyMode: "agent-wide",
+      maxConsecutivePerConversation: maxConsecutive,
+    });
+    const a = agent as unknown as {
+      taskHandler: ((ctx: unknown) => Promise<void>) | null;
+      handleTask: (data: Record<string, unknown>) => void;
+      activeConversationTasks: Map<string, string>;
+      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      taskAbortControllers: Map<string, AbortController>;
+      send: (event: Record<string, unknown>) => void;
+    };
+    a.send = vi.fn();
+    return { agent, a };
+  }
+
+  const blockingHandler = async (ctx: { signal: AbortSignal }) => {
+    await new Promise<void>((resolve) => {
+      if (ctx.signal.aborted) { resolve(); return; }
+      ctx.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+  };
+
+  it("cross-conv second task queues instead of running in parallel", () => {
+    const { a } = createAgentWide();
+    a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
+
+    a.handleTask({ taskId: "a1", conversationId: "conv-A", content: "first" });
+    a.handleTask({ taskId: "b1", conversationId: "conv-B", content: "second" });
+
+    // Under hasLiveTask() guard, b1 on a different conv still queues
+    // instead of starting in parallel — the Gina-regression fix.
+    expect(a.taskAbortControllers.has("a1")).toBe(true);
+    expect(a.taskAbortControllers.has("b1")).toBe(false);
+    expect(a.conversationQueues.get("conv-B")?.length).toBe(1);
+    expect(a.activeConversationTasks.size).toBe(1);
+  });
+
+  it("does not starve a third conv when A/B have perpetual backlog", () => {
+    const { a } = createAgentWide(2);
+    const ctxQueue: Array<{ taskId: string; sendComplete: (s: string) => void }> = [];
+    a.taskHandler = (async (ctx: { taskId: string; sendComplete: (s: string) => void }) => {
+      ctxQueue.push(ctx);
+    }) as unknown as typeof a.taskHandler;
+
+    // Seed: a1 runs immediately; a2/a3 queue on A, b1/b2 queue on B, c1 on C.
+    a.handleTask({ taskId: "a1", conversationId: "conv-A", content: "" });
+    a.handleTask({ taskId: "a2", conversationId: "conv-A", content: "" });
+    a.handleTask({ taskId: "a3", conversationId: "conv-A", content: "" });
+    a.handleTask({ taskId: "b1", conversationId: "conv-B", content: "" });
+    a.handleTask({ taskId: "b2", conversationId: "conv-B", content: "" });
+    a.handleTask({ taskId: "c1", conversationId: "conv-C", content: "" });
+
+    // Drive completions and keep A/B backlog alive with one fresh arrival
+    // each per iteration — this is the condition that causes A↔B ping-pong
+    // in the buggy version, starving c1 indefinitely.
+    const finished: string[] = [];
+    let nextA = 4;
+    let nextB = 3;
+    for (let i = 0; i < 15; i++) {
+      const ctx = ctxQueue.shift();
+      if (!ctx) break;
+      finished.push(ctx.taskId);
+      ctx.sendComplete("");
+      if (finished.includes("c1")) break;
+      a.handleTask({ taskId: `a${nextA++}`, conversationId: "conv-A", content: "" });
+      a.handleTask({ taskId: `b${nextB++}`, conversationId: "conv-B", content: "" });
+    }
+
+    expect(finished).toContain("c1");
+  });
+
+  it("task_queued emitted on queue push with correct queuePosition (and overflow path)", () => {
+    const { a } = createAgentWide();
+    a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
+
+    // t0 starts running; t1..t10 queue (queuePosition 0..9).
+    a.handleTask({ taskId: "t0", conversationId: "conv-A", content: "" });
+    for (let i = 1; i <= 10; i++) {
+      a.handleTask({ taskId: `t${i}`, conversationId: "conv-A", content: "" });
+    }
+
+    expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "t1", conversationId: "conv-A", queuePosition: 0 });
+    expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "t5", conversationId: "conv-A", queuePosition: 4 });
+    expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "t10", conversationId: "conv-A", queuePosition: 9 });
+
+    // Overflow: pushing t11 drops oldest queued (t1). t11 lands at tail (pos 9).
+    a.handleTask({ taskId: "t11", conversationId: "conv-A", content: "" });
+    expect(a.send).toHaveBeenCalledWith({ type: "agent_error", taskId: "t1", error: "queue_overflow" });
+    expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "t11", conversationId: "conv-A", queuePosition: 9 });
+    expect(a.conversationQueues.get("conv-A")?.length).toBe(10);
+  });
+});

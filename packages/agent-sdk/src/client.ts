@@ -1472,12 +1472,20 @@ export class ArinovaAgent {
    * agent-wide scheduling: prefer to keep draining the conv that just
    * finished (up to maxConsecutive back-to-back), then rotate to any other
    * conv with a non-empty queue. When every queue is empty, stop.
+   *
+   * Starvation-fix: whenever we pick a conv via rotation, we move its queue
+   * entry to the tail of conversationQueues (delete + re-insert) so the next
+   * rotation's insertion-order scan finds a different conv first. Without
+   * this, Map.keys() insertion order is stable and "pick first != finished"
+   * ping-pongs between the two oldest keys while later ones starve.
    */
   private processNextTaskAgentWide(finishedConvId: string): void {
     const currentCount = this.consecutiveTaskCount.get(finishedConvId) ?? 0;
     const sameQueue = this.conversationQueues.get(finishedConvId);
 
     // Stay on the same conv if we still have budget AND more work queued.
+    // No reshuffle needed: rotation skips finishedConvId regardless of where
+    // its Map entry sits.
     if (sameQueue && sameQueue.length > 0 && currentCount < this.maxConsecutive) {
       const nextTask = sameQueue.shift()!;
       if (sameQueue.length === 0) this.conversationQueues.delete(finishedConvId);
@@ -1489,8 +1497,7 @@ export class ArinovaAgent {
     // gets picked it starts fresh.
     this.consecutiveTaskCount.delete(finishedConvId);
 
-    // Look for another conv with a non-empty queue (insertion-order iteration
-    // gives us stable round-robin).
+    // Look for another conv with a non-empty queue.
     let nextConvId: string | null = null;
     for (const convId of this.conversationQueues.keys()) {
       if (convId !== finishedConvId) {
@@ -1511,7 +1518,15 @@ export class ArinovaAgent {
 
     const queue = this.conversationQueues.get(nextConvId)!;
     const nextTask = queue.shift()!;
-    if (queue.length === 0) this.conversationQueues.delete(nextConvId);
+    if (queue.length === 0) {
+      this.conversationQueues.delete(nextConvId);
+    } else {
+      // Move this conv to the tail of insertion order — next rotation will
+      // find a different conv first. Fairness across 3+ convs with ongoing
+      // backlog depends on this reshuffle.
+      this.conversationQueues.delete(nextConvId);
+      this.conversationQueues.set(nextConvId, queue);
+    }
     this.executeTask(nextTask);
   }
 }
