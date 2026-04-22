@@ -20,6 +20,25 @@ export interface ArinovaAgentOptions {
   reconnectInterval?: number;
   /** Ping interval in ms (default: 30000). */
   pingInterval?: number;
+  /**
+   * Controls how the SDK serialises tasks when multiple arrive for the same agent.
+   *
+   * - `per-conversation` (default): one active task per conversationId; further
+   *   tasks for the same conv queue, other convs run in parallel. Backward
+   *   compatible with all pre-0.0.17 deployments.
+   * - `agent-wide`: at most one active task across the whole agent; any incoming
+   *   task is queued if another conv is already busy. The queue drains
+   *   round-robin with a per-conv consecutive-run cap.
+   * - `unbounded`: no gating, every task runs immediately. Intended for edge
+   *   cases where the agent can truly handle unlimited parallelism.
+   */
+  concurrencyMode?: "per-conversation" | "agent-wide" | "unbounded";
+  /**
+   * In `agent-wide` mode, the max number of tasks that may run consecutively
+   * from a single conversation before the scheduler rotates to another conv
+   * with a non-empty queue. Default: 2. Ignored in other modes.
+   */
+  maxConsecutivePerConversation?: number;
 }
 
 /** Context passed to the task handler. */

@@ -51,6 +51,8 @@ export class ArinovaAgent {
   private readonly skills: AgentSkill[];
   private readonly reconnectInterval: number;
   private readonly pingInterval: number;
+  private readonly concurrencyMode: "per-conversation" | "agent-wide" | "unbounded";
+  private readonly maxConsecutive: number;
 
   private ws: WebSocket | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -65,6 +67,9 @@ export class ArinovaAgent {
   private taskAbortControllers: Map<string, AbortController> = new Map();
   private activeConversationTasks: Map<string, string> = new Map(); // conversationId → taskId
   private conversationQueues: Map<string, Array<Record<string, unknown>>> = new Map(); // conversationId → queued task data
+  // agent-wide mode only: how many tasks have run back-to-back from a given
+  // conv. Incremented in executeTask, reset when the scheduler rotates away.
+  private consecutiveTaskCount: Map<string, number> = new Map();
 
   private listeners: Record<string, Array<(...args: unknown[]) => void>> = {
     connected: [],
@@ -83,6 +88,8 @@ export class ArinovaAgent {
     this.skills = options.skills ?? [];
     this.reconnectInterval = options.reconnectInterval ?? DEFAULT_RECONNECT_INTERVAL;
     this.pingInterval = options.pingInterval ?? DEFAULT_PING_INTERVAL;
+    this.concurrencyMode = options.concurrencyMode ?? "per-conversation";
+    this.maxConsecutive = options.maxConsecutivePerConversation ?? 2;
   }
 
   /** Register a task handler. Called when the server sends a task. */
@@ -1307,10 +1314,24 @@ export class ArinovaAgent {
     if (!this.taskHandler) return;
 
     const conversationId = data.conversationId as string;
-    const activeTaskId = this.activeConversationTasks.get(conversationId);
 
-    // If this conversation already has an active task, queue the new one
-    if (activeTaskId && this.taskAbortControllers.has(activeTaskId)) {
+    // Unbounded: no serialisation, run every task immediately.
+    if (this.concurrencyMode === "unbounded") {
+      this.executeTask(data);
+      return;
+    }
+
+    // agent-wide: any live task (in any conv) forces queueing.
+    // per-conversation: only a live task for THIS conv forces queueing.
+    let shouldQueue: boolean;
+    if (this.concurrencyMode === "agent-wide") {
+      shouldQueue = this.hasLiveTask();
+    } else {
+      const activeTaskId = this.activeConversationTasks.get(conversationId);
+      shouldQueue = !!(activeTaskId && this.taskAbortControllers.has(activeTaskId));
+    }
+
+    if (shouldQueue) {
       let queue = this.conversationQueues.get(conversationId);
       if (!queue) {
         queue = [];
@@ -1328,6 +1349,14 @@ export class ArinovaAgent {
     this.executeTask(data);
   }
 
+  /** True if any conv currently has an active (non-finished) task. */
+  private hasLiveTask(): boolean {
+    for (const taskId of this.activeConversationTasks.values()) {
+      if (this.taskAbortControllers.has(taskId)) return true;
+    }
+    return false;
+  }
+
   private executeTask(data: Record<string, unknown>): void {
     if (!this.taskHandler) return;
 
@@ -1336,6 +1365,13 @@ export class ArinovaAgent {
     const abortController = new AbortController();
     this.taskAbortControllers.set(taskId, abortController);
     this.activeConversationTasks.set(conversationId, taskId);
+
+    // agent-wide scheduler bookkeeping: count consecutive runs from this
+    // conv so processNextTask can rotate when the cap is reached.
+    if (this.concurrencyMode === "agent-wide") {
+      const prev = this.consecutiveTaskCount.get(conversationId) ?? 0;
+      this.consecutiveTaskCount.set(conversationId, prev + 1);
+    }
 
     // Auto heartbeat: keep task alive while processing
     const heartbeatTimer = setInterval(() => {
@@ -1407,6 +1443,12 @@ export class ArinovaAgent {
   }
 
   private processNextTask(conversationId: string): void {
+    if (this.concurrencyMode === "agent-wide") {
+      this.processNextTaskAgentWide(conversationId);
+      return;
+    }
+    // per-conversation (and unbounded — unbounded never queues, so this is
+    // effectively a no-op for it).
     const queue = this.conversationQueues.get(conversationId);
     if (!queue || queue.length === 0) {
       this.conversationQueues.delete(conversationId);
@@ -1414,6 +1456,53 @@ export class ArinovaAgent {
     }
     const nextTask = queue.shift()!;
     if (queue.length === 0) this.conversationQueues.delete(conversationId);
+    this.executeTask(nextTask);
+  }
+
+  /**
+   * agent-wide scheduling: prefer to keep draining the conv that just
+   * finished (up to maxConsecutive back-to-back), then rotate to any other
+   * conv with a non-empty queue. When every queue is empty, stop.
+   */
+  private processNextTaskAgentWide(finishedConvId: string): void {
+    const currentCount = this.consecutiveTaskCount.get(finishedConvId) ?? 0;
+    const sameQueue = this.conversationQueues.get(finishedConvId);
+
+    // Stay on the same conv if we still have budget AND more work queued.
+    if (sameQueue && sameQueue.length > 0 && currentCount < this.maxConsecutive) {
+      const nextTask = sameQueue.shift()!;
+      if (sameQueue.length === 0) this.conversationQueues.delete(finishedConvId);
+      this.executeTask(nextTask);
+      return;
+    }
+
+    // Rotating away from finishedConvId — reset its counter so next time it
+    // gets picked it starts fresh.
+    this.consecutiveTaskCount.delete(finishedConvId);
+
+    // Look for another conv with a non-empty queue (insertion-order iteration
+    // gives us stable round-robin).
+    let nextConvId: string | null = null;
+    for (const convId of this.conversationQueues.keys()) {
+      if (convId !== finishedConvId) {
+        nextConvId = convId;
+        break;
+      }
+    }
+
+    // Only the just-finished conv still has work — run it even though we
+    // hit the consecutive cap; starvation beats idle.
+    if (!nextConvId) {
+      if (sameQueue && sameQueue.length > 0) {
+        nextConvId = finishedConvId;
+      } else {
+        return;
+      }
+    }
+
+    const queue = this.conversationQueues.get(nextConvId)!;
+    const nextTask = queue.shift()!;
+    if (queue.length === 0) this.conversationQueues.delete(nextConvId);
     this.executeTask(nextTask);
   }
 }
