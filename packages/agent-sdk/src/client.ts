@@ -70,6 +70,13 @@ export class ArinovaAgent {
   // agent-wide mode only: how many tasks have run back-to-back from a given
   // conv. Incremented in executeTask, reset when the scheduler rotates away.
   private consecutiveTaskCount: Map<string, number> = new Map();
+  // agent-wide mode only: synchronous lock flag. handleTask flips this inside
+  // the same sync frame as its queue/execute decision so two tasks arriving
+  // back-to-back can't both observe an "empty Map" and race into parallel
+  // execution (the hasLiveTask-read → executeTask-write window). executeTask
+  // re-asserts it so the drain path (processNextTaskAgentWide → executeTask)
+  // preserves the invariant "lock == a task is live under agent-wide mode".
+  private agentWideLock = false;
 
   private listeners: Record<string, Array<(...args: unknown[]) => void>> = {
     connected: [],
@@ -1321,11 +1328,19 @@ export class ArinovaAgent {
       return;
     }
 
-    // agent-wide: any live task (in any conv) forces queueing.
+    // agent-wide: any live task (in any conv) forces queueing. The flag is
+    // checked and flipped in one sync frame so cross-conv arrivals can't both
+    // decide "not queued" before either one has set the Map entries that
+    // hasLiveTask() would otherwise rely on.
     // per-conversation: only a live task for THIS conv forces queueing.
     let shouldQueue: boolean;
     if (this.concurrencyMode === "agent-wide") {
-      shouldQueue = this.hasLiveTask();
+      if (this.agentWideLock) {
+        shouldQueue = true;
+      } else {
+        this.agentWideLock = true;
+        shouldQueue = false;
+      }
     } else {
       const activeTaskId = this.activeConversationTasks.get(conversationId);
       shouldQueue = !!(activeTaskId && this.taskAbortControllers.has(activeTaskId));
@@ -1381,8 +1396,13 @@ export class ArinovaAgent {
     this.activeConversationTasks.set(conversationId, taskId);
 
     // agent-wide scheduler bookkeeping: count consecutive runs from this
-    // conv so processNextTask can rotate when the cap is reached.
+    // conv so processNextTask can rotate when the cap is reached. Also
+    // re-assert the lock — the drain path (markFinished → processNextTask
+    // → processNextTaskAgentWide → executeTask) releases the lock before
+    // the drain, so without this the next task would start with the flag
+    // cleared and a concurrent arrival could bypass the queue.
     if (this.concurrencyMode === "agent-wide") {
+      this.agentWideLock = true;
       const prev = this.consecutiveTaskCount.get(conversationId) ?? 0;
       this.consecutiveTaskCount.set(conversationId, prev + 1);
     }
@@ -1403,6 +1423,13 @@ export class ArinovaAgent {
       stopHeartbeat();
       this.taskAbortControllers.delete(taskId);
       this.activeConversationTasks.delete(conversationId);
+      // Release the agent-wide lock before draining — processNextTask may
+      // synchronously call executeTask for the next queued task, which
+      // re-acquires the lock. If no task is drained, the lock stays false
+      // and the next arrival is free to run.
+      if (this.concurrencyMode === "agent-wide") {
+        this.agentWideLock = false;
+      }
       this.processNextTask(conversationId);
       return true;
     };
