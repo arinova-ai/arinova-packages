@@ -1,6 +1,6 @@
 {
   "name": "@arinova-ai/agent-sdk",
-  "version": "0.0.16-staging.4",
+  "version": "0.0.16-staging.6",
   "description": "SDK for connecting AI agents to Arinova Chat",
   "type": "module",
   "main": "./dist/index.js",

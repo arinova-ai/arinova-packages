@@ -1461,7 +1461,9 @@ export class ArinovaAgent {
       },
       sendError: (error: string) => {
         if (!markFinished()) return;
-        this.send({ type: "agent_error", taskId, error });
+        const payload: Record<string, unknown> = { type: "agent_error", taskId, error };
+        if (error === "cancelled") payload.reason = "cancelled";
+        this.send(payload);
       },
       signal: abortController.signal,
       uploadFile: (file, fileName, fileType?) =>
@@ -1471,10 +1473,14 @@ export class ArinovaAgent {
     };
 
     // When task is aborted (user cancelled), immediately send cancellation
-    // error so the server knows this agent is free for new tasks.
+    // error so the server knows this agent is free for new tasks. The
+    // reason:"cancelled" field lets rust-server distinguish cancellation
+    // from other errors without string-matching error messages, so it can
+    // broadcast stream_end{reason:cancelled} to clear client-side thinking
+    // state even when the stream loop already exited.
     abortController.signal.addEventListener("abort", () => {
       if (!markFinished()) return;
-      this.send({ type: "agent_error", taskId, error: "cancelled" });
+      this.send({ type: "agent_error", taskId, error: "cancelled", reason: "cancelled" });
     }, { once: true });
 
     Promise.resolve(this.taskHandler(ctx)).catch((err) => {

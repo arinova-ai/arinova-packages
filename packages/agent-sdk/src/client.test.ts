@@ -220,6 +220,25 @@ describe("per-conversation task queue", () => {
     expect(handlerCalls).toEqual(["t1"]);
   });
 
+  it("abort emits agent_error with reason:cancelled so rust-server can broadcast stream_end", () => {
+    const { a } = createAgent();
+    a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
+
+    a.handleTask({ taskId: "t1", conversationId: "conv-A", content: "hello" });
+
+    const sendSpy = a.send as unknown as ReturnType<typeof vi.fn>;
+    sendSpy.mockClear();
+
+    const c1 = a.taskAbortControllers.get("t1")!;
+    c1.abort();
+
+    const calls = sendSpy.mock.calls.map((c) => c[0] as Record<string, unknown>);
+    const errorFrame = calls.find((f) => f.type === "agent_error" && f.taskId === "t1");
+    expect(errorFrame).toBeDefined();
+    expect(errorFrame!.error).toBe("cancelled");
+    expect(errorFrame!.reason).toBe("cancelled");
+  });
+
   it("queue overflow drops oldest queued task", () => {
     const { a } = createAgent();
     a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
