@@ -47,17 +47,54 @@ export function registerKanbanCommands(program: Command): void {
   // Card commands
   const card = kanban.command("card").description("Card management");
   card.command("list")
-    .option("--search <query>", "Search cards by title or description")
-    .option("--limit <n>", "Max cards to return (default 20)", parseInt)
+    .description("List cards. --search matches ID prefix (4+ hex), title, or description.")
+    .option("--search <query>", "Search by ID prefix (4+ hex), title, or description")
+    .option("--limit <n>", "Max cards to return (default 200)", parseInt)
     .option("--offset <n>", "Skip first N cards (pagination)", parseInt)
-    .action(async (opts: { search?: string; limit?: number; offset?: number }) => {
+    .option("--all", "Fetch all matching cards (paginates internally)")
+    .action(async (opts: { search?: string; limit?: number; offset?: number; all?: boolean }) => {
       const { token, apiUrl } = getOpts(card);
-      const params = new URLSearchParams();
-      if (opts.search) params.set("search", opts.search);
-      if (opts.limit) params.set("limit", String(opts.limit));
-      if (opts.offset) params.set("offset", String(opts.offset));
-      const qs = params.toString() ? `?${params.toString()}` : "";
-      output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/kanban/cards${qs}`, token }));
+      const searchTrimmed = opts.search?.trim();
+      const isHexPrefix = !!searchTrimmed && /^[0-9a-f]{4,}$/i.test(searchTrimmed);
+      // ID-prefix search needs full scan: server `search` only matches title/description.
+      const fetchAll = opts.all === true || isHexPrefix;
+      const target = fetchAll ? Number.POSITIVE_INFINITY : (opts.limit ?? 200);
+      const startOffset = opts.offset ?? 0;
+      const PAGE = 100; // server caps `limit` at 100 per request
+
+      const collected: Record<string, unknown>[] = [];
+      let cursor = startOffset;
+      while (collected.length < target) {
+        const remaining = target === Number.POSITIVE_INFINITY
+          ? PAGE
+          : Math.min(PAGE, target - collected.length);
+        const params = new URLSearchParams();
+        // Don't send hex prefix to server — it would yield zero hits via title/description ILIKE.
+        if (searchTrimmed && !isHexPrefix) params.set("search", searchTrimmed);
+        params.set("limit", String(remaining));
+        params.set("offset", String(cursor));
+        const page = await apiCall({
+          method: "GET",
+          url: `${apiUrl}/api/v1/kanban/cards?${params.toString()}`,
+          token,
+        });
+        if (!Array.isArray(page) || page.length === 0) break;
+        collected.push(...(page as Record<string, unknown>[]));
+        if (page.length < remaining) break;
+        cursor += page.length;
+      }
+
+      let result: Record<string, unknown>[] = collected;
+      if (searchTrimmed && isHexPrefix) {
+        const q = searchTrimmed.toLowerCase();
+        result = collected.filter((c) => {
+          const id = typeof c.id === "string" ? c.id.toLowerCase() : "";
+          const title = typeof c.title === "string" ? c.title.toLowerCase() : "";
+          const desc = typeof c.description === "string" ? c.description.toLowerCase() : "";
+          return id.startsWith(q) || title.includes(q) || desc.includes(q);
+        });
+      }
+      output(result);
     });
   card.command("create").requiredOption("--title <title>", "Card title").option("--board-id <id>", "Board ID").option("--column-name <name>", "Column name").option("--description <desc>", "Description").action(async (opts: { title: string; boardId?: string; columnName?: string; description?: string }) => {
     const { token, apiUrl } = getOpts(card);
