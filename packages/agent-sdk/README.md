@@ -388,7 +388,8 @@ interface CreateLabelBody { name: string; color?: string }
 interface UpdateLabelBody { name?: string; color?: string }
 interface ArchivedCardsResult { cards: KanbanCard[]; total: number; page: number; limit: number }
 interface Note { id: string; conversationId: string; title: string; content: string; tags?: string[]; createdAt: string; updatedAt: string }
-interface MemoryEntry { content: string; category: string; score: number }
+type MemoryOrigin = "self" | "system" | `shared-from-${string}`
+interface MemoryEntry { content: string; category: string; score: number; origin?: MemoryOrigin }
 ```
 
 ## Getting a Bot Token

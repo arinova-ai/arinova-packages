@@ -336,6 +336,18 @@ export interface UpdateLabelBody {
 
 // ── Memory types ──────────────────────────────────────────────
 
+/**
+ * Memory origin classification mirroring rust-server `agent_memories.source`.
+ *
+ * - `'self'`                   — written by this agent itself (DB `source='user'`)
+ * - `'system'`                 — system seed (DB `source='system'`)
+ * - `` `shared-from-${string}` `` — shared in from another agent; the suffix is
+ *   the source agent's UUID first 8 hex (lowercase),
+ *   e.g. `'shared-from-4a04a28f'`. Pattern is enforced server-side by
+ *   `parse_shared_from` (rust-server card 84443d41).
+ */
+export type MemoryOrigin = "self" | "system" | `shared-from-${string}`;
+
 /** Options for queryMemory(). */
 export interface QueryMemoryOptions {
   /** Search keywords or semantic query (required). */
@@ -344,11 +356,19 @@ export interface QueryMemoryOptions {
   limit?: number;
 }
 
-/** A memory search result entry. */
+/**
+ * A memory search result entry.
+ *
+ * `origin` is optional for forward compatibility: the rust-server
+ * `/api/v1/memories/search` endpoint does not yet surface the underlying
+ * `source` column. Once it does, this field will be populated; until then
+ * consumers should treat `undefined` as "unknown / not reported".
+ */
 export interface MemoryEntry {
   content: string;
   category: string;
   score: number;
+  origin?: MemoryOrigin;
 }
 
 // ── Note share types ──────────────────────────────────────────

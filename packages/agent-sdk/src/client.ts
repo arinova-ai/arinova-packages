@@ -32,6 +32,7 @@ import type {
   UpdateLabelBody,
   QueryMemoryOptions,
   MemoryEntry,
+  MemoryOrigin,
   ShareNoteResult,
   SkillPrompt,
   ToolCallReport,
@@ -1248,13 +1249,21 @@ export class ArinovaAgent {
       summary: string;
       detail: string | null;
       score: number;
+      source?: string;
     }>;
 
-    return raw.map((r) => ({
-      content: r.summary + (r.detail ? `\n${r.detail}` : ""),
-      category: r.category,
-      score: r.score,
-    }));
+    return raw.map((r) => {
+      const entry: MemoryEntry = {
+        content: r.summary + (r.detail ? `\n${r.detail}` : ""),
+        category: r.category,
+        score: r.score,
+      };
+      const origin = normalizeMemoryOrigin(r.source);
+      if (origin !== undefined) {
+        entry.origin = origin;
+      }
+      return entry;
+    });
   }
 
   // ── Skill Prompt API ─────────────────────────────────────────
@@ -1584,4 +1593,23 @@ const MIME_TYPES: Record<string, string> = {
 function mimeFromFileName(name: string): string {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   return MIME_TYPES[ext] ?? "application/octet-stream";
+}
+
+/**
+ * Normalize the rust-server `agent_memories.source` value into a
+ * {@link MemoryOrigin}. Returns `undefined` when the input is missing or
+ * doesn't match a known pattern, so the caller can leave `origin` off the
+ * entry (forward-compat with servers that don't yet surface the column).
+ *
+ * - `'user'`                  → `'self'`
+ * - `'system'`                → `'system'`
+ * - `'shared-from-<8-hex>'`  → as-is (8-hex-suffix validated, lowercased)
+ */
+function normalizeMemoryOrigin(source: string | undefined): MemoryOrigin | undefined {
+  if (!source) return undefined;
+  if (source === "user") return "self";
+  if (source === "system") return "system";
+  const m = source.match(/^shared-from-([0-9a-fA-F]{8})$/);
+  if (m) return `shared-from-${m[1]!.toLowerCase()}`;
+  return undefined;
 }

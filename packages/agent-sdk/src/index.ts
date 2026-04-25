@@ -25,6 +25,7 @@ export type {
   UpdateLabelBody,
   QueryMemoryOptions,
   MemoryEntry,
+  MemoryOrigin,
   ShareNoteResult,
   SkillPrompt,
   ToolCallReport,
