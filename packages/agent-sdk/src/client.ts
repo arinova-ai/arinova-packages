@@ -61,7 +61,9 @@ export class ArinovaAgent {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private authRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private stoppedReason: string | null = null;
   private authErrorCount = 0;
+  private authRetryAttempt = 0;
   private isAuthRetrying = false;
   private agentId: string | null = null;
   private taskHandler: TaskHandler | null = null;
@@ -118,7 +120,9 @@ export class ArinovaAgent {
    */
   connect(): Promise<void> {
     this.stopped = false;
+    this.stoppedReason = null;
     this.authErrorCount = 0;
+    this.authRetryAttempt = 0;
     this.isAuthRetrying = false;
     if (this.authRetryTimer) { clearTimeout(this.authRetryTimer); this.authRetryTimer = null; }
     return new Promise<void>((resolve, reject) => {
@@ -130,7 +134,7 @@ export class ArinovaAgent {
 
   /** Disconnect and stop reconnecting. */
   disconnect(): void {
-    this.stopped = true;
+    this.stop("disconnect() called");
     if (this.authRetryTimer) { clearTimeout(this.authRetryTimer); this.authRetryTimer = null; }
     this.cleanup();
   }
@@ -235,15 +239,33 @@ export class ArinovaAgent {
     this.taskAbortControllers.clear();
   }
 
+  private stop(reason: string): void {
+    this.stopped = true;
+    this.stoppedReason = reason;
+    console.warn(`[arinova-agent-sdk] stopped: ${reason}`);
+  }
+
   private scheduleReconnect(): void {
-    if (this.stopped) return;
+    if (this.stopped) {
+      console.warn(`[arinova-agent-sdk] reconnect skipped: stopped (${this.stoppedReason ?? "unknown"})`);
+      return;
+    }
+    console.info(`[arinova-agent-sdk] scheduling reconnect in ${this.reconnectInterval}ms`);
     this.reconnectTimer = setTimeout(() => {
-      if (!this.stopped) this.doConnect();
+      if (this.stopped) {
+        console.warn(`[arinova-agent-sdk] reconnect timer fired but agent is stopped (${this.stoppedReason ?? "unknown"})`);
+        return;
+      }
+      console.info("[arinova-agent-sdk] reconnect timer fired");
+      this.doConnect();
     }, this.reconnectInterval);
   }
 
   private doConnect(): void {
-    if (this.stopped) return;
+    if (this.stopped) {
+      console.warn(`[arinova-agent-sdk] connect skipped: stopped (${this.stoppedReason ?? "unknown"})`);
+      return;
+    }
     this.cleanup();
 
     const wsUrl = `${this.serverUrl}/ws/agent`;
@@ -299,6 +321,7 @@ export class ArinovaAgent {
 
           // Auth succeeded — reset error state
           this.authErrorCount = 0;
+          this.authRetryAttempt = 0;
           this.isAuthRetrying = false;
 
           // Resolve the connect() promise on first successful auth
@@ -311,31 +334,7 @@ export class ArinovaAgent {
         }
 
         if (data.type === "auth_error") {
-          this.authErrorCount++;
-          this.isAuthRetrying = true; // Prevent onclose from overriding backoff
-          const error = new Error(`Agent auth failed (attempt ${this.authErrorCount}/${AUTH_ERROR_MAX_RETRIES}): ${data.error}`);
-          this.emit("error", error);
-          this.cleanup();
-
-          if (this.authErrorCount >= AUTH_ERROR_MAX_RETRIES) {
-            // Exhausted retries — emit auth_failed and stop
-            this.stopped = true;
-            this.emit("auth_failed");
-            if (this.connectReject) {
-              this.connectReject(error);
-              this.connectResolve = null;
-              this.connectReject = null;
-            }
-          } else {
-            // Exponential backoff retry: 5s, 10s, 20s, 40s, 60s cap
-            const delay = Math.min(
-              AUTH_ERROR_BASE_DELAY * Math.pow(2, this.authErrorCount - 1),
-              AUTH_ERROR_MAX_DELAY
-            );
-            this.authRetryTimer = setTimeout(() => {
-              if (!this.stopped) this.doConnect();
-            }, delay);
-          }
+          this.handleAuthError(data.error);
           return;
         }
 
@@ -383,11 +382,76 @@ export class ArinovaAgent {
       this.emit("disconnected");
       // Skip this one close if auth retry already scheduled its own reconnect
       if (this.isAuthRetrying) {
+        console.info("[arinova-agent-sdk] close handled by auth retry timer; skipping normal reconnect once");
         this.isAuthRetrying = false; // Only skip once — subsequent closes reconnect normally
         return;
       }
       this.scheduleReconnect();
     };
+  }
+
+  private handleAuthError(rawError: unknown): void {
+    const errorMessage = typeof rawError === "string" ? rawError : String(rawError ?? "Unknown auth error");
+    const isRetryableServerAuthError = this.isRetryableServerAuthError(errorMessage);
+
+    this.authRetryAttempt++;
+    if (!isRetryableServerAuthError) {
+      this.authErrorCount++;
+    }
+    this.isAuthRetrying = true; // Prevent onclose from overriding backoff
+
+    const error = isRetryableServerAuthError
+      ? new Error(`Agent auth retryable server error (retry ${this.authRetryAttempt}, auth failures ${this.authErrorCount}/${AUTH_ERROR_MAX_RETRIES}): ${errorMessage}`)
+      : new Error(`Agent auth failed (attempt ${this.authErrorCount}/${AUTH_ERROR_MAX_RETRIES}, retry ${this.authRetryAttempt}): ${errorMessage}`);
+    this.emit("error", error);
+
+    if (isRetryableServerAuthError) {
+      console.warn(`[arinova-agent-sdk] auth retryable server error; not counting toward auth failure limit: ${errorMessage}`);
+    } else if (this.authErrorCount >= AUTH_ERROR_MAX_RETRIES) {
+      console.warn(`[arinova-agent-sdk] auth failure limit reached (${this.authErrorCount}/${AUTH_ERROR_MAX_RETRIES}); continuing retry with capped backoff`);
+    }
+
+    this.cleanup();
+    this.scheduleAuthRetry();
+  }
+
+  private isRetryableServerAuthError(errorMessage: string): boolean {
+    const message = errorMessage.toLowerCase();
+    return (
+      message.includes("timeout") ||
+      message.includes("timed out") ||
+      message.includes("not ready") ||
+      message.includes("unavailable") ||
+      message.includes("temporarily") ||
+      message.includes("connection") ||
+      message.includes("network") ||
+      message.includes("econnrefused") ||
+      message.includes("gateway") ||
+      message.includes("502") ||
+      message.includes("503") ||
+      message.includes("504")
+    );
+  }
+
+  private scheduleAuthRetry(): void {
+    const delay = Math.min(
+      AUTH_ERROR_BASE_DELAY * Math.pow(2, Math.max(this.authRetryAttempt - 1, 0)),
+      AUTH_ERROR_MAX_DELAY
+    );
+    if (this.authRetryTimer) {
+      clearTimeout(this.authRetryTimer);
+      this.authRetryTimer = null;
+    }
+    console.info(`[arinova-agent-sdk] scheduling auth retry #${this.authRetryAttempt + 1} in ${delay}ms`);
+    this.authRetryTimer = setTimeout(() => {
+      this.authRetryTimer = null;
+      if (this.stopped) {
+        console.warn(`[arinova-agent-sdk] auth retry timer fired but agent is stopped (${this.stoppedReason ?? "unknown"})`);
+        return;
+      }
+      console.info(`[arinova-agent-sdk] auth retry timer fired after retry #${this.authRetryAttempt}`);
+      this.doConnect();
+    }, delay);
   }
 
   /**

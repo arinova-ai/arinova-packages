@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { ArinovaAgent } from "./client.js";
 
 // Test API client configuration
@@ -376,5 +376,81 @@ describe("agent-wide task queue", () => {
     expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "a2", conversationId: "conv-A", queuePosition: 0, globalQueueSize: 1 });
     // b1 push — a2 in conv-A + b1 in conv-B → globalQueueSize=2, queuePosition=0 (first in conv-B).
     expect(a.send).toHaveBeenCalledWith({ type: "task_queued", taskId: "b1", conversationId: "conv-B", queuePosition: 0, globalQueueSize: 2 });
+  });
+});
+
+// ── Auth retry state machine tests ───────────────────────────
+
+describe("auth retry state machine", () => {
+  function createAgent() {
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:9999",
+      botToken: "ari_test",
+    });
+    const a = agent as unknown as {
+      handleAuthError: (rawError: unknown) => void;
+      doConnect: () => void;
+      stopped: boolean;
+      authErrorCount: number;
+      authRetryAttempt: number;
+      authRetryTimer: ReturnType<typeof setTimeout> | null;
+    };
+    a.doConnect = vi.fn();
+    return { agent, a };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("does not stop or count server-unreachable auth timeouts after 5 retries", () => {
+    const { a } = createAgent();
+
+    for (let i = 0; i < 5; i++) {
+      a.handleAuthError("Authentication timeout");
+    }
+
+    expect(a.stopped).toBe(false);
+    expect(a.authErrorCount).toBe(0);
+    expect(a.authRetryAttempt).toBe(5);
+    expect(a.authRetryTimer).not.toBeNull();
+  });
+
+  it("keeps retrying after 5 real auth errors instead of permanently stopping", () => {
+    const { a } = createAgent();
+
+    for (let i = 0; i < 5; i++) {
+      a.handleAuthError("Invalid bot token");
+    }
+
+    expect(a.authErrorCount).toBe(5);
+    expect(a.stopped).toBe(false);
+    expect(a.authRetryTimer).not.toBeNull();
+
+    vi.advanceTimersByTime(60_000);
+    expect(a.doConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts only real auth errors when retryable server errors are mixed in", () => {
+    const { a } = createAgent();
+
+    a.handleAuthError("Authentication timeout");
+    a.handleAuthError("Invalid bot token");
+    a.handleAuthError("503 Service Unavailable");
+    a.handleAuthError("Bot token revoked");
+    a.handleAuthError("Gateway timeout");
+
+    expect(a.authRetryAttempt).toBe(5);
+    expect(a.authErrorCount).toBe(2);
+    expect(a.stopped).toBe(false);
+    expect(a.authRetryTimer).not.toBeNull();
   });
 });
