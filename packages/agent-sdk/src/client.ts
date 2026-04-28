@@ -284,6 +284,7 @@ export class ArinovaAgent {
     }
 
     this.ws.onopen = () => {
+      this.lastPongAt = Date.now(); // Treat onopen as alive proof until the first pong.
       const authMsg: Record<string, unknown> = { type: "agent_auth", botToken: this.botToken };
       if (this.skills.length > 0) {
         authMsg.skills = this.skills;

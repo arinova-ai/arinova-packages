@@ -536,17 +536,19 @@ describe("pong watchdog", () => {
     a.cleanup();
   });
 
-  it("first connection without pong keeps sending ping without false timeout", () => {
+  it("first connection without pong uses onopen grace period before timeout", () => {
     const { a } = createAgent();
     a.doConnect();
 
     const ws = MockWebSocket.instances[0];
     ws.onopen?.();
 
-    vi.advanceTimersByTime(5_000);
-
+    vi.advanceTimersByTime(2_000);
     expect(ws.close).not.toHaveBeenCalled();
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "ping" }));
+
+    vi.advanceTimersByTime(1_000);
+    expect(ws.close).toHaveBeenCalledTimes(1);
 
     a.cleanup();
   });
