@@ -454,3 +454,100 @@ describe("auth retry state machine", () => {
     expect(a.authRetryTimer).not.toBeNull();
   });
 });
+
+// ── Pong watchdog tests ──────────────────────────────────────
+
+describe("pong watchdog", () => {
+  class MockWebSocket {
+    static OPEN = 1;
+    static CLOSED = 3;
+    static instances: MockWebSocket[] = [];
+
+    readyState = MockWebSocket.OPEN;
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    send = vi.fn();
+    close = vi.fn(() => {
+      this.readyState = MockWebSocket.CLOSED;
+    });
+
+    constructor(public readonly url: string) {
+      MockWebSocket.instances.push(this);
+    }
+  }
+
+  function createAgent() {
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:9999",
+      botToken: "ari_test",
+      pingInterval: 1_000,
+      pingTimeout: 2_500,
+    });
+    const a = agent as unknown as {
+      cleanup: () => void;
+      doConnect: () => void;
+    };
+    return { agent, a };
+  }
+
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("normal ping/pong does not force close", () => {
+    const { a } = createAgent();
+    a.doConnect();
+
+    const ws = MockWebSocket.instances[0];
+    ws.onopen?.();
+
+    vi.advanceTimersByTime(1_000);
+    ws.onmessage?.({ data: JSON.stringify({ type: "pong" }) });
+
+    vi.advanceTimersByTime(1_000);
+    expect(ws.close).not.toHaveBeenCalled();
+
+    a.cleanup();
+  });
+
+  it("server stops pong and next watchdog check closes websocket", () => {
+    const { a } = createAgent();
+    a.doConnect();
+
+    const ws = MockWebSocket.instances[0];
+    ws.onopen?.();
+
+    vi.advanceTimersByTime(1_000);
+    ws.onmessage?.({ data: JSON.stringify({ type: "pong" }) });
+
+    vi.advanceTimersByTime(3_000);
+    expect(ws.close).toHaveBeenCalledTimes(1);
+
+    a.cleanup();
+  });
+
+  it("first connection without pong keeps sending ping without false timeout", () => {
+    const { a } = createAgent();
+    a.doConnect();
+
+    const ws = MockWebSocket.instances[0];
+    ws.onopen?.();
+
+    vi.advanceTimersByTime(5_000);
+
+    expect(ws.close).not.toHaveBeenCalled();
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "ping" }));
+
+    a.cleanup();
+  });
+});

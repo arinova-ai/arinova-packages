@@ -52,11 +52,13 @@ export class ArinovaAgent {
   private readonly skills: AgentSkill[];
   private readonly reconnectInterval: number;
   private readonly pingInterval: number;
+  private readonly pingTimeout: number;
   private readonly concurrencyMode: "per-conversation" | "agent-wide" | "unbounded";
   private readonly maxConsecutive: number;
 
   private ws: WebSocket | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private lastPongAt: number | null = null;
   private commandHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private authRetryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -98,6 +100,7 @@ export class ArinovaAgent {
     this.skills = options.skills ?? [];
     this.reconnectInterval = options.reconnectInterval ?? DEFAULT_RECONNECT_INTERVAL;
     this.pingInterval = options.pingInterval ?? DEFAULT_PING_INTERVAL;
+    this.pingTimeout = options.pingTimeout ?? 2 * this.pingInterval;
     this.concurrencyMode = options.concurrencyMode ?? "per-conversation";
     this.maxConsecutive = options.maxConsecutivePerConversation ?? 2;
   }
@@ -267,6 +270,7 @@ export class ArinovaAgent {
       return;
     }
     this.cleanup();
+    this.lastPongAt = null;
 
     const wsUrl = `${this.serverUrl}/ws/agent`;
 
@@ -287,6 +291,11 @@ export class ArinovaAgent {
       this.send(authMsg);
 
       this.pingTimer = setInterval(() => {
+        if (this.lastPongAt !== null && Date.now() - this.lastPongAt > this.pingTimeout) {
+          console.warn("[arinova-agent-sdk] pong timeout, forcing reconnect");
+          this.ws?.close();
+          return;
+        }
         this.send({ type: "ping" });
       }, this.pingInterval);
     };
@@ -339,6 +348,7 @@ export class ArinovaAgent {
         }
 
         if (data.type === "pong") {
+          this.lastPongAt = Date.now();
           return;
         }
 

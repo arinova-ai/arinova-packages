@@ -20,6 +20,8 @@ export interface ArinovaAgentOptions {
   reconnectInterval?: number;
   /** Ping interval in ms (default: 30000). */
   pingInterval?: number;
+  /** Pong timeout in ms before forcing reconnect (default: 2 * pingInterval). */
+  pingTimeout?: number;
   /**
    * Controls how the SDK serialises tasks when multiple arrive for the same agent.
    *
