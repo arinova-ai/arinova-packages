@@ -72,6 +72,7 @@ export class ArinovaAgent {
   private taskAbortControllers: Map<string, AbortController> = new Map();
   private activeConversationTasks: Map<string, string> = new Map(); // conversationId → taskId
   private conversationQueues: Map<string, Array<Record<string, unknown>>> = new Map(); // conversationId → queued task data
+  private pendingChunkEvents: Array<Record<string, unknown>> = [];
   private pendingTerminalEvents: Array<Record<string, unknown>> = [];
   // agent-wide mode only: how many tasks have run back-to-back from a given
   // conv. Incremented in executeTask, reset when the scheduler rotates away.
@@ -222,6 +223,22 @@ export class ArinovaAgent {
     this.pendingTerminalEvents.push(event);
   }
 
+  private sendChunkEvent(event: Record<string, unknown>): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(event));
+      return;
+    }
+    this.pendingChunkEvents.push(event);
+  }
+
+  private flushPendingChunkEvents(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const events = this.pendingChunkEvents.splice(0);
+    for (const event of events) {
+      this.ws.send(JSON.stringify(event));
+    }
+  }
+
   private flushPendingTerminalEvents(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const events = this.pendingTerminalEvents.splice(0);
@@ -253,6 +270,7 @@ export class ArinovaAgent {
 
   private cleanup(): void {
     this.cleanupConnection();
+    this.pendingChunkEvents = [];
     this.pendingTerminalEvents = [];
     // Clear queues BEFORE aborting — abort triggers markFinished → processNextTask,
     // which would dequeue and start tasks during disconnect if queues aren't empty.
@@ -270,6 +288,7 @@ export class ArinovaAgent {
 
   private cleanupAfterAuthFailure(): void {
     this.cleanupConnection();
+    this.pendingChunkEvents = [];
     this.pendingTerminalEvents = [];
     this.conversationQueues.clear();
     this.consecutiveTaskCount.clear();
@@ -379,6 +398,7 @@ export class ArinovaAgent {
             this.connectResolve = null;
             this.connectReject = null;
           }
+          this.flushPendingChunkEvents();
           this.flushPendingTerminalEvents();
           return;
         }
@@ -1572,7 +1592,7 @@ export class ArinovaAgent {
       attachments: data.attachments as TaskAttachment[] | undefined,
       sendChunk: (delta: string) => {
         if (taskFinished) return;
-        this.send({ type: "agent_chunk", taskId, chunk: delta });
+        this.sendChunkEvent({ type: "agent_chunk", taskId, chunk: delta });
       },
       sendComplete: (fullContent: string, options?: { mentions?: string[] }) => {
         if (!markFinished()) return;

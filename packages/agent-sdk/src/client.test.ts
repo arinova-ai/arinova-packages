@@ -118,10 +118,12 @@ describe("per-conversation task queue", () => {
       handleTask: (data: Record<string, unknown>) => void;
       cleanup: () => void;
       cleanupForReconnect: () => void;
+      flushPendingChunkEvents: () => void;
       flushPendingTerminalEvents: () => void;
       activeConversationTasks: Map<string, string>;
       conversationQueues: Map<string, Array<Record<string, unknown>>>;
       taskAbortControllers: Map<string, AbortController>;
+      pendingChunkEvents: Array<Record<string, unknown>>;
       pendingTerminalEvents: Array<Record<string, unknown>>;
       ws: { readyState: number; send: ReturnType<typeof vi.fn> } | null;
       send: (event: Record<string, unknown>) => void;
@@ -224,6 +226,17 @@ describe("per-conversation task queue", () => {
     expect(handlerCalls).toEqual(["t1"]);
   });
 
+  it("full cleanup clears buffered chunks and terminal events", () => {
+    const { a } = createAgent();
+    a.pendingChunkEvents.push({ type: "agent_chunk", taskId: "stale", chunk: "stale chunk" });
+    a.pendingTerminalEvents.push({ type: "agent_complete", taskId: "stale", content: "stale done" });
+
+    a.cleanup();
+
+    expect(a.pendingChunkEvents).toEqual([]);
+    expect(a.pendingTerminalEvents).toEqual([]);
+  });
+
   it("reconnect cleanup preserves active tasks and queued work", () => {
     const { a } = createAgent();
     const handlerCalls: string[] = [];
@@ -268,6 +281,46 @@ describe("per-conversation task queue", () => {
       taskId: "t1",
       content: "done while offline",
     }));
+    expect(a.pendingTerminalEvents).toEqual([]);
+  });
+
+  it("buffers chunks while disconnected and flushes them before terminal events", () => {
+    const { a } = createAgent();
+    let savedCtx: {
+      sendChunk: (delta: string) => void;
+      sendComplete: (content: string) => void;
+    } | null = null;
+    a.taskHandler = (async (ctx: {
+      sendChunk: (delta: string) => void;
+      sendComplete: (content: string) => void;
+    }) => {
+      savedCtx = ctx;
+    }) as unknown as typeof a.taskHandler;
+
+    a.handleTask({ taskId: "t1", conversationId: "conv-A", content: "a" });
+    savedCtx!.sendChunk("hello ");
+    savedCtx!.sendChunk("world");
+    savedCtx!.sendComplete("hello world");
+
+    expect(a.pendingChunkEvents).toEqual([
+      { type: "agent_chunk", taskId: "t1", chunk: "hello " },
+      { type: "agent_chunk", taskId: "t1", chunk: "world" },
+    ]);
+    expect(a.pendingTerminalEvents).toEqual([
+      { type: "agent_complete", taskId: "t1", content: "hello world" },
+    ]);
+
+    const send = vi.fn();
+    a.ws = { readyState: 1, send };
+    a.flushPendingChunkEvents();
+    a.flushPendingTerminalEvents();
+
+    expect(send.mock.calls.map(([payload]) => JSON.parse(payload))).toEqual([
+      { type: "agent_chunk", taskId: "t1", chunk: "hello " },
+      { type: "agent_chunk", taskId: "t1", chunk: "world" },
+      { type: "agent_complete", taskId: "t1", content: "hello world" },
+    ]);
+    expect(a.pendingChunkEvents).toEqual([]);
     expect(a.pendingTerminalEvents).toEqual([]);
   });
 
