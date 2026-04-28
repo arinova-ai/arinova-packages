@@ -72,6 +72,7 @@ export class ArinovaAgent {
   private taskAbortControllers: Map<string, AbortController> = new Map();
   private activeConversationTasks: Map<string, string> = new Map(); // conversationId → taskId
   private conversationQueues: Map<string, Array<Record<string, unknown>>> = new Map(); // conversationId → queued task data
+  private pendingTerminalEvents: Array<Record<string, unknown>> = [];
   // agent-wide mode only: how many tasks have run back-to-back from a given
   // conv. Incremented in executeTask, reset when the scheduler rotates away.
   private consecutiveTaskCount: Map<string, number> = new Map();
@@ -213,7 +214,23 @@ export class ArinovaAgent {
     }
   }
 
-  private cleanup(): void {
+  private sendTerminal(event: Record<string, unknown>): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(event));
+      return;
+    }
+    this.pendingTerminalEvents.push(event);
+  }
+
+  private flushPendingTerminalEvents(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const events = this.pendingTerminalEvents.splice(0);
+    for (const event of events) {
+      this.ws.send(JSON.stringify(event));
+    }
+  }
+
+  private cleanupConnection(closeSocket = true): void {
     if (this.pingTimer) {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
@@ -226,16 +243,38 @@ export class ArinovaAgent {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    if (this.ws) {
+    if (closeSocket && this.ws) {
       try {
         this.ws.close();
       } catch {}
-      this.ws = null;
     }
+    this.ws = null;
+  }
+
+  private cleanup(): void {
+    this.cleanupConnection();
+    this.pendingTerminalEvents = [];
     // Clear queues BEFORE aborting — abort triggers markFinished → processNextTask,
     // which would dequeue and start tasks during disconnect if queues aren't empty.
     this.conversationQueues.clear();
     this.activeConversationTasks.clear();
+    for (const controller of this.taskAbortControllers.values()) {
+      controller.abort();
+    }
+    this.taskAbortControllers.clear();
+  }
+
+  private cleanupForReconnect(closeSocket = true): void {
+    this.cleanupConnection(closeSocket);
+  }
+
+  private cleanupAfterAuthFailure(): void {
+    this.cleanupConnection();
+    this.pendingTerminalEvents = [];
+    this.conversationQueues.clear();
+    this.consecutiveTaskCount.clear();
+    this.activeConversationTasks.clear();
+    this.agentWideLock = false;
     for (const controller of this.taskAbortControllers.values()) {
       controller.abort();
     }
@@ -269,7 +308,7 @@ export class ArinovaAgent {
       console.warn(`[arinova-agent-sdk] connect skipped: stopped (${this.stoppedReason ?? "unknown"})`);
       return;
     }
-    this.cleanup();
+    this.cleanupForReconnect();
     this.lastPongAt = null;
 
     const wsUrl = `${this.serverUrl}/ws/agent`;
@@ -340,6 +379,7 @@ export class ArinovaAgent {
             this.connectResolve = null;
             this.connectReject = null;
           }
+          this.flushPendingTerminalEvents();
           return;
         }
 
@@ -389,7 +429,7 @@ export class ArinovaAgent {
     };
 
     this.ws.onclose = () => {
-      this.cleanup();
+      this.cleanupForReconnect(false);
       this.emit("disconnected");
       // Skip this one close if auth retry already scheduled its own reconnect
       if (this.isAuthRetrying) {
@@ -422,7 +462,7 @@ export class ArinovaAgent {
       console.warn(`[arinova-agent-sdk] auth failure limit reached (${this.authErrorCount}/${AUTH_ERROR_MAX_RETRIES}); continuing retry with capped backoff`);
     }
 
-    this.cleanup();
+    this.cleanupAfterAuthFailure();
     this.scheduleAuthRetry();
   }
 
@@ -1536,7 +1576,7 @@ export class ArinovaAgent {
       },
       sendComplete: (fullContent: string, options?: { mentions?: string[] }) => {
         if (!markFinished()) return;
-        this.send({
+        this.sendTerminal({
           type: "agent_complete",
           taskId,
           content: fullContent,
@@ -1547,7 +1587,7 @@ export class ArinovaAgent {
         if (!markFinished()) return;
         const payload: Record<string, unknown> = { type: "agent_error", taskId, error };
         if (error === "cancelled") payload.reason = "cancelled";
-        this.send(payload);
+        this.sendTerminal(payload);
       },
       signal: abortController.signal,
       uploadFile: (file, fileName, fileType?) =>
@@ -1564,7 +1604,7 @@ export class ArinovaAgent {
     // state even when the stream loop already exited.
     abortController.signal.addEventListener("abort", () => {
       if (!markFinished()) return;
-      this.send({ type: "agent_error", taskId, error: "cancelled", reason: "cancelled" });
+      this.sendTerminal({ type: "agent_error", taskId, error: "cancelled", reason: "cancelled" });
     }, { once: true });
 
     Promise.resolve(this.taskHandler(ctx)).catch((err) => {

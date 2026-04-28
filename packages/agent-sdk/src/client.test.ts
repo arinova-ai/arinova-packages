@@ -117,9 +117,13 @@ describe("per-conversation task queue", () => {
       taskHandler: ((ctx: unknown) => Promise<void>) | null;
       handleTask: (data: Record<string, unknown>) => void;
       cleanup: () => void;
+      cleanupForReconnect: () => void;
+      flushPendingTerminalEvents: () => void;
       activeConversationTasks: Map<string, string>;
       conversationQueues: Map<string, Array<Record<string, unknown>>>;
       taskAbortControllers: Map<string, AbortController>;
+      pendingTerminalEvents: Array<Record<string, unknown>>;
+      ws: { readyState: number; send: ReturnType<typeof vi.fn> } | null;
       send: (event: Record<string, unknown>) => void;
     };
     // Stub send() — no real WS
@@ -220,23 +224,68 @@ describe("per-conversation task queue", () => {
     expect(handlerCalls).toEqual(["t1"]);
   });
 
+  it("reconnect cleanup preserves active tasks and queued work", () => {
+    const { a } = createAgent();
+    const handlerCalls: string[] = [];
+    a.taskHandler = (async (ctx: { taskId: string }) => {
+      handlerCalls.push(ctx.taskId);
+      await new Promise(() => {});
+    }) as unknown as typeof a.taskHandler;
+
+    a.handleTask({ taskId: "t1", conversationId: "conv-A", content: "a" });
+    a.handleTask({ taskId: "t2", conversationId: "conv-A", content: "b" });
+
+    const c1 = a.taskAbortControllers.get("t1")!;
+    a.cleanupForReconnect();
+
+    expect(c1.signal.aborted).toBe(false);
+    expect(a.taskAbortControllers.has("t1")).toBe(true);
+    expect(a.activeConversationTasks.get("conv-A")).toBe("t1");
+    expect(a.conversationQueues.get("conv-A")?.[0]?.taskId).toBe("t2");
+    expect(handlerCalls).toEqual(["t1"]);
+  });
+
+  it("buffers terminal events while disconnected and flushes after reconnect", () => {
+    const { a } = createAgent();
+    let savedCtx: { sendComplete: (content: string) => void } | null = null;
+    a.taskHandler = (async (ctx: { sendComplete: (content: string) => void }) => {
+      savedCtx = ctx;
+    }) as unknown as typeof a.taskHandler;
+
+    a.handleTask({ taskId: "t1", conversationId: "conv-A", content: "a" });
+    savedCtx!.sendComplete("done while offline");
+
+    expect(a.pendingTerminalEvents).toEqual([
+      { type: "agent_complete", taskId: "t1", content: "done while offline" },
+    ]);
+
+    const send = vi.fn();
+    a.ws = { readyState: 1, send };
+    a.flushPendingTerminalEvents();
+
+    expect(send).toHaveBeenCalledWith(JSON.stringify({
+      type: "agent_complete",
+      taskId: "t1",
+      content: "done while offline",
+    }));
+    expect(a.pendingTerminalEvents).toEqual([]);
+  });
+
   it("abort emits agent_error with reason:cancelled so rust-server can broadcast stream_end", () => {
     const { a } = createAgent();
     a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
 
     a.handleTask({ taskId: "t1", conversationId: "conv-A", content: "hello" });
 
-    const sendSpy = a.send as unknown as ReturnType<typeof vi.fn>;
-    sendSpy.mockClear();
-
     const c1 = a.taskAbortControllers.get("t1")!;
     c1.abort();
 
-    const calls = sendSpy.mock.calls.map((c) => c[0] as Record<string, unknown>);
-    const errorFrame = calls.find((f) => f.type === "agent_error" && f.taskId === "t1");
-    expect(errorFrame).toBeDefined();
-    expect(errorFrame!.error).toBe("cancelled");
-    expect(errorFrame!.reason).toBe("cancelled");
+    expect(a.pendingTerminalEvents).toContainEqual({
+      type: "agent_error",
+      taskId: "t1",
+      error: "cancelled",
+      reason: "cancelled",
+    });
   });
 
   it("queue overflow drops oldest queued task", () => {
