@@ -43,6 +43,56 @@ export interface ArinovaAgentOptions {
   maxConsecutivePerConversation?: number;
 }
 
+/** Runtime capability block sent during agent_auth. */
+export interface AgentRuntimeInfo {
+  name: string;
+  version: string;
+  language?: string;
+  platform?: string;
+}
+
+/** Options for an action_call frame. */
+export interface ActionCallOptions {
+  /** Agent-side correlation id. If omitted a random call id is generated. */
+  callId?: string;
+  /** Task id that caused this action. Defaults to the current task id when called from TaskContext. */
+  taskId?: string;
+  /** Conversation id for idempotency and UI attribution. */
+  conversationId?: string;
+  /** Agent message id that owns the action card. Defaults to taskId when omitted. */
+  messageId?: string;
+  parentCallId?: string;
+  reason?: string;
+  metadata?: Record<string, unknown>;
+  dryRun?: boolean;
+  timeoutMs?: number;
+}
+
+export interface ActionErrorBody {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+export interface ActionConfirmationPayload {
+  confirmationId: string;
+  title: string;
+  summary: string;
+  expiresAt: string;
+}
+
+export interface ActionCallResult {
+  callId: string;
+  action: string;
+  status: "success" | "error" | "requires_confirmation" | "cancelled" | "processing" | "received" | "validating";
+  result?: Record<string, unknown> | null;
+  error?: ActionErrorBody | null;
+  confirmation?: ActionConfirmationPayload | null;
+  traceId?: string;
+  actionVersion?: string;
+  dryRun?: boolean;
+}
+
 /** Context passed to the task handler. */
 export interface TaskContext {
   /** Unique task ID assigned by the server. */
@@ -85,6 +135,12 @@ export interface TaskContext {
   ) => Promise<UploadResult>;
   /** Fetch full conversation history with pagination. */
   fetchHistory: (options?: FetchHistoryOptions) => Promise<FetchHistoryResult>;
+  /** Execute an Arinova platform action through the backend action_call protocol. */
+  callAction: (
+    action: string,
+    args: Record<string, unknown>,
+    options?: Omit<ActionCallOptions, "taskId" | "conversationId" | "messageId">,
+  ) => Promise<ActionCallResult>;
 }
 
 /** An attachment from the user's message. */

@@ -29,4 +29,8 @@ export type {
   ShareNoteResult,
   SkillPrompt,
   ToolCallReport,
+  ActionCallOptions,
+  ActionCallResult,
+  ActionErrorBody,
+  ActionConfirmationPayload,
 } from "./types.js";

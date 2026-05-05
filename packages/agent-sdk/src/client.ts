@@ -36,11 +36,17 @@ import type {
   ShareNoteResult,
   SkillPrompt,
   ToolCallReport,
+  ActionCallOptions,
+  ActionCallResult,
 } from "./types.js";
 
 const DEFAULT_RECONNECT_INTERVAL = 5_000;
 const DEFAULT_PING_INTERVAL = 30_000;
 const TASK_HEARTBEAT_INTERVAL = 60_000;
+const ACTION_PROTOCOL_VERSION = "2026-05-05";
+const SDK_VERSION = "0.0.19-staging.1";
+const DEFAULT_ACTION_TIMEOUT = 60_000;
+const WS_OPEN = 1;
 const MAX_QUEUE_SIZE = 10;
 const AUTH_ERROR_MAX_RETRIES = 5;
 const AUTH_ERROR_BASE_DELAY = 5_000; // 5s, 10s, 20s, 40s, 60s cap
@@ -74,6 +80,11 @@ export class ArinovaAgent {
   private conversationQueues: Map<string, Array<Record<string, unknown>>> = new Map(); // conversationId → queued task data
   private pendingChunkEvents: Array<Record<string, unknown>> = [];
   private pendingTerminalEvents: Array<Record<string, unknown>> = [];
+  private pendingActionCalls: Map<string, {
+    resolve: (result: ActionCallResult) => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }> = new Map();
   // agent-wide mode only: how many tasks have run back-to-back from a given
   // conv. Incremented in executeTask, reset when the scheduler rotates away.
   private consecutiveTaskCount: Map<string, number> = new Map();
@@ -150,7 +161,7 @@ export class ArinovaAgent {
    */
   async sendMessage(conversationId: string, content: string): Promise<void> {
     // Try WebSocket first
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws && this.ws.readyState === WS_OPEN) {
       this.send({ type: "agent_send", conversationId, content });
       return;
     }
@@ -201,6 +212,52 @@ export class ArinovaAgent {
     this.send({ type: "tool_call_report", report });
   }
 
+  /**
+   * Execute an Arinova platform action through the backend action_call protocol.
+   * Prefer `task.callAction()` inside task handlers so task/conversation
+   * attribution is filled automatically.
+   */
+  callAction(
+    action: string,
+    args: Record<string, unknown>,
+    options: ActionCallOptions = {},
+  ): Promise<ActionCallResult> {
+    if (!this.ws || this.ws.readyState !== WS_OPEN) {
+      return Promise.reject(new Error("action_call requires an active WebSocket connection"));
+    }
+
+    const callId = options.callId ?? generateCallId();
+    const timeoutMs = options.timeoutMs ?? DEFAULT_ACTION_TIMEOUT;
+    const frame: Record<string, unknown> = {
+      type: "action_call",
+      id: callId,
+      action,
+      arguments: args,
+    };
+    if (options.taskId) frame.taskId = options.taskId;
+    if (options.conversationId) frame.conversationId = options.conversationId;
+    if (options.messageId) frame.messageId = options.messageId;
+    if (options.parentCallId) frame.parentCallId = options.parentCallId;
+    if (options.reason) frame.reason = options.reason;
+    if (options.metadata) frame.metadata = options.metadata;
+    if (options.dryRun !== undefined) frame.dryRun = options.dryRun;
+
+    return new Promise<ActionCallResult>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingActionCalls.delete(callId);
+        reject(new Error(`action_call ${action} (${callId}) timed out`));
+      }, timeoutMs);
+      this.pendingActionCalls.set(callId, { resolve, reject, timer });
+      try {
+        this.send(frame);
+      } catch (err) {
+        clearTimeout(timer);
+        this.pendingActionCalls.delete(callId);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
   private emit(event: "connected" | "disconnected" | "auth_failed"): void;
   private emit(event: "error", error: Error): void;
   private emit(event: string, ...args: unknown[]): void {
@@ -210,13 +267,13 @@ export class ArinovaAgent {
   }
 
   private send(event: Record<string, unknown>): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws && this.ws.readyState === WS_OPEN) {
       this.ws.send(JSON.stringify(event));
     }
   }
 
   private sendTerminal(event: Record<string, unknown>): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws && this.ws.readyState === WS_OPEN) {
       this.ws.send(JSON.stringify(event));
       return;
     }
@@ -224,7 +281,7 @@ export class ArinovaAgent {
   }
 
   private sendChunkEvent(event: Record<string, unknown>): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws && this.ws.readyState === WS_OPEN) {
       this.ws.send(JSON.stringify(event));
       return;
     }
@@ -232,7 +289,7 @@ export class ArinovaAgent {
   }
 
   private flushPendingChunkEvents(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.ws || this.ws.readyState !== WS_OPEN) return;
     const events = this.pendingChunkEvents.splice(0);
     for (const event of events) {
       this.ws.send(JSON.stringify(event));
@@ -240,7 +297,7 @@ export class ArinovaAgent {
   }
 
   private flushPendingTerminalEvents(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.ws || this.ws.readyState !== WS_OPEN) return;
     const events = this.pendingTerminalEvents.splice(0);
     for (const event of events) {
       this.ws.send(JSON.stringify(event));
@@ -280,6 +337,7 @@ export class ArinovaAgent {
       controller.abort();
     }
     this.taskAbortControllers.clear();
+    this.rejectPendingActionCalls("disconnect");
   }
 
   private cleanupForReconnect(closeSocket = true): void {
@@ -298,6 +356,15 @@ export class ArinovaAgent {
       controller.abort();
     }
     this.taskAbortControllers.clear();
+    this.rejectPendingActionCalls("auth failure");
+  }
+
+  private rejectPendingActionCalls(reason: string): void {
+    for (const [callId, pending] of this.pendingActionCalls) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error(`action_call ${callId} cancelled by ${reason}`));
+    }
+    this.pendingActionCalls.clear();
   }
 
   private stop(reason: string): void {
@@ -343,7 +410,26 @@ export class ArinovaAgent {
 
     this.ws.onopen = () => {
       this.lastPongAt = Date.now(); // Treat onopen as alive proof until the first pong.
-      const authMsg: Record<string, unknown> = { type: "agent_auth", botToken: this.botToken };
+      const authMsg: Record<string, unknown> = {
+        type: "agent_auth",
+        botToken: this.botToken,
+        runtime: {
+          name: "arinova-agent-sdk",
+          version: SDK_VERSION,
+          language: "typescript",
+          platform: "node",
+        },
+        capabilities: {
+          actionCall: {
+            supported: true,
+            protocolVersion: ACTION_PROTOCOL_VERSION,
+            canEmitFrames: true,
+            supportsActionResultContinuation: true,
+            supportsGetSchema: true,
+            schemaCache: false,
+          },
+        },
+      };
       if (this.skills.length > 0) {
         authMsg.skills = this.skills;
       }
@@ -410,6 +496,11 @@ export class ArinovaAgent {
 
         if (data.type === "pong") {
           this.lastPongAt = Date.now();
+          return;
+        }
+
+        if (data.type === "action_result") {
+          this.handleActionResult(data);
           return;
         }
 
@@ -523,6 +614,45 @@ export class ArinovaAgent {
       console.info(`[arinova-agent-sdk] auth retry timer fired after retry #${this.authRetryAttempt}`);
       this.doConnect();
     }, delay);
+  }
+
+  private handleActionResult(data: Record<string, unknown>): void {
+    const callId = data.id as string | undefined;
+    if (!callId) return;
+    const pending = this.pendingActionCalls.get(callId);
+    if (!pending) return;
+
+    const status = String(data.status ?? "");
+    if (!["success", "error", "requires_confirmation", "cancelled"].includes(status)) {
+      return;
+    }
+
+    clearTimeout(pending.timer);
+    this.pendingActionCalls.delete(callId);
+    pending.resolve({
+      callId,
+      action: String(data.action ?? ""),
+      status: status as ActionCallResult["status"],
+      result: isRecord(data.result) ? data.result : null,
+      error: isRecord(data.error)
+        ? {
+            code: String(data.error.code ?? "UNKNOWN"),
+            message: String(data.error.message ?? ""),
+            details: isRecord(data.error.details) ? data.error.details : undefined,
+          }
+        : null,
+      confirmation: isRecord(data.confirmation)
+        ? {
+            confirmationId: String(data.confirmation.confirmationId ?? ""),
+            title: String(data.confirmation.title ?? ""),
+            summary: String(data.confirmation.summary ?? ""),
+            expiresAt: String(data.confirmation.expiresAt ?? ""),
+          }
+        : null,
+      traceId: typeof data.traceId === "string" ? data.traceId : undefined,
+      actionVersion: typeof data.actionVersion === "string" ? data.actionVersion : undefined,
+      dryRun: typeof data.dryRun === "boolean" ? data.dryRun : undefined,
+    });
   }
 
   /**
@@ -1614,6 +1744,13 @@ export class ArinovaAgent {
         this.uploadFile(conversationId, file, fileName, fileType),
       fetchHistory: (options?) =>
         this.fetchHistory(conversationId, options),
+      callAction: (action, args, options) =>
+        this.callAction(action, args, {
+          ...options,
+          taskId,
+          conversationId,
+          messageId: taskId,
+        }),
     };
 
     // When task is aborted (user cancelled), immediately send cancellation
@@ -1728,6 +1865,17 @@ const MIME_TYPES: Record<string, string> = {
 function mimeFromFileName(name: string): string {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   return MIME_TYPES[ext] ?? "application/octet-stream";
+}
+
+function generateCallId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `call_${crypto.randomUUID().replace(/-/g, "")}`;
+  }
+  return `call_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

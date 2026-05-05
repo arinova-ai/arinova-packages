@@ -258,6 +258,47 @@ describe("per-conversation task queue", () => {
     expect(handlerCalls).toEqual(["t1"]);
   });
 
+  it("task callAction sends attributed action_call and resolves action_result", async () => {
+    const { a } = createAgent();
+    let savedCtx: {
+      callAction: (action: string, args: Record<string, unknown>) => Promise<unknown>;
+    } | null = null;
+    a.taskHandler = (async (ctx: typeof savedCtx) => {
+      savedCtx = ctx;
+    }) as unknown as typeof a.taskHandler;
+
+    a.ws = { readyState: 1, send: vi.fn() };
+    a.handleTask({ taskId: "task-1", conversationId: "conv-A", content: "a" });
+
+    const promise = savedCtx!.callAction("arinova.kanban.create_card", { title: "Hello" });
+    const frame = (a.send as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(frame).toMatchObject({
+      type: "action_call",
+      action: "arinova.kanban.create_card",
+      arguments: { title: "Hello" },
+      taskId: "task-1",
+      conversationId: "conv-A",
+      messageId: "task-1",
+    });
+
+    a.handleActionResult({
+      type: "action_result",
+      id: frame.id,
+      action: "arinova.kanban.create_card",
+      status: "success",
+      result: { cardId: "card-1" },
+      traceId: "trace-1",
+    });
+
+    await expect(promise).resolves.toMatchObject({
+      callId: frame.id,
+      action: "arinova.kanban.create_card",
+      status: "success",
+      result: { cardId: "card-1" },
+      traceId: "trace-1",
+    });
+  });
+
   it("buffers terminal events while disconnected and flushes after reconnect", () => {
     const { a } = createAgent();
     let savedCtx: { sendComplete: (content: string) => void } | null = null;
@@ -618,6 +659,35 @@ describe("pong watchdog", () => {
 
     vi.advanceTimersByTime(1_000);
     expect(ws.close).not.toHaveBeenCalled();
+
+    a.cleanup();
+  });
+
+  it("agent_auth declares action_call runtime capability", () => {
+    const { a } = createAgent();
+    a.doConnect();
+
+    const ws = MockWebSocket.instances[0];
+    ws.onopen?.();
+
+    const auth = JSON.parse(ws.send.mock.calls[0][0]);
+    expect(auth).toMatchObject({
+      type: "agent_auth",
+      botToken: "ari_test",
+      runtime: {
+        name: "arinova-agent-sdk",
+        version: "0.0.19-staging.1",
+        language: "typescript",
+      },
+      capabilities: {
+        actionCall: {
+          supported: true,
+          protocolVersion: "2026-05-05",
+          canEmitFrames: true,
+          supportsGetSchema: true,
+        },
+      },
+    });
 
     a.cleanup();
   });
