@@ -1,6 +1,6 @@
 {
   "name": "@arinova-ai/mcp-server",
-  "version": "0.0.19-staging.1",
+  "version": "0.0.19-staging.2",
   "description": "MCP server bridge for Arinova platform actions",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,7 +12,11 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    }
+    },
+    "./cli": {
+      "import": "./dist/cli.js"
+    },
+    "./dist/cli.js": "./dist/cli.js"
   },
   "files": [
     "dist",
