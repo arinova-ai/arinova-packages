@@ -83,9 +83,10 @@ describe("ArinovaClient", () => {
     it("includes protocol version", () => {
       const health = client.getHealthData();
 
-      expect(health.actionProtocolVersion).toBe(
-        EXPECTED_ACTION_PROTOCOL_VERSION,
-      );
+      expect(health.protocolVersion).toEqual({
+        expected: EXPECTED_ACTION_PROTOCOL_VERSION,
+        backend: null,
+      });
     });
   });
 
@@ -220,6 +221,36 @@ describe("ArinovaClient", () => {
     it("rejects calls when not connected", async () => {
       await expect(client.callAction("test", {})).rejects.toThrow(
         "connection state is not_connected",
+      );
+    });
+  });
+
+  describe("error normalization", () => {
+    it("maps 'cancelled by disconnect' to CONNECTION_LOST", async () => {
+      await client.connect();
+
+      const { ArinovaAgent } = await import("@arinova-ai/agent-sdk");
+      const mockAgent = vi.mocked(ArinovaAgent).mock.results.at(-1)?.value;
+      mockAgent.callAction.mockRejectedValue(
+        new Error("action_call c1 cancelled by disconnect"),
+      );
+
+      await expect(client.callAction("test", {})).rejects.toThrow(
+        "WebSocket disconnected during action execution",
+      );
+    });
+
+    it("maps 'cancelled by auth failure' to AUTH_FAILED", async () => {
+      await client.connect();
+
+      const { ArinovaAgent } = await import("@arinova-ai/agent-sdk");
+      const mockAgent = vi.mocked(ArinovaAgent).mock.results.at(-1)?.value;
+      mockAgent.callAction.mockRejectedValue(
+        new Error("action_call c1 cancelled by auth failure"),
+      );
+
+      await expect(client.callAction("test", {})).rejects.toThrow(
+        "Authentication failed during action execution",
       );
     });
   });

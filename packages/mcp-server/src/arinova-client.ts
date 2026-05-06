@@ -153,7 +153,8 @@ export class ArinovaClient {
 
     const actionPromise = this.executeAction(actionName, args, options);
     this.inFlightTracker.add(actionPromise);
-    actionPromise.finally(() => this.inFlightTracker.delete(actionPromise));
+    const cleanup = () => { this.inFlightTracker.delete(actionPromise); };
+    actionPromise.then(cleanup, cleanup);
 
     return actionPromise;
   }
@@ -174,15 +175,24 @@ export class ArinovaClient {
 
       return result;
     } catch (err) {
-      if (
-        err instanceof Error &&
-        err.message.includes("Not connected")
-      ) {
-        this.connectionState = "reconnecting";
-        throw new ActionExecutionError(
-          "CONNECTION_LOST",
-          "WebSocket disconnected during action execution",
-        );
+      if (err instanceof Error) {
+        if (
+          err.message.includes("Not connected") ||
+          err.message.includes("cancelled by disconnect")
+        ) {
+          this.connectionState = "reconnecting";
+          throw new ActionExecutionError(
+            "CONNECTION_LOST",
+            "WebSocket disconnected during action execution",
+          );
+        }
+        if (err.message.includes("cancelled by auth failure")) {
+          this.connectionState = "disconnected";
+          throw new ActionExecutionError(
+            "AUTH_FAILED",
+            "Authentication failed during action execution",
+          );
+        }
       }
       throw err;
     } finally {
@@ -257,7 +267,10 @@ export class ArinovaClient {
       skippedActions: this.toolMapping?.skippedActions ?? [],
       queueDepth: this.queue.length,
       inFlightActions: this.inFlight,
-      actionProtocolVersion: EXPECTED_ACTION_PROTOCOL_VERSION,
+      protocolVersion: {
+        expected: EXPECTED_ACTION_PROTOCOL_VERSION,
+        backend: null,
+      },
       lastError: this.lastError,
     };
   }
