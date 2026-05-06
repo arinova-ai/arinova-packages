@@ -1,5 +1,3 @@
-import { ArinovaAgent } from "@arinova-ai/agent-sdk";
-import type { ActionCallResult, ActionCallOptions } from "@arinova-ai/agent-sdk";
 import type { McpServerConfig } from "./config.js";
 import type { ActionManifest } from "./manifest.js";
 import { fetchManifest } from "./manifest.js";
@@ -7,6 +5,7 @@ import type { ToolMapping, SkippedAction } from "./tool-mapping.js";
 import { mapManifestToTools } from "./tool-mapping.js";
 import { ConnectionError, ActionExecutionError } from "./errors.js";
 import { logger } from "./logger.js";
+import type { ActionCallResult, ActionCallOptions } from "./action-types.js";
 
 export const EXPECTED_ACTION_PROTOCOL_VERSION = "2026-05-05";
 
@@ -24,7 +23,6 @@ export type ManifestState =
   | "error";
 
 export class ArinovaClient {
-  private agent: ArinovaAgent;
   private config: McpServerConfig;
   private connectionState: ConnectionState = "not_connected";
   private manifestState: ManifestState = "not_loaded";
@@ -44,57 +42,19 @@ export class ArinovaClient {
   constructor(config: McpServerConfig) {
     this.config = config;
     this.semaphore = config.maxConcurrentActions;
-
-    this.agent = new ArinovaAgent({
-      serverUrl: config.serverUrl,
-      botToken: config.botToken,
-    });
-
-    this.agent.onTask((task) => {
-      logger.warn(
-        `Rejected incoming task ${task.taskId}: this is an MCP-only bridge that does not handle agent tasks`,
-      );
-      task.sendError(
-        "This agent connection is an MCP bridge and cannot handle tasks. " +
-          "Route tasks to a dedicated agent runtime instead.",
-      );
-    });
-
-    this.agent.on("connected", () => {
-      this.connectionState = "connected";
-      logger.info("WebSocket connected");
-    });
-
-    this.agent.on("disconnected", () => {
-      if (this.connectionState === "connected") {
-        this.connectionState = "reconnecting";
-        logger.warn("WebSocket disconnected; reconnecting");
-      }
-    });
-
-    this.agent.on("error", ((err: Error) => {
-      this.lastError = err.message;
-      logger.error(`Agent error: ${this.lastError}`);
-    }) as () => void);
-
-    this.agent.on("auth_failed", () => {
-      this.lastError = "Authentication failed";
-      this.connectionState = "disconnected";
-      logger.error(this.lastError);
-    });
   }
 
   async connect(): Promise<void> {
     if (this.connectionState === "connected") return;
     this.connectionState = "connecting";
     try {
-      await this.agent.connect();
+      await this.loadManifest();
       this.connectionState = "connected";
     } catch (err) {
       this.connectionState = "disconnected";
       this.lastError = err instanceof Error ? err.message : String(err);
       throw new ConnectionError(
-        `Failed to connect: ${this.lastError}`,
+        `Failed to initialize HTTP action client: ${this.lastError}`,
       );
     }
   }
@@ -175,36 +135,69 @@ export class ArinovaClient {
     try {
       const timeoutMs =
         options?.timeoutMs ?? this.config.actionTimeoutMs;
-
-      const result = await this.agent.callAction(actionName, args, {
-        ...options,
-        timeoutMs,
-      });
-
-      return result;
+      return await this.callActionHttp(actionName, args, { ...options, timeoutMs });
     } catch (err) {
-      if (err instanceof Error) {
-        if (
-          err.message.includes("Not connected") ||
-          err.message.includes("cancelled by disconnect")
-        ) {
-          this.connectionState = "reconnecting";
-          throw new ActionExecutionError(
-            "CONNECTION_LOST",
-            "WebSocket disconnected during action execution",
-          );
-        }
-        if (err.message.includes("cancelled by auth failure")) {
-          this.connectionState = "disconnected";
-          throw new ActionExecutionError(
-            "AUTH_FAILED",
-            "Authentication failed during action execution",
-          );
-        }
-      }
       throw err;
     } finally {
       this.releaseSemaphore();
+    }
+  }
+
+  private async callActionHttp(
+    actionName: string,
+    args: Record<string, unknown>,
+    options: Partial<ActionCallOptions>,
+  ): Promise<ActionCallResult> {
+    const controller = new AbortController();
+    const timeoutMs = options.timeoutMs ?? this.config.actionTimeoutMs;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const callId = options.callId ?? `mcp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    try {
+      const res = await fetch(`${this.config.apiUrl}/api/v1/actions/call`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.config.botToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "action_call",
+          id: callId,
+          taskId: options.taskId ?? null,
+          conversationId: options.conversationId ?? null,
+          messageId: options.messageId ?? options.taskId ?? null,
+          action: actionName,
+          arguments: args,
+          dryRun: options.dryRun ?? false,
+          reason: options.reason ?? null,
+          metadata: options.metadata ?? null,
+          parentCallId: options.parentCallId ?? null,
+        }),
+        signal: controller.signal,
+      });
+
+      const body = await parseJsonBody(res);
+      if (!res.ok) {
+        const message =
+          body && typeof body === "object" && "message" in body
+            ? String((body as { message?: unknown }).message)
+            : `HTTP action call failed (${res.status})`;
+        throw new ActionExecutionError("HTTP_ACTION_CALL_FAILED", message);
+      }
+
+      return normalizeHttpActionResult(body, callId, actionName);
+    } catch (err) {
+      if (err instanceof ActionExecutionError) throw err;
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new ActionExecutionError(
+          "TIMEOUT",
+          `Action timed out after ${timeoutMs}ms`,
+        );
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      throw new ActionExecutionError("HTTP_ACTION_CALL_FAILED", message);
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -262,7 +255,6 @@ export class ArinovaClient {
   }
 
   disconnect(): void {
-    this.agent.disconnect();
     this.connectionState = "disconnected";
   }
 
@@ -317,4 +309,61 @@ export class ArinovaClient {
   get inFlightCount(): number {
     return this.inFlight;
   }
+}
+
+async function parseJsonBody(res: Response): Promise<unknown> {
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return { message: text };
+  }
+}
+
+function normalizeHttpActionResult(
+  body: unknown,
+  fallbackCallId: string,
+  fallbackAction: string,
+): ActionCallResult {
+  const value =
+    body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  return {
+    callId: stringField(value.id) ?? stringField(value.callId) ?? fallbackCallId,
+    action: stringField(value.action) ?? fallbackAction,
+    status: actionStatus(value.status),
+    result: recordOrNull(value.result),
+    error: recordOrNull(value.error) as ActionCallResult["error"],
+    confirmation: recordOrNull(value.confirmation) as ActionCallResult["confirmation"],
+    traceId: stringField(value.traceId),
+    actionVersion: stringField(value.actionVersion),
+    dryRun: typeof value.dryRun === "boolean" ? value.dryRun : undefined,
+  };
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function actionStatus(value: unknown): ActionCallResult["status"] {
+  if (
+    value === "success" ||
+    value === "error" ||
+    value === "requires_confirmation" ||
+    value === "cancelled" ||
+    value === "processing" ||
+    value === "received" ||
+    value === "validating"
+  ) {
+    return value;
+  }
+  return "error";
+}
+
+function recordOrNull(value: unknown): Record<string, unknown> | null | undefined {
+  if (value === null) return null;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return undefined;
 }

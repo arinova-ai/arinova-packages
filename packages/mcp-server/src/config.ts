@@ -80,16 +80,16 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): McpServerCo
     );
   }
 
+  const explicitApiUrl = cli.apiUrl ?? process.env.ARINOVA_API_URL;
   const serverUrl = strip(
     cli.serverUrl ?? process.env.ARINOVA_SERVER_URL ?? "",
   );
-  if (!serverUrl) {
+  if (!serverUrl && !explicitApiUrl) {
     throw new ConfigError(
-      "Server URL is required. Set ARINOVA_SERVER_URL or pass --server-url.",
+      "API URL is required. Set ARINOVA_API_URL, or set ARINOVA_SERVER_URL to derive it.",
     );
   }
 
-  const explicitApiUrl = cli.apiUrl ?? process.env.ARINOVA_API_URL;
   const apiUrl = explicitApiUrl
     ? strip(explicitApiUrl)
     : deriveApiUrl(serverUrl);

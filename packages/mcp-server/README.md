@@ -20,7 +20,6 @@ Add to your MCP client config (e.g. `claude_desktop_config.json`, `.cursor/mcp.j
       "args": ["-y", "@arinova-ai/mcp-server"],
       "env": {
         "ARINOVA_BOT_TOKEN": "ari_xxx",
-        "ARINOVA_SERVER_URL": "wss://<your-arinova-host>",
         "ARINOVA_API_URL": "https://<your-arinova-api-host>"
       }
     }
@@ -33,8 +32,8 @@ Add to your MCP client config (e.g. `claude_desktop_config.json`, `.cursor/mcp.j
 | Variable | CLI Flag | Default | Description |
 |---|---|---|---|
 | `ARINOVA_BOT_TOKEN` | `--token` | *required* | Agent bot token |
-| `ARINOVA_SERVER_URL` | `--server-url` | *required* | WebSocket base URL |
-| `ARINOVA_API_URL` | `--api-url` | derived from WS URL | HTTP API base URL |
+| `ARINOVA_API_URL` | `--api-url` | *required unless derived* | HTTP API base URL |
+| `ARINOVA_SERVER_URL` | `--server-url` | optional | Legacy WebSocket URL; used only to derive `ARINOVA_API_URL` when the API URL is omitted |
 | `ARINOVA_STARTUP_MODE` | `--strict-startup` | `lazy` | `lazy` or `strict` |
 | `ARINOVA_ACTION_TIMEOUT_MS` | | `60000` | Action execution timeout |
 | `ARINOVA_MAX_CONCURRENT_ACTIONS` | | `4` | Max concurrent action calls |
@@ -45,7 +44,7 @@ CLI flags override environment variables.
 
 ### URL Derivation
 
-If `ARINOVA_API_URL` is omitted, it is derived from `ARINOVA_SERVER_URL` by replacing `wss:` with `https:` (or `ws:` with `http:`), keeping the host unchanged. Set `ARINOVA_API_URL` explicitly if the WebSocket and HTTP hosts differ.
+If `ARINOVA_API_URL` is omitted, it is derived from `ARINOVA_SERVER_URL` by replacing `wss:` with `https:` (or `ws:` with `http:`), keeping the host unchanged. New deployments should set `ARINOVA_API_URL` directly.
 
 ## Built-in Tools
 
@@ -56,10 +55,10 @@ If `ARINOVA_API_URL` is omitted, it is derived from `ARINOVA_SERVER_URL` by repl
 
 ## How It Works
 
-1. On startup, the MCP server connects to Arinova via bot token.
+1. On startup, the MCP server initializes with an Arinova bot token.
 2. It fetches the scoped action manifest from the backend HTTP API.
 3. Each backend action becomes an MCP tool (e.g. `arinova.kanban.add_commit` becomes `arinova_kanban_add_commit`).
-4. When an MCP client calls a tool, the server executes the action via WebSocket and returns the structured result.
+4. When an MCP client calls a tool, the server posts to `/api/v1/actions/call` and returns the structured action result.
 5. Backend permissions, confirmations, and audit logging are preserved.
 
 ### Action Results
@@ -84,11 +83,11 @@ Confirmation required:
 ```bash
 pnpm --filter @arinova-ai/mcp-server build
 pnpm --filter @arinova-ai/mcp-server test
-node packages/mcp-server/dist/cli.js --token ari_xxx --server-url wss://...
+node packages/mcp-server/dist/cli.js --token ari_xxx --api-url https://...
 ```
 
 ## Action Call Protocol
 
 Expected protocol version: `2026-05-05`.
 
-The `arinova_health` tool reports `protocolVersion.expected` (the version this bridge was built for) and `protocolVersion.backend` (currently always `null`). Backend version detection is not yet implemented because `@arinova-ai/agent-sdk` does not expose the protocol version from the `auth_ok` handshake. Once the SDK surfaces that field, this bridge can report it and optionally fail-closed on mismatch.
+The `arinova_health` tool reports `protocolVersion.expected` (the version this bridge was built for) and `protocolVersion.backend` (currently always `null`). Backend version detection is not yet implemented for the HTTP action endpoint.

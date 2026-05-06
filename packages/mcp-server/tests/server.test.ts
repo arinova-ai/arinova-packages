@@ -1,23 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { McpServerConfig } from "../src/config.js";
 import { ArinovaClient, EXPECTED_ACTION_PROTOCOL_VERSION } from "../src/arinova-client.js";
-
-let capturedOnTask: ((task: unknown) => void) | null = null;
-
-vi.mock("@arinova-ai/agent-sdk", () => {
-  return {
-    ArinovaAgent: vi.fn().mockImplementation(() => ({
-      on: vi.fn().mockReturnThis(),
-      onTask: vi.fn().mockImplementation(function (this: unknown, handler: (task: unknown) => void) {
-        capturedOnTask = handler;
-        return this;
-      }),
-      connect: vi.fn().mockResolvedValue(undefined),
-      disconnect: vi.fn(),
-      callAction: vi.fn(),
-    })),
-  };
-});
 
 function makeConfig(overrides?: Partial<McpServerConfig>): McpServerConfig {
   return {
@@ -35,37 +18,55 @@ function makeConfig(overrides?: Partial<McpServerConfig>): McpServerConfig {
   };
 }
 
+function jsonResponse(body: unknown, init?: ResponseInit): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    ...init,
+  });
+}
+
+function installFetchMock(
+  actionHandler?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+): void {
+  const manifest = {
+    manifestVersion: EXPECTED_ACTION_PROTOCOL_VERSION,
+    actions: [],
+  };
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/actions/agent-manifest")) {
+        return jsonResponse(manifest, { headers: { ETag: '"test"' } });
+      }
+      if (url.endsWith("/api/v1/actions/call")) {
+        if (actionHandler) return actionHandler(input, init);
+        return jsonResponse({
+          type: "action_result",
+          id: "c1",
+          action: "test",
+          status: "success",
+          result: {},
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }),
+  );
+}
+
 describe("ArinovaClient", () => {
   let client: ArinovaClient;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    capturedOnTask = null;
+    installFetchMock();
     client = new ArinovaClient(makeConfig());
   });
 
-  describe("task rejection", () => {
-    it("registers an onTask handler", () => {
-      expect(capturedOnTask).toBeTypeOf("function");
-    });
-
-    it("rejects incoming tasks with an error", () => {
-      const sendError = vi.fn();
-      const task = {
-        taskId: "task_1",
-        conversationId: "conv_1",
-        content: "hello",
-        sendError,
-        sendChunk: vi.fn(),
-        sendComplete: vi.fn(),
-      };
-
-      capturedOnTask!(task);
-
-      expect(sendError).toHaveBeenCalledWith(
-        expect.stringContaining("MCP bridge"),
-      );
-    });
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   describe("health data", () => {
@@ -100,21 +101,18 @@ describe("ArinovaClient", () => {
 
       await c.connect();
 
-      const { ArinovaAgent } = await import("@arinova-ai/agent-sdk");
-      const mockAgent = vi.mocked(ArinovaAgent).mock.results.at(-1)?.value;
-      mockAgent.callAction.mockImplementation(
-        () =>
+      installFetchMock(async () =>
           new Promise((resolve) =>
             setTimeout(
               () =>
-                resolve({
-                  callId: "c1",
+                resolve(jsonResponse({
+                  id: "c1",
                   action: "test",
                   status: "success",
-                }),
+                })),
               100,
             ),
-          ),
+          )
       );
 
       const call1 = c.callAction("test", {});
@@ -132,21 +130,18 @@ describe("ArinovaClient", () => {
       const c = new ArinovaClient(config);
       await c.connect();
 
-      const { ArinovaAgent } = await import("@arinova-ai/agent-sdk");
-      const mockAgent = vi.mocked(ArinovaAgent).mock.results.at(-1)?.value;
       let actionResolved = false;
-      mockAgent.callAction.mockImplementation(
-        () =>
+      installFetchMock(async () =>
           new Promise((resolve) => {
             setTimeout(() => {
               actionResolved = true;
-              resolve({
-                callId: "c1",
+              resolve(jsonResponse({
+                id: "c1",
                 action: "test",
                 status: "success",
-              });
+              }));
             }, 50);
-          }),
+          })
       );
 
       const actionPromise = c.callAction("test", {});
@@ -168,21 +163,18 @@ describe("ArinovaClient", () => {
       const c = new ArinovaClient(config);
       await c.connect();
 
-      const { ArinovaAgent } = await import("@arinova-ai/agent-sdk");
-      const mockAgent = vi.mocked(ArinovaAgent).mock.results.at(-1)?.value;
-      mockAgent.callAction.mockImplementation(
-        () =>
+      installFetchMock(async () =>
           new Promise((resolve) =>
             setTimeout(
               () =>
-                resolve({
-                  callId: "c1",
+                resolve(jsonResponse({
+                  id: "c1",
                   action: "test",
                   status: "success",
-                }),
+                })),
               50,
             ),
-          ),
+          )
       );
 
       const call1 = c.callAction("test", {});
@@ -211,21 +203,18 @@ describe("ArinovaClient", () => {
       const c = new ArinovaClient(config);
       await c.connect();
 
-      const { ArinovaAgent } = await import("@arinova-ai/agent-sdk");
-      const mockAgent = vi.mocked(ArinovaAgent).mock.results.at(-1)?.value;
-      mockAgent.callAction.mockImplementation(
-        () =>
+      installFetchMock(async () =>
           new Promise((resolve) =>
             setTimeout(
               () =>
-                resolve({
-                  callId: "c1",
+                resolve(jsonResponse({
+                  id: "c1",
                   action: "test",
                   status: "success",
-                }),
+                })),
               50,
             ),
-          ),
+          )
       );
 
       const call1 = c.callAction("test", {});
@@ -261,31 +250,42 @@ describe("ArinovaClient", () => {
   });
 
   describe("error normalization", () => {
-    it("maps 'cancelled by disconnect' to CONNECTION_LOST", async () => {
+    it("maps non-2xx action response to HTTP_ACTION_CALL_FAILED", async () => {
+      installFetchMock(async () =>
+        jsonResponse(
+          { message: "Unauthorized" },
+          { status: 401, statusText: "Unauthorized" },
+        ),
+      );
       await client.connect();
 
-      const { ArinovaAgent } = await import("@arinova-ai/agent-sdk");
-      const mockAgent = vi.mocked(ArinovaAgent).mock.results.at(-1)?.value;
-      mockAgent.callAction.mockRejectedValue(
-        new Error("action_call c1 cancelled by disconnect"),
-      );
-
-      await expect(client.callAction("test", {})).rejects.toThrow(
-        "WebSocket disconnected during action execution",
-      );
+      await expect(client.callAction("test", {})).rejects.toThrow("Unauthorized");
     });
 
-    it("maps 'cancelled by auth failure' to AUTH_FAILED", async () => {
+    it("maps aborted HTTP action call to TIMEOUT", async () => {
+      installFetchMock(async (_input, init) =>
+        new Promise((resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+          setTimeout(
+            () =>
+              resolve(jsonResponse({
+                id: "c1",
+                action: "test",
+                status: "success",
+              })),
+            50,
+          );
+        }),
+      );
+      client = new ArinovaClient(makeConfig({ actionTimeoutMs: 5 }));
       await client.connect();
 
-      const { ArinovaAgent } = await import("@arinova-ai/agent-sdk");
-      const mockAgent = vi.mocked(ArinovaAgent).mock.results.at(-1)?.value;
-      mockAgent.callAction.mockRejectedValue(
-        new Error("action_call c1 cancelled by auth failure"),
-      );
-
       await expect(client.callAction("test", {})).rejects.toThrow(
-        "Authentication failed during action execution",
+        "Action timed out after 5ms",
       );
     });
   });

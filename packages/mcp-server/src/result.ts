@@ -1,4 +1,4 @@
-import type { ActionCallResult } from "@arinova-ai/agent-sdk";
+import type { ActionCallResult } from "./action-types.js";
 
 export interface McpActionResponse {
   ok: boolean;

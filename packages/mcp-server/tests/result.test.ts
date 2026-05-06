@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { normalizeResult, shouldReportAsError } from "../src/result.js";
-import type { ActionCallResult } from "@arinova-ai/agent-sdk";
+import type { ActionCallResult } from "../src/action-types.js";
 
 describe("normalizeResult", () => {
   it("normalizes success", () => {

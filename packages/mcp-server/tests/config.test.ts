@@ -40,13 +40,13 @@ describe("parseConfig", () => {
   });
 
   it("throws when bot token is missing", () => {
-    process.env.ARINOVA_SERVER_URL = "wss://chat.example.com";
+    process.env.ARINOVA_API_URL = "https://chat.example.com";
     expect(() => parseConfig([])).toThrow("Bot token is required");
   });
 
-  it("throws when server URL is missing", () => {
+  it("throws when API URL cannot be resolved", () => {
     process.env.ARINOVA_BOT_TOKEN = "ari_test";
-    expect(() => parseConfig([])).toThrow("Server URL is required");
+    expect(() => parseConfig([])).toThrow("API URL is required");
   });
 
   it("parses from env vars", () => {
@@ -102,6 +102,17 @@ describe("parseConfig", () => {
 
     const config = parseConfig([]);
 
+    expect(config.apiUrl).toBe("https://api.example.com");
+    expect(config.apiUrlDerived).toBe(false);
+  });
+
+  it("allows explicit API URL without server URL", () => {
+    process.env.ARINOVA_BOT_TOKEN = "ari_test";
+    process.env.ARINOVA_API_URL = "https://api.example.com";
+
+    const config = parseConfig([]);
+
+    expect(config.serverUrl).toBe("");
     expect(config.apiUrl).toBe("https://api.example.com");
     expect(config.apiUrlDerived).toBe(false);
   });

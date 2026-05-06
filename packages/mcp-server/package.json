@@ -37,7 +37,6 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@arinova-ai/agent-sdk": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "devDependencies": {
