@@ -1,5 +1,5 @@
 export { ArinovaMcpServer } from "./server.js";
-export { ArinovaClient } from "./arinova-client.js";
+export { ArinovaClient, EXPECTED_ACTION_PROTOCOL_VERSION } from "./arinova-client.js";
 export type { ConnectionState, ManifestState } from "./arinova-client.js";
 export { parseConfig, redactConfig, deriveApiUrl } from "./config.js";
 export type { McpServerConfig } from "./config.js";

@@ -8,6 +8,8 @@ import { mapManifestToTools } from "./tool-mapping.js";
 import { ConnectionError, ActionExecutionError } from "./errors.js";
 import { logger } from "./logger.js";
 
+export const EXPECTED_ACTION_PROTOCOL_VERSION = "2026-05-05";
+
 export type ConnectionState =
   | "not_connected"
   | "connecting"
@@ -36,6 +38,7 @@ export class ArinovaClient {
     reject: (err: Error) => void;
   }> = [];
   private inFlight = 0;
+  private inFlightTracker = new Set<Promise<unknown>>();
   private shuttingDown = false;
 
   constructor(config: McpServerConfig) {
@@ -45,6 +48,16 @@ export class ArinovaClient {
     this.agent = new ArinovaAgent({
       serverUrl: config.serverUrl,
       botToken: config.botToken,
+    });
+
+    this.agent.onTask((task) => {
+      logger.warn(
+        `Rejected incoming task ${task.taskId}: this is an MCP-only bridge that does not handle agent tasks`,
+      );
+      task.sendError(
+        "This agent connection is an MCP bridge and cannot handle tasks. " +
+          "Route tasks to a dedicated agent runtime instead.",
+      );
     });
 
     this.agent.on("connected", () => {
@@ -137,6 +150,19 @@ export class ArinovaClient {
     }
 
     await this.acquireSemaphore();
+
+    const actionPromise = this.executeAction(actionName, args, options);
+    this.inFlightTracker.add(actionPromise);
+    actionPromise.finally(() => this.inFlightTracker.delete(actionPromise));
+
+    return actionPromise;
+  }
+
+  private async executeAction(
+    actionName: string,
+    args: Record<string, unknown>,
+    options?: Partial<ActionCallOptions>,
+  ): Promise<ActionCallResult> {
     try {
       const timeoutMs =
         options?.timeoutMs ?? this.config.actionTimeoutMs;
@@ -191,12 +217,32 @@ export class ArinovaClient {
     }
   }
 
-  disconnect(): void {
+  async drain(timeoutMs: number): Promise<void> {
     this.shuttingDown = true;
+
     while (this.queue.length > 0) {
       const item = this.queue.shift()!;
       item.reject(new ActionExecutionError("SHUTDOWN", "Server is shutting down"));
     }
+
+    if (this.inFlightTracker.size === 0) return;
+
+    logger.info(
+      `Draining ${this.inFlightTracker.size} in-flight action(s) (timeout: ${timeoutMs}ms)`,
+    );
+
+    const pending = Promise.allSettled([...this.inFlightTracker]);
+    const timer = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
+    await Promise.race([pending, timer]);
+
+    if (this.inFlightTracker.size > 0) {
+      logger.warn(
+        `Drain timeout: ${this.inFlightTracker.size} action(s) still in-flight; forcing disconnect`,
+      );
+    }
+  }
+
+  disconnect(): void {
     this.agent.disconnect();
     this.connectionState = "disconnected";
   }
@@ -211,6 +257,7 @@ export class ArinovaClient {
       skippedActions: this.toolMapping?.skippedActions ?? [],
       queueDepth: this.queue.length,
       inFlightActions: this.inFlight,
+      actionProtocolVersion: EXPECTED_ACTION_PROTOCOL_VERSION,
       lastError: this.lastError,
     };
   }

@@ -243,6 +243,7 @@ export class ArinovaMcpServer {
 
   async shutdown(): Promise<void> {
     logger.info("Shutting down MCP server");
+    await this.client.drain(this.config.actionTimeoutMs);
     this.client.disconnect();
     await this.server.close();
   }

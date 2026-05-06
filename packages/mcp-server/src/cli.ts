@@ -32,9 +32,9 @@ async function main(): Promise<void> {
     logger.info("Shutdown signal received");
 
     const drainTimeout = setTimeout(() => {
-      logger.warn("Drain timeout reached; forcing exit");
+      logger.warn("Safety timeout reached; forcing exit");
       process.exit(1);
-    }, config.actionTimeoutMs);
+    }, config.actionTimeoutMs + 5_000);
 
     try {
       await server.shutdown();
