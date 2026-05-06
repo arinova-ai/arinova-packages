@@ -11,7 +11,7 @@ import { normalizeResult, shouldReportAsError } from "./result.js";
 import { ActionExecutionError } from "./errors.js";
 import { logger } from "./logger.js";
 
-const PACKAGE_VERSION = "0.0.19-staging.1";
+const PACKAGE_VERSION = "0.0.19-staging.4";
 
 function textResult(data: unknown, isError = false) {
   return {
@@ -25,6 +25,8 @@ export class ArinovaMcpServer {
   private client: ArinovaClient;
   private config: McpServerConfig;
   private dynamicTools: McpToolDefinition[] = [];
+  private toolsLoaded = false;
+  private toolLoadPromise: Promise<void> | null = null;
   private initialized = false;
 
   constructor(config: McpServerConfig, client: ArinovaClient) {
@@ -45,6 +47,7 @@ export class ArinovaMcpServer {
 
   private setupHandlers(): void {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+      await this.ensureToolsLoaded();
       return { tools: this.getToolList() };
     });
 
@@ -103,6 +106,7 @@ export class ArinovaMcpServer {
       const mapping = await this.client.loadManifest();
       const previousCount = this.dynamicTools.length;
       this.dynamicTools = mapping.tools;
+      this.toolsLoaded = true;
 
       const changed = previousCount !== mapping.tools.length;
       if (changed) {
@@ -199,6 +203,29 @@ export class ArinovaMcpServer {
     }
   }
 
+  private async ensureToolsLoaded(): Promise<void> {
+    if (this.toolsLoaded) return;
+    if (this.toolLoadPromise) return this.toolLoadPromise;
+
+    this.toolLoadPromise = (async () => {
+      try {
+        await this.client.connect();
+        const mapping =
+          this.client.getToolMapping() ?? (await this.client.loadManifest());
+        this.dynamicTools = mapping.tools;
+        this.toolsLoaded = true;
+      } catch (err) {
+        logger.warn(
+          `MCP tool list requested before manifest was available: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      } finally {
+        this.toolLoadPromise = null;
+      }
+    })();
+
+    return this.toolLoadPromise;
+  }
+
   async start(): Promise<void> {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
@@ -218,6 +245,7 @@ export class ArinovaMcpServer {
     await this.client.connect();
     const mapping = await this.client.loadManifest();
     this.dynamicTools = mapping.tools;
+    this.toolsLoaded = true;
     this.server.sendToolListChanged().catch(() => {});
   }
 
@@ -232,6 +260,7 @@ export class ArinovaMcpServer {
         await this.client.connect();
         const mapping = await this.client.loadManifest();
         this.dynamicTools = mapping.tools;
+        this.toolsLoaded = true;
         this.server.sendToolListChanged().catch(() => {});
       } catch (err) {
         logger.warn(

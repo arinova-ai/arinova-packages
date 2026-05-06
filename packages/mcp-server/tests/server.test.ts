@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { McpServerConfig } from "../src/config.js";
 import { ArinovaClient, EXPECTED_ACTION_PROTOCOL_VERSION } from "../src/arinova-client.js";
+import { ArinovaMcpServer } from "../src/server.js";
 
 function makeConfig(overrides?: Partial<McpServerConfig>): McpServerConfig {
   return {
@@ -288,5 +289,48 @@ describe("ArinovaClient", () => {
         "Action timed out after 5ms",
       );
     });
+  });
+});
+
+describe("ArinovaMcpServer", () => {
+  it("loads action tools before returning the first tool list", async () => {
+    const dynamicTool = {
+      name: "arinova_message_send",
+      description: "Arinova action: arinova.message.send.",
+      inputSchema: {
+        type: "object",
+        properties: { conversationId: { type: "string" } },
+      },
+      actionName: "arinova.message.send",
+    };
+    const mapping = {
+      tools: [dynamicTool],
+      toolToAction: new Map([[dynamicTool.name, dynamicTool.actionName]]),
+      skippedActions: [],
+    };
+    const fakeClient = {
+      connect: vi.fn(async () => {}),
+      getToolMapping: vi.fn(() => mapping),
+      loadManifest: vi.fn(async () => mapping),
+      getHealthData: vi.fn(() => ({})),
+      getManifestInfo: vi.fn(() => ({})),
+      callAction: vi.fn(),
+      drain: vi.fn(),
+      disconnect: vi.fn(),
+    };
+    const server = new ArinovaMcpServer(
+      makeConfig(),
+      fakeClient as unknown as ArinovaClient,
+    );
+
+    await (server as unknown as { ensureToolsLoaded: () => Promise<void> })
+      .ensureToolsLoaded();
+    const tools = (server as unknown as { getToolList: () => Array<{ name: string }> })
+      .getToolList();
+
+    expect(fakeClient.connect).toHaveBeenCalledTimes(1);
+    expect(tools.map((tool) => tool.name)).toContain("arinova_health");
+    expect(tools.map((tool) => tool.name)).toContain("arinova_refresh_manifest");
+    expect(tools.map((tool) => tool.name)).toContain("arinova_message_send");
   });
 });
