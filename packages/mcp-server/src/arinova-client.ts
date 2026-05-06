@@ -151,6 +151,14 @@ export class ArinovaClient {
 
     await this.acquireSemaphore();
 
+    if (this.shuttingDown) {
+      this.releaseSemaphore();
+      throw new ActionExecutionError(
+        "SHUTDOWN",
+        "Server is shutting down",
+      );
+    }
+
     const actionPromise = this.executeAction(actionName, args, options);
     this.inFlightTracker.add(actionPromise);
     const cleanup = () => { this.inFlightTracker.delete(actionPromise); };
@@ -232,7 +240,8 @@ export class ArinovaClient {
 
     while (this.queue.length > 0) {
       const item = this.queue.shift()!;
-      item.reject(new ActionExecutionError("SHUTDOWN", "Server is shutting down"));
+      this.inFlight++;
+      item.resolve();
     }
 
     if (this.inFlightTracker.size === 0) return;

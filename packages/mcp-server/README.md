@@ -89,4 +89,6 @@ node packages/mcp-server/dist/cli.js --token ari_xxx --server-url wss://...
 
 ## Action Call Protocol
 
-Minimum supported protocol version: `2026-05-05` (as advertised by `@arinova-ai/agent-sdk`).
+Expected protocol version: `2026-05-05`.
+
+The `arinova_health` tool reports `protocolVersion.expected` (the version this bridge was built for) and `protocolVersion.backend` (currently always `null`). Backend version detection is not yet implemented because `@arinova-ai/agent-sdk` does not expose the protocol version from the `auth_ok` handshake. Once the SDK surfaces that field, this bridge can report it and optionally fail-closed on mismatch.

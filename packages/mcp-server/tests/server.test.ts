@@ -186,6 +186,7 @@ describe("ArinovaClient", () => {
       );
 
       const call1 = c.callAction("test", {});
+      await new Promise((r) => setTimeout(r, 0));
       const call2Rejection = c.callAction("test", {}).catch((err: Error) => err);
 
       await c.drain(5000);
@@ -203,6 +204,40 @@ describe("ArinovaClient", () => {
       await expect(client.callAction("test", {})).rejects.toThrow(
         "shutting down",
       );
+    });
+
+    it("rejects action that acquired semaphore during drain", async () => {
+      const config = makeConfig({ maxConcurrentActions: 1, actionQueueLimit: 1 });
+      const c = new ArinovaClient(config);
+      await c.connect();
+
+      const { ArinovaAgent } = await import("@arinova-ai/agent-sdk");
+      const mockAgent = vi.mocked(ArinovaAgent).mock.results.at(-1)?.value;
+      mockAgent.callAction.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  callId: "c1",
+                  action: "test",
+                  status: "success",
+                }),
+              50,
+            ),
+          ),
+      );
+
+      const call1 = c.callAction("test", {});
+      await new Promise((r) => setTimeout(r, 0));
+
+      const callRejection = c.callAction("test", {}).catch((e: Error) => e);
+      await c.drain(5000);
+      await call1;
+
+      const err = await callRejection;
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).toContain("shutting down");
     });
   });
 
