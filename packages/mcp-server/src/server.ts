@@ -11,7 +11,7 @@ import { normalizeResult, shouldReportAsError } from "./result.js";
 import { ActionExecutionError } from "./errors.js";
 import { logger } from "./logger.js";
 
-const PACKAGE_VERSION = "0.0.1-staging.0";
+const PACKAGE_VERSION = "0.0.19-staging.1";
 
 function textResult(data: unknown, isError = false) {
   return {
