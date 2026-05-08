@@ -535,11 +535,13 @@ export class ArinovaAgent {
       }
     };
 
-    this.ws.onerror = () => {
-      // WebSocket errors are followed by close events
-    };
-
-    this.ws.onclose = () => {
+    // Node 22's built-in (undici) WebSocket fires `error` without a follow-up
+    // `close` on handshake failures, so both paths must drive the reconnect
+    // flow. The flag dedupes when both events do fire (mid-session errors).
+    let terminalHandled = false;
+    const onTerminal = () => {
+      if (terminalHandled) return;
+      terminalHandled = true;
       this.cleanupForReconnect(false);
       this.emit("disconnected");
       // Skip this one close if auth retry already scheduled its own reconnect
@@ -549,6 +551,14 @@ export class ArinovaAgent {
         return;
       }
       this.scheduleReconnect();
+    };
+
+    this.ws.onerror = () => {
+      onTerminal();
+    };
+
+    this.ws.onclose = () => {
+      onTerminal();
     };
   }
 
