@@ -29,6 +29,7 @@ export type {
   ShareNoteResult,
   SkillPrompt,
   ToolCallReport,
+  TaskUpdateData,
   ActionCallOptions,
   ActionCallResult,
   ActionErrorBody,

@@ -475,6 +475,11 @@ export interface ToolCallReport {
   messageId?: string;
 }
 
+/** Data payload for task_update messages sent to the HUD. */
+export type TaskUpdateData =
+  | { status: "started"; task: string }
+  | { status: "completed"; durationMs?: number; costUsd?: number; numTurns?: number };
+
 /** Task handler function. */
 export type TaskHandler = (task: TaskContext) => void | Promise<void>;
 

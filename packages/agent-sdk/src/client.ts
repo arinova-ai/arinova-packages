@@ -36,6 +36,7 @@ import type {
   ShareNoteResult,
   SkillPrompt,
   ToolCallReport,
+  TaskUpdateData,
   ActionCallOptions,
   ActionCallResult,
 } from "./types.js";
@@ -198,8 +199,19 @@ export class ArinovaAgent {
    * Send HUD data to the server for display in the office HUD bar.
    * The server forwards this to the agent owner's frontend.
    */
-  sendHud(data: Record<string, unknown>): void {
-    this.send({ type: "hud_update", data });
+  sendHud(data: Record<string, unknown>, conversationId?: string): void {
+    const msg: Record<string, unknown> = { type: "hud_update", data };
+    if (conversationId) msg.conversationId = conversationId;
+    this.send(msg);
+  }
+
+  /**
+   * Send a task lifecycle update to the server for the HUD activity log.
+   * The server forwards this to the agent owner's frontend and persists
+   * it in activity_logs.
+   */
+  sendTaskUpdate(agentName: string, data: TaskUpdateData): void {
+    this.send({ type: "task_update", agentName, data });
   }
 
   /**
