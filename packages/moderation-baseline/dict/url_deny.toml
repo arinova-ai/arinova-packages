@@ -1,0 +1,16 @@
+[meta]
+list_name      = "url_deny"
+version        = "0.1.0-seed"
+last_updated   = "2026-05-23"
+maintained_by  = "Ripple Company / pulled via daily cron"
+review_cadence = "daily"
+source_refs    = [
+  "https://github.com/blocklistproject/Lists",
+  "https://urlhaus.abuse.ch/",
+  "https://github.com/hagezi/dns-blocklists",
+  "Built-in zh-specific: 165 NPA scam-warned URLs",
+]
+
+# Seed is intentionally empty — entries populated via daily cron PR.
+# Manual entries: Linda fast-track PR only.
+entries = []

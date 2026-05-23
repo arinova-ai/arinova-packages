@@ -1,0 +1,72 @@
+[meta]
+list_name      = "fraud_pattern"
+version        = "0.1.0-seed"
+last_updated   = "2026-05-23"
+maintained_by  = "Ripple Company / Iris (seed) → Hank (extend)"
+review_cadence = "monthly"
+source_refs    = [
+  "https://165.npa.gov.tw/ (Taiwan National Anti-Fraud Center)",
+  "中國反詐中心 公開案例集",
+]
+
+# All entries are regex patterns; severity="block" applies=["voice_tts.input"]
+
+[[entries]]
+pattern  = '代收驗證碼'
+category = "phishing"
+severity = "block"
+applies  = ["voice_tts.input"]
+
+[[entries]]
+pattern  = '你的(包裹|快遞).*(滯留|海關|簽收)'
+category = "parcel-fraud"
+severity = "block"
+applies  = ["voice_tts.input"]
+
+[[entries]]
+pattern  = '(銀聯|銀行卡).*(凍結|異常|盜刷)'
+category = "bank-fraud"
+severity = "block"
+applies  = ["voice_tts.input"]
+
+[[entries]]
+pattern  = 'ATM.*(操作|解除|設定)'
+category = "atm-fraud"
+severity = "block"
+applies  = ["voice_tts.input"]
+
+[[entries]]
+pattern  = '(刑事局|地檢署|警察局).*(傳喚|偵辦|涉嫌)'
+category = "impersonation-authority"
+severity = "block"
+applies  = ["voice_tts.input"]
+
+[[entries]]
+pattern  = '(健保署|衛福部).*(個資|外洩|健保卡)'
+category = "impersonation-gov"
+severity = "block"
+applies  = ["voice_tts.input"]
+
+[[entries]]
+pattern  = '(投資|股票|虛擬貨幣).*(老師|穩賺|內線)'
+category = "investment-fraud"
+severity = "block"
+applies  = ["voice_tts.input"]
+
+[[entries]]
+pattern  = '(交友|戀愛).*(匯款|借錢|急用)'
+category = "romance-fraud"
+severity = "block"
+applies  = ["voice_tts.input"]
+
+[[entries]]
+pattern  = '(中獎|抽中|得獎).*(手續費|稅金|匯款)'
+category = "lottery-fraud"
+severity = "block"
+applies  = ["voice_tts.input"]
+
+[[entries]]
+pattern  = '(蝦皮|momo|PChome).*(訂單錯誤|分期付款|改設定)'
+category = "ecommerce-fraud"
+severity = "block"
+applies  = ["voice_tts.input"]

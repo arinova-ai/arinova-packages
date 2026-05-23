@@ -1,0 +1,131 @@
+[meta]
+list_name      = "ip_keyword"
+version        = "0.1.0-seed"
+last_updated   = "2026-05-23"
+maintained_by  = "Ripple Company / Iris (seed) → Hank (extend)"
+review_cadence = "monthly"
+
+# Disney / Pixar
+[[entries]]
+key      = "米老鼠"
+aliases  = ["Mickey Mouse"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+[[entries]]
+key      = "迪士尼"
+aliases  = ["Disney"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "warn"
+applies  = ["image_gen.input"]
+note     = "brand name — warn rather than block; combinations with character names = block"
+
+[[entries]]
+key      = "冰雪奇緣"
+aliases  = ["Frozen", "Elsa", "艾莎"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+[[entries]]
+key      = "玩具總動員"
+aliases  = ["Toy Story", "Woody", "Buzz"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+# Marvel / DC
+[[entries]]
+key      = "鋼鐵人"
+aliases  = ["Iron Man", "Tony Stark"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+[[entries]]
+key      = "蜘蛛人"
+aliases  = ["Spider-Man", "Peter Parker"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+[[entries]]
+key      = "蝙蝠俠"
+aliases  = ["Batman"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+[[entries]]
+key      = "超人"
+aliases  = ["Superman"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+# Nintendo
+[[entries]]
+key      = "瑪利歐"
+aliases  = ["Mario", "Super Mario"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+[[entries]]
+key      = "皮卡丘"
+aliases  = ["Pikachu"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+[[entries]]
+key      = "寶可夢"
+aliases  = ["Pokémon", "神奇寶貝"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+[[entries]]
+key      = "薩爾達"
+aliases  = ["Zelda", "Link"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+# Studio Ghibli
+[[entries]]
+key      = "龍貓"
+aliases  = ["Totoro"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+[[entries]]
+key      = "神隱少女"
+aliases  = ["Spirited Away"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+[[entries]]
+key      = "魔女宅急便"
+aliases  = ["Kiki's Delivery Service"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+# Sanrio
+[[entries]]
+key      = "Hello Kitty"
+aliases  = ["凱蒂貓"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]
+
+[[entries]]
+key      = "美樂蒂"
+aliases  = ["My Melody"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input"]

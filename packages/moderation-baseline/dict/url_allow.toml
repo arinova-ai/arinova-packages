@@ -1,0 +1,42 @@
+[meta]
+list_name      = "url_allow"
+version        = "0.1.0-seed"
+last_updated   = "2026-05-23"
+maintained_by  = "Ripple Company / Iris (seed) → Hank (extend)"
+review_cadence = "monthly"
+
+[[entries]]
+domain   = "wikipedia.org"
+category = "encyclopedia"
+severity = "allow"
+applies  = ["web_search.output"]
+
+[[entries]]
+domain   = "github.com"
+category = "code"
+severity = "allow"
+applies  = ["web_search.output"]
+
+[[entries]]
+domain   = "arxiv.org"
+category = "academic"
+severity = "allow"
+applies  = ["web_search.output"]
+
+[[entries]]
+domain   = "nih.gov"
+category = "medical-official"
+severity = "allow"
+applies  = ["web_search.output"]
+
+[[entries]]
+domain   = "who.int"
+category = "medical-official"
+severity = "allow"
+applies  = ["web_search.output"]
+
+[[entries]]
+domain   = "stackoverflow.com"
+category = "dev-qa"
+severity = "allow"
+applies  = ["web_search.output"]

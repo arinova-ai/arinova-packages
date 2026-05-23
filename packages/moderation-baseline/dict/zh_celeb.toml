@@ -1,0 +1,146 @@
+[meta]
+list_name      = "zh_celeb"
+version        = "0.1.0-seed"
+last_updated   = "2026-05-23"
+maintained_by  = "Ripple Company / Iris (seed) → Hank (extend)"
+review_cadence = "monthly"
+
+# Entertainment — Mandopop / Cantopop
+[[entries]]
+key      = "周杰倫"
+aliases  = ["Jay Chou", "周董"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+[[entries]]
+key      = "蔡依林"
+aliases  = ["Jolin Tsai"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+[[entries]]
+key      = "鄧麗君"
+aliases  = ["Teresa Teng"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+note     = "deceased — voice cloning particularly sensitive"
+
+[[entries]]
+key      = "王力宏"
+aliases  = ["Wang Leehom"]
+locale   = ["zh-TW", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+[[entries]]
+key      = "張學友"
+aliases  = ["Jacky Cheung"]
+locale   = ["zh-HK", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+[[entries]]
+key      = "劉德華"
+aliases  = ["Andy Lau"]
+locale   = ["zh-HK", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+[[entries]]
+key      = "林憶蓮"
+aliases  = ["Sandy Lam"]
+locale   = ["zh-HK", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+# Film
+[[entries]]
+key      = "成龍"
+aliases  = ["Jackie Chan"]
+locale   = ["zh-HK", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+[[entries]]
+key      = "李安"
+aliases  = ["Ang Lee"]
+locale   = ["zh-TW", "en"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+[[entries]]
+key      = "梁朝偉"
+aliases  = ["Tony Leung"]
+locale   = ["zh-HK", "zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+# Politics — generic block (consent always required)
+[[entries]]
+key      = "蔡英文"
+locale   = ["zh-TW"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+[[entries]]
+key      = "賴清德"
+locale   = ["zh-TW"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+[[entries]]
+key      = "馬英九"
+locale   = ["zh-TW"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+[[entries]]
+key      = "習近平"
+locale   = ["zh-CN"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+# Business / Tech
+[[entries]]
+key      = "郭台銘"
+aliases  = ["Terry Gou"]
+locale   = ["zh-TW", "en"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+[[entries]]
+key      = "張忠謀"
+aliases  = ["Morris Chang"]
+locale   = ["zh-TW", "en"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+[[entries]]
+key      = "馬雲"
+aliases  = ["Jack Ma"]
+locale   = ["zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+[[entries]]
+key      = "馬化騰"
+aliases  = ["Pony Ma"]
+locale   = ["zh-CN", "en"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+# Religious figures (impersonation = high abuse risk)
+[[entries]]
+key      = "達賴喇嘛"
+locale   = ["zh-TW", "zh-CN"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
+
+[[entries]]
+key      = "證嚴法師"
+locale   = ["zh-TW"]
+severity = "block"
+applies  = ["image_gen.input", "voice_tts.input"]
