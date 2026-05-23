@@ -1,0 +1,38 @@
+[meta]
+list_name      = "minor_safety_zh"
+version        = "0.1.0-seed"
+last_updated   = "2026-05-23"
+maintained_by  = "Iris (seed §8.5) → triple-sign gate (Iris + Casey + Linda)"
+review_cadence = "quarterly"
+review_gate    = "iris+casey+linda triple-sign"
+source_refs    = [
+  "Taiwan 113 婦幼保護專線 reference categories",
+  "INHOPE pattern guidance (private channel)",
+  "Internet Watch Foundation (IWF) keyword categories — request access via Linda → legal",
+]
+
+# Pattern families only — regex stubs.
+# Full term enumeration lives in a private submodule with restricted ACL
+# (Iris + Casey + Linda + Hank); not in this file. See dict/README.md
+# `minor_safety_zh` section and card SKILLS-PKG-MODERATION-MINOR-SAFETY-ZH
+# (749cee53) for the triple-sign gate audit trail.
+
+[[entries]]
+family       = "age-marker + sexual-context"
+pattern_stub = '(幾歲|小學|國中|未成年).*(\b裸|脫|私處|親密)'
+category     = "csam-prompt-attempt"
+severity     = "block"
+audit        = "hard-flag — full audit log + escalation to Linda"
+
+[[entries]]
+family       = "grooming-script-private-contact"
+pattern_stub = '(別告訴|秘密|不要跟|爸爸媽媽不知道).*(line|微信|私訊|聯絡)'
+category     = "grooming-script"
+severity     = "block"
+
+[[entries]]
+family       = "material-request-targeting-minor"
+pattern_stub = '(傳|拍|給我看).*(學校|制服|放學後)'
+category     = "material-request"
+severity     = "review"
+audit        = "soft-flag — human moderation review"

@@ -18,12 +18,15 @@ type Meta = {
 type Entry = {
   key?: string;
   pattern?: string;
+  pattern_stub?: string;
   domain?: string;
+  family?: string;
   aliases?: string[];
   locale?: string[];
   category?: string;
   severity?: string;
   applies?: string[];
+  audit?: string;
   note?: string;
 };
 
@@ -34,7 +37,7 @@ type Dict = {
 
 const VERSION_RE = /^\d+\.\d+\.\d+(?:-[\w.-]+)?$/;
 const VALID_SEVERITIES = new Set(["block", "warn", "review", "allow"]);
-const ENTRY_DISCRIMINATORS = ["key", "pattern", "domain"] as const;
+const ENTRY_DISCRIMINATORS = ["key", "pattern", "pattern_stub", "domain"] as const;
 
 function loadDict(file: string): Dict {
   const raw = readFileSync(join(DICT_DIR, file), "utf-8");
@@ -44,10 +47,11 @@ function loadDict(file: string): Dict {
 const dictFiles = readdirSync(DICT_DIR).filter((f) => extname(f) === ".toml").sort();
 
 describe("moderation-baseline/dict — schema validation", () => {
-  it("ships the expected 5 seed dict files", () => {
+  it("ships the expected 6 seed dict files", () => {
     expect(dictFiles).toEqual([
       "fraud_pattern.toml",
       "ip_keyword.toml",
+      "minor_safety_zh.toml",
       "url_allow.toml",
       "url_deny.toml",
       "zh_celeb.toml",
@@ -124,6 +128,65 @@ describe("moderation-baseline/dict — schema validation", () => {
     });
     it("url_deny is empty (pull-only seed)", () => {
       expect(loadDict("url_deny.toml").entries ?? []).toEqual([]);
+    });
+    it("minor_safety_zh has 3 pattern-family stub entries (Iris §8.5 verbatim)", () => {
+      expect(loadDict("minor_safety_zh.toml").entries?.length).toBe(3);
+    });
+  });
+
+  describe("AC3 — minor_safety_zh.toml triple-sign gate (Casey static-grep)", () => {
+    const dict = loadDict("minor_safety_zh.toml");
+    const entries = dict.entries ?? [];
+    const ALLOWED_ENTRY_FIELDS = new Set([
+      "family",
+      "pattern_stub",
+      "category",
+      "severity",
+      "audit",
+    ]);
+    const FORBIDDEN_ENUMERATION_FIELDS = [
+      "terms",
+      "keywords",
+      "aliases",
+      "examples",
+      "phrases",
+      "synonyms",
+      "key",
+      "pattern",
+      "domain",
+    ];
+
+    it("contains exactly the three approved Iris §8.5 families", () => {
+      expect(entries.map((e) => e.family)).toEqual([
+        "age-marker + sexual-context",
+        "grooming-script-private-contact",
+        "material-request-targeting-minor",
+      ]);
+    });
+
+    it.each(entries.map((e, i) => [i, e] as const))(
+      "entry[%i] uses only approved fields (no explicit term enumeration)",
+      (_i, entry) => {
+        for (const k of Object.keys(entry)) {
+          expect(ALLOWED_ENTRY_FIELDS.has(k)).toBe(true);
+        }
+      },
+    );
+
+    it.each(FORBIDDEN_ENUMERATION_FIELDS)(
+      "no entry carries forbidden enumeration field %s",
+      (field) => {
+        for (const entry of entries) {
+          expect(entry).not.toHaveProperty(field);
+        }
+      },
+    );
+
+    it("raw file contains no `aliases = [` / `keywords = [` / `terms = [` markers", () => {
+      const raw = readFileSync(join(DICT_DIR, "minor_safety_zh.toml"), "utf-8");
+      for (const marker of ["aliases", "keywords", "terms", "examples", "phrases", "synonyms"]) {
+        expect(raw).not.toMatch(new RegExp(`\\b${marker}\\s*=\\s*\\[`));
+      }
     });
   });
 });

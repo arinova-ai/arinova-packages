@@ -42,6 +42,29 @@ Retention: 90 days (per Linda 2026-05-23 verdict; Web PRD §15 Q11).
 | `dict/zh_celeb.toml`         | Iris seed §8.2; Wikipedia category diff extension | block |
 | `dict/ip_keyword.toml`       | Iris seed §8.3; press kits + JPO trademark DB     | block / warn |
 | `dict/fraud_pattern.toml`    | 165 NPA + 中國反詐中心 monthly                    | block |
-| `dict/minor_safety_zh.toml`  | TRIPLE-SIGN GATE — private submodule (separate card) | block / review |
+| `dict/minor_safety_zh.toml`  | Iris seed §8.5 — 3 pattern-family stubs only (triple-sign gate); full enumeration in private submodule | block / review |
 | `dict/url_deny.toml`         | Daily cron (abuse.ch + blocklistproject + hagezi) | block |
 | `dict/url_allow.toml`        | Curated whitelist (Wikipedia / GitHub / .gov / arxiv etc) | allow |
+
+## `minor_safety_zh` special handling
+
+`dict/minor_safety_zh.toml` is gated by a triple-sign process (Iris + Casey +
+Linda must all ACK on the owning Kanban card before edits land). The file is
+intentionally limited to **pattern-family regex stubs** only — three entries,
+each carrying `family` / `pattern_stub` / `category` / `severity` / `audit`.
+
+Explicit term enumeration (synonyms, keyword lists, alias arrays, example
+phrases) MUST NOT appear in this file. Casey's static-grep AC3 is enforced
+both as a manual review and via the schema test suite
+(`tests/schema.test.ts` → "AC3 — minor_safety_zh.toml triple-sign gate").
+
+Full term enumeration lives in a **private submodule** with restricted ACL
+(Iris + Casey + Linda + Hank); Linda owns ACL setup via the legal review path
+(INHOPE / IWF source access via ripple0129 → legal). Coordinate via card
+`SKILLS-PKG-MODERATION-MINOR-SAFETY-ZH` (`749cee53`) and the follow-up card
+opened once legal access is established.
+
+The `audit` field on each entry indicates expected log severity in the
+moderation pipeline (hard-flag → full audit log + Linda escalation; soft-flag
+→ human moderation review). Pipeline-side consumption of `audit` is tracked
+in card `SKILLS-MODERATION-PIPELINE` (`71b36eea`).
