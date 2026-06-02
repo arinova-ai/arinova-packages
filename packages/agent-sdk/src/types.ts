@@ -483,10 +483,18 @@ export type TaskUpdateData =
 /** Task handler function. */
 export type TaskHandler = (task: TaskContext) => void | Promise<void>;
 
+/** Data emitted when an onboarding claim token is exchanged for a permanent token. */
+export interface TokenClaimedData {
+  agentId: string;
+  permanentToken: string;
+}
+
 /** Agent lifecycle event types. */
-export type AgentEvent = "connected" | "disconnected" | "error" | "auth_failed";
+export type AgentEvent = "connected" | "disconnected" | "error" | "auth_failed" | "token_claimed";
 
 /** Event listener signatures. */
 export type AgentEventListener<T extends AgentEvent> = T extends "error"
   ? (error: Error) => void
-  : () => void;
+  : T extends "token_claimed"
+    ? (data: TokenClaimedData) => void
+    : () => void;

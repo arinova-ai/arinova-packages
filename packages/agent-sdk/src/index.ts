@@ -34,4 +34,5 @@ export type {
   ActionCallResult,
   ActionErrorBody,
   ActionConfirmationPayload,
+  TokenClaimedData,
 } from "./types.js";

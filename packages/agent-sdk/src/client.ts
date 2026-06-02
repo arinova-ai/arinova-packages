@@ -55,7 +55,7 @@ const AUTH_ERROR_MAX_DELAY = 60_000;
 
 export class ArinovaAgent {
   private readonly serverUrl: string;
-  private readonly botToken: string;
+  private botToken: string;
   private readonly skills: AgentSkill[];
   private readonly reconnectInterval: number;
   private readonly pingInterval: number;
@@ -102,6 +102,7 @@ export class ArinovaAgent {
     disconnected: [],
     error: [],
     auth_failed: [],
+    token_claimed: [],
   };
 
   // Used to resolve/reject the connect() promise on first auth
@@ -129,6 +130,11 @@ export class ArinovaAgent {
   on<T extends AgentEvent>(event: T, listener: AgentEventListener<T>): this {
     this.listeners[event]?.push(listener as (...args: unknown[]) => void);
     return this;
+  }
+
+  /** Returns the agent ID assigned by the server after successful auth. */
+  getAgentId(): string | null {
+    return this.agentId;
   }
 
   /**
@@ -272,6 +278,7 @@ export class ArinovaAgent {
 
   private emit(event: "connected" | "disconnected" | "auth_failed"): void;
   private emit(event: "error", error: Error): void;
+  private emit(event: "token_claimed", data: { agentId: string | null; permanentToken: string }): void;
   private emit(event: string, ...args: unknown[]): void {
     for (const listener of this.listeners[event] ?? []) {
       listener(...args);
@@ -463,6 +470,12 @@ export class ArinovaAgent {
 
         if (data.type === "auth_ok") {
           this.agentId = data.agentId ?? null;
+
+          if (data.permanentToken) {
+            this.botToken = data.permanentToken;
+            this.emit("token_claimed", { agentId: this.agentId, permanentToken: data.permanentToken });
+          }
+
           this.emit("connected");
 
           // Register SDK runtime commands from skills
