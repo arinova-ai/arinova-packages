@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   output: vi.fn(),
   patch: vi.fn(),
+  post: vi.fn(),
   printError: vi.fn(),
   printResult: vi.fn(),
   printSuccess: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("../client.js", () => ({
   del: mocks.del,
   get: mocks.get,
   patch: mocks.patch,
+  post: mocks.post,
   uploadMultipart: mocks.uploadMultipart,
 }));
 
@@ -42,7 +44,10 @@ vi.mock("../output.js", () => ({
 }));
 
 const { registerFileCommands } = await import("./file.js");
+const { registerCommunity } = await import("./community.js");
+const { registerExpert } = await import("./expert.js");
 const { registerKanbanCommands } = await import("./kanban.js");
+const { registerPainterCommands } = await import("./painter.js");
 const { registerTheme } = await import("./theme.js");
 
 const tempDirs: string[] = [];
@@ -62,6 +67,7 @@ describe("CLI command API request shapes", () => {
     mocks.del.mockResolvedValue({});
     mocks.get.mockResolvedValue([]);
     mocks.patch.mockResolvedValue({ ok: true });
+    mocks.post.mockResolvedValue({ ok: true });
     mocks.uploadMultipart.mockResolvedValue({ ok: true });
   });
 
@@ -103,6 +109,138 @@ describe("CLI command API request shapes", () => {
     expect(mocks.output).toHaveBeenCalledWith([
       { id: "abcd1234", title: "First", description: "" },
     ]);
+  });
+
+  it("kanban label create sends board label request body", async () => {
+    const program = createProgram(registerKanbanCommands);
+
+    await program.parseAsync([
+      "node",
+      "arinova",
+      "kanban",
+      "label",
+      "create",
+      "--board-id",
+      "board-1",
+      "--name",
+      "Bug",
+      "--color",
+      "#ef4444",
+    ]);
+
+    expect(mocks.apiCall).toHaveBeenCalledWith({
+      method: "POST",
+      url: "https://api.example.test/api/v1/kanban/boards/board-1/labels",
+      token: "ari_cli_token",
+      body: { name: "Bug", color: "#ef4444" },
+    });
+  });
+
+  it("painter create parses price amount and sends album request body", async () => {
+    const program = createProgram(registerPainterCommands);
+
+    await program.parseAsync([
+      "node",
+      "arinova",
+      "painter",
+      "create",
+      "--name",
+      "Watercolor",
+      "--description",
+      "Soft style",
+      "--category",
+      "watercolor",
+      "--price-type",
+      "credits",
+      "--price-amount",
+      "12",
+    ]);
+
+    expect(mocks.apiCall).toHaveBeenCalledWith({
+      method: "POST",
+      url: "https://api.example.test/api/painter/albums",
+      token: "ari_cli_token",
+      body: {
+        name: "Watercolor",
+        description: "Soft style",
+        category: "watercolor",
+        priceType: "credits",
+        priceAmount: 12,
+      },
+    });
+  });
+
+  it("painter stats formats album statistics output", async () => {
+    mocks.apiCall.mockResolvedValueOnce({
+      name: "Watercolor",
+      generationCount: 3,
+      ratingAvg: 4.5,
+      images: [{ id: "img-1" }, { id: "img-2" }],
+      isPublic: true,
+      priceType: "credits",
+      category: "watercolor",
+    });
+    const program = createProgram(registerPainterCommands);
+
+    await program.parseAsync(["node", "arinova", "painter", "stats", "--id", "album-1"]);
+
+    expect(mocks.output).toHaveBeenCalledWith({
+      name: "Watercolor",
+      generationCount: 3,
+      ratingAvg: 4.5,
+      imageCount: 2,
+      isPublic: true,
+      priceType: "credits",
+      category: "watercolor",
+    });
+  });
+
+  it("expert create sends creator agent request body and maps errors", async () => {
+    const program = createProgram(registerExpert);
+
+    await program.parseAsync([
+      "node",
+      "arinova",
+      "expert",
+      "create",
+      "--name",
+      "Support Bot",
+      "--description",
+      "Answers tickets",
+      "--category",
+      "support",
+      "--model",
+      "gpt-4o",
+      "--system-prompt",
+      "Be concise",
+    ]);
+
+    expect(mocks.post).toHaveBeenCalledWith("/api/v1/creator/agents/create", {
+      agent_name: "Support Bot",
+      description: "Answers tickets",
+      category: "support",
+      model: "gpt-4o",
+      system_prompt: "Be concise",
+    });
+
+    const error = new Error("create failed");
+    mocks.post.mockRejectedValueOnce(error);
+    await program.parseAsync(["node", "arinova", "expert", "create", "--name", "Broken"]);
+    expect(mocks.printError).toHaveBeenCalledWith(error);
+  });
+
+  it("community add-agent sends request body and lounge unpublish patches status", async () => {
+    const program = createProgram(registerCommunity);
+
+    await program.parseAsync(["node", "arinova", "community", "add-agent", "community-1", "agent-1"]);
+    await program.parseAsync(["node", "arinova", "lounge", "unpublish", "lounge-1"]);
+
+    expect(mocks.post).toHaveBeenCalledWith("/api/v1/communities/community-1/agents", {
+      agent_id: "agent-1",
+    });
+    expect(mocks.patch).toHaveBeenCalledWith("/api/v1/communities/lounge-1", {
+      status: "draft",
+    });
   });
 
   it("theme upload sends manifest and bundle as multipart fields", async () => {
