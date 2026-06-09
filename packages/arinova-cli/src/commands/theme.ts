@@ -14,6 +14,24 @@ import { basename, join, extname, resolve } from "node:path";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { execSync } from "node:child_process";
 
+function readThemeManifest(filePath: string): Buffer {
+  const manifestData = readFileSync(filePath);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(manifestData.toString("utf-8"));
+  } catch {
+    throw new Error(`Invalid theme manifest JSON: ${filePath}`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Invalid theme manifest: expected JSON object in ${filePath}`);
+  }
+  return manifestData;
+}
+
+function blobPartFromBuffer(data: Buffer): ArrayBuffer {
+  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+}
+
 export function registerTheme(program: Command): void {
   const theme = program.command("theme").description("Theme management");
 
@@ -48,13 +66,13 @@ export function registerTheme(program: Command): void {
       try {
         if (!existsSync(manifestFile)) { printError(new Error(`File not found: ${manifestFile}`)); return; }
         if (bundleFile && !existsSync(bundleFile)) { printError(new Error(`File not found: ${bundleFile}`)); return; }
-        const manifestData = readFileSync(manifestFile);
+        const manifestData = readThemeManifest(manifestFile);
         const fields: Record<string, string | Blob> = {
-          manifest: new Blob([manifestData], { type: "application/json" }),
+          manifest: new Blob([blobPartFromBuffer(manifestData)], { type: "application/json" }),
         };
         if (bundleFile) {
           const bundleData = readFileSync(bundleFile);
-          fields.bundle = new Blob([bundleData], { type: "application/zip" });
+          fields.bundle = new Blob([blobPartFromBuffer(bundleData)], { type: "application/zip" });
         }
         const data = await uploadMultipart("/api/v1/themes/upload", fields);
         printResult(data);
@@ -70,13 +88,13 @@ export function registerTheme(program: Command): void {
       try {
         if (!existsSync(manifestFile)) { printError(new Error(`File not found: ${manifestFile}`)); return; }
         if (bundleFile && !existsSync(bundleFile)) { printError(new Error(`File not found: ${bundleFile}`)); return; }
-        const manifestData = readFileSync(manifestFile);
+        const manifestData = readThemeManifest(manifestFile);
         const fields: Record<string, string | Blob> = {
-          manifest: new Blob([manifestData], { type: "application/json" }),
+          manifest: new Blob([blobPartFromBuffer(manifestData)], { type: "application/json" }),
         };
         if (bundleFile) {
           const bundleData = readFileSync(bundleFile);
-          fields.bundle = new Blob([bundleData], { type: "application/zip" });
+          fields.bundle = new Blob([blobPartFromBuffer(bundleData)], { type: "application/zip" });
         }
         const data = await uploadMultipart(`/api/themes/${id}`, fields, "PUT");
         printResult(data);
