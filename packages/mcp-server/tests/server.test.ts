@@ -290,9 +290,94 @@ describe("ArinovaClient", () => {
       );
     });
   });
+
+  describe("HTTP action call request", () => {
+    it("sends JSON-only action call body with auth headers and context options", async () => {
+      let capturedInit: RequestInit | undefined;
+      installFetchMock(async (_input, init) => {
+        capturedInit = init;
+        return jsonResponse({
+          type: "action_result",
+          id: "call-fixed",
+          action: "arinova.message.send",
+          status: "success",
+          result: { messageId: "msg-1" },
+          traceId: "trace-1",
+          actionVersion: "1.2.3",
+          dryRun: true,
+        });
+      });
+      await client.connect();
+
+      const result = await client.callAction(
+        "arinova.message.send",
+        { conversationId: "conv-1", content: "hello" },
+        {
+          callId: "call-fixed",
+          taskId: "task-1",
+          conversationId: "conv-1",
+          messageId: "msg-1",
+          parentCallId: "parent-1",
+          reason: "test",
+          metadata: { source: "vitest" },
+          dryRun: true,
+        },
+      );
+
+      expect(capturedInit?.method).toBe("POST");
+      expect(capturedInit?.headers).toEqual({
+        Authorization: "Bearer ari_test",
+        "Content-Type": "application/json",
+      });
+      expect(capturedInit?.body).toBe(JSON.stringify({
+        type: "action_call",
+        id: "call-fixed",
+        taskId: "task-1",
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        action: "arinova.message.send",
+        arguments: { conversationId: "conv-1", content: "hello" },
+        dryRun: true,
+        reason: "test",
+        metadata: { source: "vitest" },
+        parentCallId: "parent-1",
+      }));
+      expect(result).toEqual({
+        callId: "call-fixed",
+        action: "arinova.message.send",
+        status: "success",
+        result: { messageId: "msg-1" },
+        error: undefined,
+        confirmation: undefined,
+        traceId: "trace-1",
+        actionVersion: "1.2.3",
+        dryRun: true,
+      });
+    });
+
+    it("normalizes non-JSON HTTP errors into ActionExecutionError", async () => {
+      installFetchMock(async () => new Response("bad gateway", {
+        status: 502,
+        statusText: "Bad Gateway",
+      }));
+      await client.connect();
+
+      await expect(client.callAction("arinova.message.send", {})).rejects.toMatchObject({
+        code: "HTTP_ACTION_CALL_FAILED",
+        message: "bad gateway",
+      });
+    });
+  });
 });
 
 describe("ArinovaMcpServer", () => {
+  function parseTextResult(result: { content: Array<{ text: string }>; isError?: boolean }) {
+    return {
+      body: JSON.parse(result.content[0].text) as Record<string, unknown>,
+      isError: result.isError,
+    };
+  }
+
   it("loads action tools before returning the first tool list", async () => {
     const dynamicTool = {
       name: "arinova_message_send",
@@ -332,5 +417,102 @@ describe("ArinovaMcpServer", () => {
     expect(tools.map((tool) => tool.name)).toContain("arinova_health");
     expect(tools.map((tool) => tool.name)).toContain("arinova_refresh_manifest");
     expect(tools.map((tool) => tool.name)).toContain("arinova_message_send");
+  });
+
+  it("maps registered tool calls to action calls with max execution timeout", async () => {
+    const dynamicTool = {
+      name: "arinova_message_send",
+      description: "Arinova action: arinova.message.send.",
+      inputSchema: { type: "object", properties: {} },
+      actionName: "arinova.message.send",
+      maxExecutionMs: 1234,
+    };
+    const fakeClient = {
+      getHealthData: vi.fn(() => ({})),
+      getManifestInfo: vi.fn(() => ({})),
+      callAction: vi.fn(async () => ({
+        callId: "call-1",
+        action: "arinova.message.send",
+        status: "success",
+        result: { messageId: "msg-1" },
+      })),
+      drain: vi.fn(),
+      disconnect: vi.fn(),
+    };
+    const server = new ArinovaMcpServer(
+      makeConfig(),
+      fakeClient as unknown as ArinovaClient,
+    );
+    (server as unknown as { dynamicTools: unknown[] }).dynamicTools = [dynamicTool];
+
+    const result = await (server as unknown as {
+      handleToolCall: (
+        name: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
+    }).handleToolCall("arinova_message_send", { content: "hello" });
+
+    expect(fakeClient.callAction).toHaveBeenCalledWith(
+      "arinova.message.send",
+      { content: "hello" },
+      { timeoutMs: 1234 },
+    );
+    expect(parseTextResult(result)).toEqual({
+      body: {
+        ok: true,
+        status: "success",
+        action: "arinova.message.send",
+        callId: "call-1",
+        result: { messageId: "msg-1" },
+      },
+      isError: undefined,
+    });
+  });
+
+  it("rejects unknown tools and oversized arguments before calling the client", async () => {
+    const fakeClient = {
+      getHealthData: vi.fn(() => ({})),
+      getManifestInfo: vi.fn(() => ({})),
+      callAction: vi.fn(),
+      drain: vi.fn(),
+      disconnect: vi.fn(),
+    };
+    const server = new ArinovaMcpServer(
+      makeConfig(),
+      fakeClient as unknown as ArinovaClient,
+    );
+    (server as unknown as { dynamicTools: unknown[] }).dynamicTools = [{
+      name: "arinova_small",
+      description: "Small args",
+      inputSchema: { type: "object", properties: {} },
+      actionName: "arinova.small",
+      maxArgumentsBytes: 8,
+    }];
+
+    const unknown = await (server as unknown as {
+      handleToolCall: (
+        name: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
+    }).handleToolCall("missing_tool", {});
+    const oversized = await (server as unknown as {
+      handleToolCall: (
+        name: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
+    }).handleToolCall("arinova_small", { value: "too long" });
+
+    expect(parseTextResult(unknown)).toMatchObject({
+      body: { error: { code: "UNKNOWN_TOOL" } },
+      isError: true,
+    });
+    expect(parseTextResult(oversized)).toMatchObject({
+      body: {
+        action: "arinova.small",
+        error: { code: "ARGUMENTS_TOO_LARGE" },
+      },
+      isError: true,
+    });
+    expect(fakeClient.callAction).not.toHaveBeenCalled();
   });
 });
