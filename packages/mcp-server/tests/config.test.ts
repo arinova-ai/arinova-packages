@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { parseConfig, deriveApiUrl } from "../src/config.js";
+import { parseConfig, deriveApiUrl, redactConfig } from "../src/config.js";
 
 describe("deriveApiUrl", () => {
   it("converts wss: to https:", () => {
@@ -86,6 +86,15 @@ describe("parseConfig", () => {
     expect(config.apiUrlDerived).toBe(false);
   });
 
+  it("CLI log level overrides env log level and invalid CLI value is ignored", () => {
+    process.env.ARINOVA_BOT_TOKEN = "ari_env";
+    process.env.ARINOVA_SERVER_URL = "wss://env.example.com";
+    process.env.ARINOVA_LOG_LEVEL = "error";
+
+    expect(parseConfig(["--log-level", "debug"]).logLevel).toBe("debug");
+    expect(parseConfig(["--log-level", "verbose"]).logLevel).toBe("error");
+  });
+
   it("strips trailing slashes from URLs", () => {
     process.env.ARINOVA_BOT_TOKEN = "ari_test";
     process.env.ARINOVA_SERVER_URL = "wss://chat.example.com///";
@@ -141,6 +150,20 @@ describe("parseConfig", () => {
     expect(config.maxConcurrentActions).toBe(4);
   });
 
+  it("parses positive queue and timeout env vars", () => {
+    process.env.ARINOVA_BOT_TOKEN = "ari_test";
+    process.env.ARINOVA_SERVER_URL = "wss://chat.example.com";
+    process.env.ARINOVA_ACTION_TIMEOUT_MS = "1500";
+    process.env.ARINOVA_MAX_CONCURRENT_ACTIONS = "8";
+    process.env.ARINOVA_ACTION_QUEUE_LIMIT = "64";
+
+    const config = parseConfig([]);
+
+    expect(config.actionTimeoutMs).toBe(1500);
+    expect(config.maxConcurrentActions).toBe(8);
+    expect(config.actionQueueLimit).toBe(64);
+  });
+
   it("parses valid log level from env", () => {
     process.env.ARINOVA_BOT_TOKEN = "ari_test";
     process.env.ARINOVA_SERVER_URL = "wss://chat.example.com";
@@ -159,5 +182,30 @@ describe("parseConfig", () => {
     const config = parseConfig([]);
 
     expect(config.logLevel).toBe("warn");
+  });
+
+  it("redacts bot token while preserving operational config fields", () => {
+    const config = parseConfig([
+      "--token",
+      "ari_secret",
+      "--server-url",
+      "wss://chat.example.com",
+      "--strict-startup",
+      "--log-level",
+      "info",
+    ]);
+
+    expect(redactConfig(config)).toEqual({
+      serverUrl: "wss://chat.example.com",
+      apiUrl: "https://chat.example.com",
+      apiUrlDerived: true,
+      transport: "stdio",
+      actionTimeoutMs: 60000,
+      startupMode: "strict",
+      maxConcurrentActions: 4,
+      actionQueueLimit: 32,
+      logLevel: "info",
+      botToken: "***",
+    });
   });
 });

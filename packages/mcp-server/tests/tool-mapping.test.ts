@@ -102,7 +102,7 @@ describe("mapManifestToTools", () => {
     );
   });
 
-  it("filters removed actions", () => {
+  it("filters removed actions from tool registration", () => {
     const manifest: ActionManifest = {
       manifestVersion: "1.0.0",
       actions: [
@@ -124,6 +124,8 @@ describe("mapManifestToTools", () => {
 
     expect(mapping.tools).toHaveLength(1);
     expect(mapping.tools[0].actionName).toBe("arinova.new.action");
+    expect(mapping.toolToAction.has("arinova_old_action")).toBe(false);
+    expect(mapping.skippedActions).toEqual([]);
   });
 
   it("skips actions without inputSchema", () => {

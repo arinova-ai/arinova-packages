@@ -148,6 +148,38 @@ describe("fetchManifest", () => {
     ).rejects.toThrow("missing manifestVersion");
   });
 
+  it("throws on missing actions array", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        json: () => Promise.resolve({ manifestVersion: "1", actions: null }),
+      }),
+    );
+
+    await expect(
+      fetchManifest("https://api.example.com", "ari_test"),
+    ).rejects.toThrow("missing actions array");
+  });
+
+  it("throws before parsing manifests that exceed the size limit", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Map([["content-length", String(11 * 1024 * 1024)]]),
+        json: vi.fn(),
+      }),
+    );
+
+    await expect(
+      fetchManifest("https://api.example.com", "ari_test"),
+    ).rejects.toThrow("Manifest too large");
+  });
+
   it("skips actions without name", async () => {
     vi.stubGlobal(
       "fetch",
@@ -167,5 +199,53 @@ describe("fetchManifest", () => {
     if (result === "not_modified") throw new Error("unexpected");
     expect(result.manifest.actions).toHaveLength(1);
     expect(result.manifest.actions[0].name).toBe("valid");
+  });
+
+  it("normalizes optional action fields and defaults version", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        json: () =>
+          Promise.resolve({
+            manifestVersion: "1",
+            actions: [
+              {
+                name: "arinova.optional",
+                description: 123,
+                promptSummary: "Summary",
+                inputSchema: { type: "object" },
+                outputSchema: { type: "object" },
+                confirmation: "user-confirm",
+                maxExecutionMs: "fast",
+                maxArgumentsBytes: 2048,
+                deprecated: true,
+                replacementAction: "arinova.replacement",
+                removed: true,
+              },
+            ],
+          }),
+      }),
+    );
+
+    const result = await fetchManifest("https://api.example.com", "ari_test");
+    if (result === "not_modified") throw new Error("unexpected");
+
+    expect(result.manifest.actions[0]).toEqual({
+      name: "arinova.optional",
+      version: "0.0.0",
+      description: undefined,
+      promptSummary: "Summary",
+      inputSchema: { type: "object" },
+      outputSchema: { type: "object" },
+      confirmation: "user-confirm",
+      maxExecutionMs: undefined,
+      maxArgumentsBytes: 2048,
+      deprecated: true,
+      replacementAction: "arinova.replacement",
+      removed: true,
+    });
   });
 });
