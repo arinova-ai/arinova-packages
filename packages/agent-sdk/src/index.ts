@@ -3,6 +3,7 @@ export type {
   ArinovaAgentOptions,
   AgentSkill,
   TaskAttachment,
+  UploadResult,
   TaskContext,
   TaskHandler,
   AgentEvent,
