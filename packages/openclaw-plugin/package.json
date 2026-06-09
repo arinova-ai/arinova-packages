@@ -51,6 +51,7 @@
     "@types/node": "^22",
     "openclaw": "latest",
     "tsup": "^8",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.4"
   }
 }
