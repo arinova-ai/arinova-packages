@@ -37,14 +37,34 @@ interface RemoteAgent {
   [key: string]: unknown;
 }
 
+interface OpenclawConfigWriteOps {
+  writeFileSync: typeof writeFileSync;
+  copyFileSync: typeof copyFileSync;
+}
+
+export function writeConfigWithRollback(
+  configPath: string,
+  backupPath: string,
+  serializedConfig: string,
+  ops: OpenclawConfigWriteOps = { writeFileSync, copyFileSync },
+): void {
+  try {
+    ops.writeFileSync(configPath, serializedConfig, "utf-8");
+  } catch (err) {
+    ops.copyFileSync(backupPath, configPath);
+    throw err;
+  }
+}
+
 export function registerSetupOpenclaw(program: Command): void {
   program
     .command("setup-openclaw")
     .description("One-click setup for OpenClaw workspace Arinova integration")
     .option("--workspace <path>", "Path to specific openclaw.json (default: ~/.openclaw/openclaw.json)")
     .option("--force", "Force reconfigure existing channel settings")
+    .option("--dry-run", "Print the planned OpenClaw config changes without writing files")
     .option("--api-url <url>", "Arinova API URL for channel config")
-    .action(async (opts: { workspace?: string; force?: boolean; apiUrl?: string }) => {
+    .action(async (opts: { workspace?: string; force?: boolean; dryRun?: boolean; apiUrl?: string }) => {
       try {
         // Resolve API base: local --api-url > global --api-url > auto-detect (version-based)
         const globalOpts = program.optsWithGlobals() as { apiUrl?: string };
@@ -223,6 +243,13 @@ export function registerSetupOpenclaw(program: Command): void {
           accountsConfig[agent.id] = { enabled: true, botToken: token };
         }
 
+        if (opts.dryRun) {
+          printSetupSummary(summary, channelApiUrl, Object.keys(accountsConfig).length, agents.length);
+          console.log("\nDry run: openclaw.json was not modified.");
+          printSuccess("OpenClaw Arinova integration dry run complete.");
+          return;
+        }
+
         // 8. Backup
         const backupPath = configPath + ".bak";
         copyFileSync(configPath, backupPath);
@@ -271,19 +298,28 @@ export function registerSetupOpenclaw(program: Command): void {
           }
         }
 
-        // 11. Write back
-        writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+        // 11. Write back; restore backup if writing fails.
+        writeConfigWithRollback(configPath, backupPath, JSON.stringify(config, null, 2) + "\n");
 
         // 12. Print summary
-        console.log("\n--- Setup Summary ---");
-        for (const s of summary) {
-          console.log(`  ${s.agent}: ${s.action}`);
-        }
-        console.log(`\nChannel API URL: ${channelApiUrl}`);
-        console.log(`Agents configured: ${Object.keys(accountsConfig).length}/${agents.length}`);
+        printSetupSummary(summary, channelApiUrl, Object.keys(accountsConfig).length, agents.length);
         printSuccess("OpenClaw Arinova integration setup complete!");
       } catch (err) {
         printError(err);
       }
     });
+}
+
+function printSetupSummary(
+  summary: { agent: string; action: string }[],
+  channelApiUrl: string,
+  configuredCount: number,
+  agentCount: number,
+): void {
+  console.log("\n--- Setup Summary ---");
+  for (const s of summary) {
+    console.log(`  ${s.agent}: ${s.action}`);
+  }
+  console.log(`\nChannel API URL: ${channelApiUrl}`);
+  console.log(`Agents configured: ${configuredCount}/${agentCount}`);
 }
