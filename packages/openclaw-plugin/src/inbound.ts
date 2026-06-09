@@ -22,7 +22,7 @@ const MEDIA_LINE_RE = /^\s*MEDIA:\s/i;
  * 📎 result stacks up. Since the frontend replaces content (not appends),
  * we can show only the most recent tool activity for a cleaner UX.
  */
-function collapseToolBlocks(text: string): string {
+export function collapseToolBlocks(text: string): string {
   const lines = text.split("\n");
   const output: string[] = [];
   let pendingTool: string[] | null = null;
@@ -67,7 +67,7 @@ function collapseToolBlocks(text: string): string {
  * OpenClaw parses these at block-completion time, but during streaming the raw lines
  * are still present.
  */
-function stripMediaLines(text: string): string {
+export function stripMediaLines(text: string): string {
   return text
     .split("\n")
     .filter((line) => !MEDIA_LINE_RE.test(line))
@@ -77,7 +77,7 @@ function stripMediaLines(text: string): string {
 /**
  * Convert media URLs to markdown image syntax.
  */
-function mediaUrlsToMarkdown(urls: string[]): string {
+export function mediaUrlsToMarkdown(urls: string[]): string {
   return urls.map((url) => `![](${url})`).join("\n");
 }
 
@@ -338,7 +338,7 @@ export async function handleArinovaChatInbound(params: {
  * Build an enriched body for the LLM by prepending context sections
  * (members, attachments, replyTo, history) before the raw user message.
  */
-function buildEnrichedBody(
+export function buildEnrichedBody(
   rawBody: string,
   message: ArinovaChatInboundMessage,
 ): string {
@@ -386,7 +386,7 @@ function buildEnrichedBody(
  * Extract @mentions from text and resolve them to agent IDs.
  * Matches @Name patterns against the members list (case-insensitive).
  */
-function resolveMentions(
+export function resolveMentions(
   text: string,
   members?: { agentId: string; agentName: string }[],
 ): string[] {
@@ -406,7 +406,7 @@ function resolveMentions(
 }
 
 /** Format bytes to human-readable size. */
-function formatFileSize(bytes: number): string {
+export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;

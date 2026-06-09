@@ -22,7 +22,7 @@ interface SubagentLink {
  * In-memory state store for all tracked agents.
  * Aggregates hook events into derived AgentStatus values.
  */
-class OfficeStateStore {
+export class OfficeStateStore {
   private agents = new Map<string, AgentState>();
   private listeners = new Set<StatusListener>();
   private subagentLinks: SubagentLink[] = [];

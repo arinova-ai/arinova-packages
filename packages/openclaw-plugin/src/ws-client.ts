@@ -132,8 +132,8 @@ export function createWSClient(opts: AgentWSClientOptions): AgentWSClient {
           };
 
           // Fire and forget — errors are caught inside
-          Promise.resolve(
-            onTask({
+          Promise.resolve()
+            .then(() => onTask({
               taskId,
               conversationId,
               conversationType,
@@ -146,11 +146,11 @@ export function createWSClient(opts: AgentWSClientOptions): AgentWSClient {
               sendComplete,
               sendError,
               signal: taskAbortController.signal,
-            })
-          ).catch((err) => {
-            const errorMsg = err instanceof Error ? err.message : String(err);
-            sendError(errorMsg);
-          });
+            }))
+            .catch((err) => {
+              const errorMsg = err instanceof Error ? err.message : String(err);
+              sendError(errorMsg);
+            });
           return;
         }
       } catch (err) {
