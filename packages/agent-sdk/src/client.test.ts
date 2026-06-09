@@ -104,6 +104,100 @@ describe("API method signatures", () => {
   });
 });
 
+describe("API client request builders", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("sendMessage falls back to HTTP with auth and JSON body when websocket is closed", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    const agent = new ArinovaAgent({
+      serverUrl: "wss://chat.example.test",
+      botToken: "ari_bot_token",
+    });
+
+    await agent.sendMessage("conv-1", "Hello");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://chat.example.test/api/v1/messages/send",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer ari_bot_token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ conversationId: "conv-1", content: "Hello" }),
+      },
+    );
+  });
+
+  it("sendMessage includes backend error text in failures", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("invalid conversation", { status: 404 }),
+    );
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:21001",
+      botToken: "ari_bot_token",
+    });
+
+    await expect(agent.sendMessage("missing", "Hello")).rejects.toThrow(
+      "sendMessage failed (404): invalid conversation",
+    );
+  });
+
+  it("uploadFile posts multipart body with conversation id, file, and bearer auth", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: "att-1",
+          url: "/uploads/report.txt",
+          fileName: "report.txt",
+          fileType: "text/plain",
+          fileSize: 5,
+        }),
+        { status: 200 },
+      ),
+    );
+    const agent = new ArinovaAgent({
+      serverUrl: "wss://chat.example.test/",
+      botToken: "ari_bot_token",
+    });
+
+    const result = await agent.uploadFile(
+      "conv-1",
+      new Uint8Array([104, 101, 108, 108, 111]),
+      "report.txt",
+    );
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://chat.example.test/api/v1/files/upload");
+    expect(options?.method).toBe("POST");
+    expect(options?.headers).toEqual({ Authorization: "Bearer ari_bot_token" });
+    const body = options?.body as FormData;
+    expect(body.get("conversationId")).toBe("conv-1");
+    const uploaded = body.get("file") as File;
+    expect(uploaded.name).toBe("report.txt");
+    expect(uploaded.type).toBe("text/plain");
+    expect(result.url).toBe("/uploads/report.txt");
+  });
+
+  it("uploadFile surfaces backend error text", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("file too large", { status: 413 }),
+    );
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:21001",
+      botToken: "ari_bot_token",
+    });
+
+    await expect(
+      agent.uploadFile("conv-1", new Uint8Array([1]), "huge.bin"),
+    ).rejects.toThrow("Upload failed (413): file too large");
+  });
+});
+
 // ── Per-conversation queue tests (real ArinovaAgent) ─────────
 
 describe("per-conversation task queue", () => {
