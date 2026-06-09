@@ -48,6 +48,7 @@ export type A2AServerOptions = {
     message: ArinovaChatInboundMessage;
     res: ServerResponse;
   }) => void | Promise<void>;
+  authToken?: string;
   onError?: (error: Error) => void;
   abortSignal?: AbortSignal;
 };
@@ -130,7 +131,7 @@ export function createA2AServer(opts: A2AServerOptions): {
 } {
   const port = opts.port ?? DEFAULT_A2A_PORT;
   const host = opts.host ?? DEFAULT_A2A_HOST;
-  const { onTask, onError, abortSignal } = opts;
+  const { onTask, authToken, onError, abortSignal } = opts;
 
   const agentCard = {
     name: opts.agentName ?? "OpenClaw Agent",
@@ -177,6 +178,12 @@ export function createA2AServer(opts: A2AServerOptions): {
 
     // A2A task endpoint
     if (req.url === "/tasks/send" && req.method === "POST") {
+      if (authToken && req.headers.authorization !== `Bearer ${authToken}`) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
+
       try {
         const body = await readBody(req);
 
