@@ -355,6 +355,56 @@ describe("ArinovaClient", () => {
       });
     });
 
+    it("keeps file references in JSON action arguments instead of multipart upload", async () => {
+      let capturedInit: RequestInit | undefined;
+      installFetchMock(async (_input, init) => {
+        capturedInit = init;
+        return jsonResponse({
+          type: "action_result",
+          id: "call-file-ref",
+          action: "arinova.file.consume",
+          status: "success",
+          result: { ok: true },
+        });
+      });
+      await client.connect();
+
+      await client.callAction(
+        "arinova.file.consume",
+        {
+          fileId: "file-1",
+          attachmentId: "attachment-1",
+          assetUrl: "https://cdn.example.test/file.png",
+          url: "https://cdn.example.test/file.png",
+        },
+        { callId: "call-file-ref" },
+      );
+
+      expect(capturedInit?.headers).toEqual({
+        Authorization: "Bearer ari_test",
+        "Content-Type": "application/json",
+      });
+      expect(typeof capturedInit?.body).toBe("string");
+      expect(capturedInit?.body).toBe(JSON.stringify({
+        type: "action_call",
+        id: "call-file-ref",
+        taskId: null,
+        conversationId: null,
+        messageId: null,
+        action: "arinova.file.consume",
+        arguments: {
+          fileId: "file-1",
+          attachmentId: "attachment-1",
+          assetUrl: "https://cdn.example.test/file.png",
+          url: "https://cdn.example.test/file.png",
+        },
+        dryRun: false,
+        reason: null,
+        metadata: null,
+        parentCallId: null,
+      }));
+    });
+
     it("normalizes non-JSON HTTP errors into ActionExecutionError", async () => {
       installFetchMock(async () => new Response("bad gateway", {
         status: 502,
