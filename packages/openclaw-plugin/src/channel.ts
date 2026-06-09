@@ -5,9 +5,46 @@ import type { ChannelSetupInput } from "openclaw/plugin-sdk/setup";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { RuntimeEnv } from "openclaw/plugin-sdk";
 
-// Inline stubs for functions removed from new SDK
-const applyAccountNameToChannelSection = (_section: string, _name: string): string => _section;
-const formatPairingApproveHint = (_opts: { channel: string; userId: string }): string => `Approve pairing for ${_opts.userId}`;
+// Inline stubs for functions removed from new SDK.
+function applyAccountNameToChannelSection(params: {
+  cfg: OpenClawConfig;
+  channelKey: string;
+  accountId: string;
+  name?: string;
+}): OpenClawConfig {
+  const { cfg, channelKey, accountId, name } = params;
+  if (!name) return cfg;
+  if (accountId === DEFAULT_ACCOUNT_ID) {
+    return {
+      ...cfg,
+      channels: {
+        ...cfg.channels,
+        [channelKey]: {
+          ...cfg.channels?.[channelKey],
+          name,
+        },
+      },
+    };
+  }
+  return {
+    ...cfg,
+    channels: {
+      ...cfg.channels,
+      [channelKey]: {
+        ...cfg.channels?.[channelKey],
+        accounts: {
+          ...cfg.channels?.[channelKey]?.accounts,
+          [accountId]: {
+            ...cfg.channels?.[channelKey]?.accounts?.[accountId],
+            name,
+          },
+        },
+      },
+    },
+  };
+}
+const formatPairingApproveHint = (opts: { channel: string; userId?: string }): string =>
+  `Approve pairing for ${opts.userId ?? opts.channel}`;
 import type { CoreConfig } from "./types.js";
 import {
   listArinovaChatAccountIds,
@@ -98,7 +135,7 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
         allowFrom: account.config.allowFrom ?? [],
         policyPath: `${basePath}dmPolicy`,
         allowFromPath: basePath,
-        approveHint: formatPairingApproveHint("openclaw-arinova-ai"),
+        approveHint: formatPairingApproveHint({ channel: "openclaw-arinova-ai" }),
         normalizeEntry: (raw) => raw.replace(/^(openclaw-arinova-ai|arinova):/i, "").toLowerCase(),
       };
     },
