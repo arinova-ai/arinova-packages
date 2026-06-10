@@ -469,6 +469,41 @@ describe("ArinovaMcpServer", () => {
     expect(tools.map((tool) => tool.name)).toContain("arinova_message_send");
   });
 
+  it("does not register arinova_upload_file before the backend upload bridge exists", async () => {
+    const fakeClient = {
+      connect: vi.fn(async () => {}),
+      getToolMapping: vi.fn(() => ({ tools: [], toolToAction: new Map(), skippedActions: [] })),
+      loadManifest: vi.fn(async () => ({ tools: [], toolToAction: new Map(), skippedActions: [] })),
+      getHealthData: vi.fn(() => ({})),
+      getManifestInfo: vi.fn(() => ({})),
+      callAction: vi.fn(),
+      drain: vi.fn(),
+      disconnect: vi.fn(),
+    };
+    const server = new ArinovaMcpServer(
+      makeConfig(),
+      fakeClient as unknown as ArinovaClient,
+    );
+
+    await (server as unknown as { ensureToolsLoaded: () => Promise<void> })
+      .ensureToolsLoaded();
+    const tools = (server as unknown as { getToolList: () => Array<{ name: string }> })
+      .getToolList();
+    const uploadCall = await (server as unknown as {
+      handleToolCall: (
+        name: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
+    }).handleToolCall("arinova_upload_file", { path: "/tmp/file.png" });
+
+    expect(tools.map((tool) => tool.name)).not.toContain("arinova_upload_file");
+    expect(parseTextResult(uploadCall)).toMatchObject({
+      body: { error: { code: "UNKNOWN_TOOL" } },
+      isError: true,
+    });
+    expect(fakeClient.callAction).not.toHaveBeenCalled();
+  });
+
   it("maps registered tool calls to action calls with max execution timeout", async () => {
     const dynamicTool = {
       name: "arinova_message_send",
