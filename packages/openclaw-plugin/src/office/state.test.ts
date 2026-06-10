@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OfficeStateStore } from "./state.js";
 
 const baseEvent = {
@@ -14,6 +14,10 @@ describe("OfficeStateStore", () => {
   beforeEach(() => {
     store = new OfficeStateStore();
     vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("tracks session lifecycle and filters offline agents from snapshots", () => {
@@ -118,5 +122,52 @@ describe("OfficeStateStore", () => {
     vi.setSystemTime(184_000);
     store.tick();
     expect(store.snapshot().agents[0].status).toBe("idle");
+  });
+
+  it("resumes blocked and idle agents when new activity arrives", () => {
+    store.ingest({ ...baseEvent, type: "agent_error", data: { error: "tool failed" } });
+    expect(store.snapshot().agents[0]).toMatchObject({
+      status: "blocked",
+      online: true,
+    });
+
+    store.ingest({ ...baseEvent, type: "message_in", timestamp: 2_000 });
+    expect(store.snapshot().agents[0]).toMatchObject({
+      status: "working",
+      lastActivity: 2_000,
+    });
+
+    store.ingest({ ...baseEvent, type: "agent_end", timestamp: 3_000 });
+    expect(store.snapshot().agents[0].status).toBe("idle");
+
+    store.ingest({
+      ...baseEvent,
+      type: "llm_input",
+      timestamp: 4_000,
+      data: { model: "claude-opus-4-6" },
+    });
+
+    expect(store.snapshot().agents[0]).toMatchObject({
+      status: "working",
+      model: "claude-opus-4-6",
+      lastActivity: 4_000,
+    });
+  });
+
+  it("removes long-offline agents on tick and notifies subscribers", () => {
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    store.ingest({ ...baseEvent, type: "session_start", timestamp: 1_000 });
+    store.ingest({ ...baseEvent, type: "session_end", timestamp: 2_000 });
+
+    expect(store.snapshot().agents).toEqual([]);
+    expect(listener).toHaveBeenCalledTimes(2);
+
+    vi.setSystemTime(302_001);
+    store.tick();
+
+    expect(listener).toHaveBeenCalledTimes(3);
+    expect(store.snapshot().agents).toEqual([]);
   });
 });
