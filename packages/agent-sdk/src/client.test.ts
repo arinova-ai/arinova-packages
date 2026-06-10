@@ -196,6 +196,62 @@ describe("API client request builders", () => {
       agent.uploadFile("conv-1", new Uint8Array([1]), "huge.bin"),
     ).rejects.toThrow("Upload failed (413): file too large");
   });
+
+  it("fetchHistory builds paginated request with bearer auth and returns backend metadata", async () => {
+    const response = {
+      messages: [
+        {
+          id: "msg-1",
+          conversationId: "conv-1",
+          seq: 7,
+          role: "user",
+          content: "hello",
+          status: "completed",
+          createdAt: "2026-06-10T00:00:00.000Z",
+          updatedAt: "2026-06-10T00:00:01.000Z",
+        },
+      ],
+      hasMore: true,
+      nextCursor: "msg-1",
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify(response), { status: 200 }),
+    );
+    const agent = new ArinovaAgent({
+      serverUrl: "wss://chat.example.test/",
+      botToken: "ari_bot_token",
+    });
+
+    const result = await agent.fetchHistory("conv-1", {
+      before: "msg-9",
+      after: "msg-2",
+      around: "msg-5",
+      limit: 25,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://chat.example.test/api/v1/messages/conv-1?before=msg-9&after=msg-2&around=msg-5&limit=25",
+      {
+        method: "GET",
+        headers: { Authorization: "Bearer ari_bot_token" },
+      },
+    );
+    expect(result).toEqual(response);
+  });
+
+  it("fetchHistory surfaces backend error text", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("cursor expired", { status: 400 }),
+    );
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:21001",
+      botToken: "ari_bot_token",
+    });
+
+    await expect(
+      agent.fetchHistory("conv-1", { before: "bad-cursor" }),
+    ).rejects.toThrow("fetchHistory failed (400): cursor expired");
+  });
 });
 
 // ── Per-conversation queue tests (real ArinovaAgent) ─────────
