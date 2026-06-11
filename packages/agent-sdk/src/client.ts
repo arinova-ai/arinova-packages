@@ -45,10 +45,25 @@ const DEFAULT_RECONNECT_INTERVAL = 5_000;
 const DEFAULT_PING_INTERVAL = 30_000;
 const TASK_HEARTBEAT_INTERVAL = 60_000;
 const ACTION_PROTOCOL_VERSION = "2026-05-05";
-const SDK_VERSION = "0.0.19-staging.1";
+const SDK_VERSION = "0.0.19-staging.5";
 const DEFAULT_ACTION_TIMEOUT = 60_000;
 const WS_OPEN = 1;
 const MAX_QUEUE_SIZE = 10;
+
+/**
+ * Scheduler key for a task. Platform wakeups (cron/trigger) have no
+ * conversationId — group them all under one sentinel so per-conversation
+ * Maps never key on undefined.
+ */
+function taskConvKey(data: Record<string, unknown>): string {
+  return (data.conversationId as string | undefined) ?? "__no_conversation__";
+}
+
+function noConversationError(api: string, taskKind: string | undefined): Error {
+  return new Error(
+    `${api} is unavailable: this task (taskKind=${taskKind ?? "unknown"}) is not bound to a conversation`,
+  );
+}
 const AUTH_ERROR_MAX_RETRIES = 5;
 const AUTH_ERROR_BASE_DELAY = 5_000; // 5s, 10s, 20s, 40s, 60s cap
 const AUTH_ERROR_MAX_DELAY = 60_000;
@@ -1629,7 +1644,11 @@ export class ArinovaAgent {
   private handleTask(data: Record<string, unknown>): void {
     if (!this.taskHandler) return;
 
-    const conversationId = data.conversationId as string;
+    // Platform wakeups (cron/trigger) carry no conversationId. They all
+    // serialise under one sentinel key so per-conversation mode treats
+    // them as a single "platform conversation" instead of keying Maps on
+    // undefined.
+    const convKey = taskConvKey(data);
 
     // Unbounded: no serialisation, run every task immediately.
     if (this.concurrencyMode === "unbounded") {
@@ -1651,15 +1670,15 @@ export class ArinovaAgent {
         shouldQueue = false;
       }
     } else {
-      const activeTaskId = this.activeConversationTasks.get(conversationId);
+      const activeTaskId = this.activeConversationTasks.get(convKey);
       shouldQueue = !!(activeTaskId && this.taskAbortControllers.has(activeTaskId));
     }
 
     if (shouldQueue) {
-      let queue = this.conversationQueues.get(conversationId);
+      let queue = this.conversationQueues.get(convKey);
       if (!queue) {
         queue = [];
-        this.conversationQueues.set(conversationId, queue);
+        this.conversationQueues.set(convKey, queue);
       }
       // Overflow: drop oldest queued task when queue is full
       if (queue.length >= MAX_QUEUE_SIZE) {
@@ -1677,7 +1696,7 @@ export class ArinovaAgent {
       this.send({
         type: "task_queued",
         taskId: data.taskId as string,
-        conversationId,
+        conversationId: data.conversationId as string | undefined,
         queuePosition: queue.length - 1,
         globalQueueSize,
       });
@@ -1699,10 +1718,12 @@ export class ArinovaAgent {
     if (!this.taskHandler) return;
 
     const taskId = data.taskId as string;
-    const conversationId = data.conversationId as string;
+    const conversationId = data.conversationId as string | undefined;
+    const taskKind = data.taskKind as string | undefined;
+    const convKey = taskConvKey(data);
     const abortController = new AbortController();
     this.taskAbortControllers.set(taskId, abortController);
-    this.activeConversationTasks.set(conversationId, taskId);
+    this.activeConversationTasks.set(convKey, taskId);
 
     // agent-wide scheduler bookkeeping: count consecutive runs from this
     // conv so processNextTask can rotate when the cap is reached. Also
@@ -1712,8 +1733,8 @@ export class ArinovaAgent {
     // cleared and a concurrent arrival could bypass the queue.
     if (this.concurrencyMode === "agent-wide") {
       this.agentWideLock = true;
-      const prev = this.consecutiveTaskCount.get(conversationId) ?? 0;
-      this.consecutiveTaskCount.set(conversationId, prev + 1);
+      const prev = this.consecutiveTaskCount.get(convKey) ?? 0;
+      this.consecutiveTaskCount.set(convKey, prev + 1);
     }
 
     // Auto heartbeat: keep task alive while processing
@@ -1731,7 +1752,7 @@ export class ArinovaAgent {
       taskFinished = true;
       stopHeartbeat();
       this.taskAbortControllers.delete(taskId);
-      this.activeConversationTasks.delete(conversationId);
+      this.activeConversationTasks.delete(convKey);
       // Release the agent-wide lock before draining — processNextTask may
       // synchronously call executeTask for the next queued task, which
       // re-acquires the lock. If no task is drained, the lock stays false
@@ -1739,12 +1760,13 @@ export class ArinovaAgent {
       if (this.concurrencyMode === "agent-wide") {
         this.agentWideLock = false;
       }
-      this.processNextTask(conversationId);
+      this.processNextTask(convKey);
       return true;
     };
 
     const ctx: TaskContext = {
       taskId,
+      taskKind,
       userMessageId: data.userMessageId as string | undefined,
       conversationId,
       content: data.content as string,
@@ -1776,9 +1798,13 @@ export class ArinovaAgent {
       },
       signal: abortController.signal,
       uploadFile: (file, fileName, fileType?) =>
-        this.uploadFile(conversationId, file, fileName, fileType),
+        conversationId
+          ? this.uploadFile(conversationId, file, fileName, fileType)
+          : Promise.reject(noConversationError("uploadFile", taskKind)),
       fetchHistory: (options?) =>
-        this.fetchHistory(conversationId, options),
+        conversationId
+          ? this.fetchHistory(conversationId, options)
+          : Promise.reject(noConversationError("fetchHistory", taskKind)),
       callAction: (action, args, options) =>
         this.callAction(action, args, {
           ...options,

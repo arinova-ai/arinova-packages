@@ -97,10 +97,19 @@ export interface ActionCallResult {
 export interface TaskContext {
   /** Unique task ID assigned by the server. */
   taskId: string;
+  /**
+   * What triggered this task. Chat messages omit it; platform wakeups set
+   * "cron_wakeup" or "trigger".
+   */
+  taskKind?: string;
   /** ID of the user message that triggered this task. */
   userMessageId?: string;
-  /** Conversation ID this task belongs to. */
-  conversationId: string;
+  /**
+   * Conversation ID this task belongs to. Platform wakeups (cron/trigger)
+   * are agent-level and carry no conversation — check before calling
+   * conversation-scoped APIs.
+   */
+  conversationId?: string;
   /** The user's message content. */
   content: string;
   /** Conversation type: "direct" or "group". */

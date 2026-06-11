@@ -875,3 +875,113 @@ describe("pong watchdog", () => {
     a.cleanup();
   });
 });
+
+// ── no-conversation (platform cron/trigger) task tests ───────
+
+describe("tasks without conversationId (cron/trigger wakeups)", () => {
+  function createAgent() {
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:9999",
+      botToken: "ari_test",
+    });
+    const a = agent as unknown as {
+      taskHandler: ((ctx: unknown) => Promise<void>) | null;
+      handleTask: (data: Record<string, unknown>) => void;
+      activeConversationTasks: Map<string, string>;
+      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      taskAbortControllers: Map<string, AbortController>;
+      send: (event: Record<string, unknown>) => void;
+    };
+    a.send = vi.fn();
+    return { agent, a };
+  }
+
+  const blockingHandler = async (ctx: { signal: AbortSignal }) => {
+    await new Promise<void>((resolve) => {
+      if (ctx.signal.aborted) { resolve(); return; }
+      ctx.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+  };
+
+  it("passes undefined conversationId and the taskKind through to ctx", () => {
+    const { a } = createAgent();
+    let savedCtx: { conversationId?: string; taskKind?: string } | null = null;
+    a.taskHandler = (async (ctx: typeof savedCtx) => {
+      savedCtx = ctx;
+    }) as unknown as typeof a.taskHandler;
+
+    a.handleTask({ taskId: "t1", taskKind: "cron_wakeup", content: "wake up" });
+
+    expect(savedCtx!.conversationId).toBeUndefined();
+    expect(savedCtx!.taskKind).toBe("cron_wakeup");
+  });
+
+  it("keys scheduler maps on the sentinel, not undefined", () => {
+    const { a } = createAgent();
+    a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
+
+    a.handleTask({ taskId: "t1", taskKind: "cron_wakeup", content: "wake up" });
+
+    expect(a.activeConversationTasks.get("__no_conversation__")).toBe("t1");
+    expect(a.activeConversationTasks.has(undefined as unknown as string)).toBe(false);
+  });
+
+  it("serialises concurrent no-conversation tasks under the sentinel queue", () => {
+    const { a } = createAgent();
+    a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
+
+    a.handleTask({ taskId: "t1", taskKind: "cron_wakeup", content: "first" });
+    a.handleTask({ taskId: "t2", taskKind: "trigger", content: "second" });
+
+    expect(a.taskAbortControllers.has("t1")).toBe(true);
+    expect(a.taskAbortControllers.has("t2")).toBe(false); // queued
+    expect(a.conversationQueues.get("__no_conversation__")?.length).toBe(1);
+  });
+
+  it("drains the sentinel queue after sendComplete", () => {
+    const { a } = createAgent();
+    let savedCtx: { sendComplete: (s: string) => void } | null = null;
+    a.taskHandler = (async (ctx: { sendComplete: (s: string) => void }) => {
+      savedCtx = ctx;
+    }) as unknown as typeof a.taskHandler;
+
+    a.handleTask({ taskId: "t1", taskKind: "cron_wakeup", content: "first" });
+    a.handleTask({ taskId: "t2", taskKind: "cron_wakeup", content: "second" });
+
+    savedCtx!.sendComplete("done");
+    expect(a.activeConversationTasks.get("__no_conversation__")).toBe("t2");
+    expect(a.conversationQueues.has("__no_conversation__")).toBe(false);
+  });
+
+  it("rejects conversation-scoped APIs with a descriptive error", async () => {
+    const { a } = createAgent();
+    let savedCtx: {
+      uploadFile: (f: Uint8Array, n: string) => Promise<unknown>;
+      fetchHistory: () => Promise<unknown>;
+    } | null = null;
+    a.taskHandler = (async (ctx: typeof savedCtx) => {
+      savedCtx = ctx;
+    }) as unknown as typeof a.taskHandler;
+
+    a.handleTask({ taskId: "t1", taskKind: "cron_wakeup", content: "wake up" });
+
+    await expect(savedCtx!.uploadFile(new Uint8Array(), "f.txt")).rejects.toThrow(
+      /uploadFile is unavailable.*cron_wakeup.*not bound to a conversation/,
+    );
+    await expect(savedCtx!.fetchHistory()).rejects.toThrow(
+      /fetchHistory is unavailable/,
+    );
+  });
+
+  it("does not interfere with real conversations in per-conversation mode", () => {
+    const { a } = createAgent();
+    a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
+
+    a.handleTask({ taskId: "t1", taskKind: "cron_wakeup", content: "wake up" });
+    a.handleTask({ taskId: "t2", conversationId: "conv-A", content: "chat" });
+
+    // Both run: the wakeup occupies the sentinel slot, conv-A its own
+    expect(a.taskAbortControllers.has("t1")).toBe(true);
+    expect(a.taskAbortControllers.has("t2")).toBe(true);
+  });
+});
