@@ -303,6 +303,30 @@ describe("per-conversation task queue", () => {
     expect(a.conversationQueues.get("conv-A")?.length).toBe(1);
   });
 
+  it("forwards agent-sender identity (senderAgentId/senderAgentName) to the task context", () => {
+    const { a } = createAgent();
+    let captured: Record<string, unknown> | null = null;
+    a.taskHandler = (async (ctx: Record<string, unknown>) => {
+      captured = ctx;
+    }) as unknown as typeof a.taskHandler;
+
+    a.handleTask({
+      taskId: "t1",
+      conversationId: "conv-A",
+      content: "hi",
+      senderUsername: "ripple0129",
+      senderAgentId: "agent-linda",
+      senderAgentName: "Linda",
+    });
+
+    expect(captured).not.toBeNull();
+    // Agent identity is forwarded so the consumer can attribute the real sender
+    expect(captured!.senderAgentId).toBe("agent-linda");
+    expect(captured!.senderAgentName).toBe("Linda");
+    // Human fields still pass through unchanged
+    expect(captured!.senderUsername).toBe("ripple0129");
+  });
+
   it("different conversations run in parallel", () => {
     const { a } = createAgent();
     a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
@@ -826,7 +850,7 @@ describe("pong watchdog", () => {
       botToken: "ari_test",
       runtime: {
         name: "arinova-agent-sdk",
-        version: "0.0.19-staging.1",
+        version: "0.0.19-staging.6",
         language: "typescript",
       },
       capabilities: {

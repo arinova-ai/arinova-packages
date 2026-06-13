@@ -118,6 +118,20 @@ export interface TaskContext {
   senderUserId?: string;
   /** Username of the human who sent the message. */
   senderUsername?: string;
+  /**
+   * Agent ID of the agent that authored the message, when the sender is
+   * another agent (A2A / group agent-to-agent). Mutually exclusive with
+   * {@link senderUserId} in practice: human messages set the user fields,
+   * agent messages set the agent fields.
+   */
+  senderAgentId?: string;
+  /**
+   * Display handle of the agent that authored the message, when the sender
+   * is another agent. Use this — not {@link senderUsername}, which the backend
+   * may populate with the workspace owner — to attribute agent-authored
+   * messages to their real sender.
+   */
+  senderAgentName?: string;
   /** Other agents in the conversation (for group conversations). */
   members?: { agentId: string; agentName: string }[];
   /** The message being replied to, if this is a reply. */
