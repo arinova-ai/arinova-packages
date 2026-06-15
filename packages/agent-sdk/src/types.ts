@@ -512,6 +512,29 @@ export interface TokenClaimedData {
   permanentToken: string;
 }
 
+/**
+ * Server-authored onboarding seed carried on the `auth_ok` frame (OB-11 §5.7).
+ *
+ * The server is authoritative: it decides whether a genuine first-touch
+ * connection warrants a seeded opening turn and, if so, attaches this payload.
+ * The consumer (the bridge runtime) *consumes* the seed to drive a one-time
+ * deterministic opening turn — it never invents one. The field is absent on
+ * every connection except a true first touch, and the SDK surfaces it as-is
+ * via {@link ArinovaAgent.getOnboardingSeed} with no extra WS event type.
+ */
+export interface OnboardingSeed {
+  /** Discriminator. Currently always `"first_touch_opening"`. */
+  kind: "first_touch_opening";
+  /** Process-level dedup key, shaped `onboarding:<tokenId>`. */
+  seedId: string;
+  /** Agent the seed is addressed to. */
+  agentId: string;
+  /** Server-described action verb; informational for the consumer. */
+  action: string;
+  /** Deterministic prompt body the consumer feeds to its provider. */
+  prompt: string;
+}
+
 /** Agent lifecycle event types. */
 export type AgentEvent = "connected" | "disconnected" | "error" | "auth_failed" | "token_claimed";
 

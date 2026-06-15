@@ -1009,3 +1009,131 @@ describe("tasks without conversationId (cron/trigger wakeups)", () => {
     expect(a.taskAbortControllers.has("t2")).toBe(true);
   });
 });
+
+// ── onboarding seed pass-through (OB-11 AC8.7) ───────────────
+
+describe("onboarding seed (auth_ok pass-through)", () => {
+  class MockWebSocket {
+    static OPEN = 1;
+    static CLOSED = 3;
+    static instances: MockWebSocket[] = [];
+
+    readyState = MockWebSocket.OPEN;
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    send = vi.fn();
+    close = vi.fn(() => {
+      this.readyState = MockWebSocket.CLOSED;
+    });
+
+    constructor(public readonly url: string) {
+      MockWebSocket.instances.push(this);
+    }
+  }
+
+  function createAgent() {
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:9999",
+      botToken: "ari_test",
+      pingInterval: 1_000,
+      pingTimeout: 2_500,
+    });
+    const a = agent as unknown as { doConnect: () => void; cleanup: () => void };
+    return { agent, a };
+  }
+
+  const validSeed = {
+    kind: "first_touch_opening",
+    seedId: "onboarding:tok_123",
+    agentId: "agent-1",
+    action: "create_onboarding_conversation_and_send_first_message",
+    prompt: "Introduce yourself using the onboarding knowledge.",
+  };
+
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function authOk(extra: Record<string, unknown>): string {
+    return JSON.stringify({ type: "auth_ok", agentId: "agent-1", ...extra });
+  }
+
+  it("surfaces a valid onboardingSeed before connect() resolves", async () => {
+    const { agent, a } = createAgent();
+    const connected = agent.connect(); // connect() drives doConnect() internally
+
+    const ws = MockWebSocket.instances[0];
+    ws.onopen?.();
+    expect(agent.getOnboardingSeed()).toBeNull();
+
+    ws.onmessage?.({ data: authOk({ onboardingSeed: validSeed }) });
+
+    // connect() resolves on this auth_ok; the seed must already be observable.
+    await connected;
+    expect(agent.getOnboardingSeed()).toEqual(validSeed);
+
+    a.cleanup();
+  });
+
+  it("returns null when auth_ok carries no seed (e.g. reconnect / old server)", () => {
+    const { agent, a } = createAgent();
+    a.doConnect();
+
+    const ws = MockWebSocket.instances[0];
+    ws.onopen?.();
+    ws.onmessage?.({ data: authOk({}) });
+
+    expect(agent.getOnboardingSeed()).toBeNull();
+
+    a.cleanup();
+  });
+
+  it("clears a previously-seen seed on a reconnect auth_ok without one", () => {
+    const { agent, a } = createAgent();
+    a.doConnect();
+
+    const ws = MockWebSocket.instances[0];
+    ws.onopen?.();
+    ws.onmessage?.({ data: authOk({ onboardingSeed: validSeed }) });
+    expect(agent.getOnboardingSeed()).toEqual(validSeed);
+
+    // Reconnect: server (OB-10 first-connect gate) omits the seed.
+    ws.onmessage?.({ data: authOk({}) });
+    expect(agent.getOnboardingSeed()).toBeNull();
+
+    a.cleanup();
+  });
+
+  it("drops a malformed seed (missing fields / unknown kind)", () => {
+    const { agent, a } = createAgent();
+    a.doConnect();
+
+    const ws = MockWebSocket.instances[0];
+    ws.onopen?.();
+
+    // Unknown kind
+    ws.onmessage?.({ data: authOk({ onboardingSeed: { ...validSeed, kind: "something_else" } }) });
+    expect(agent.getOnboardingSeed()).toBeNull();
+
+    // Missing prompt
+    const { prompt: _omit, ...noPrompt } = validSeed;
+    ws.onmessage?.({ data: authOk({ onboardingSeed: noPrompt }) });
+    expect(agent.getOnboardingSeed()).toBeNull();
+
+    // Non-object
+    ws.onmessage?.({ data: authOk({ onboardingSeed: "nope" }) });
+    expect(agent.getOnboardingSeed()).toBeNull();
+
+    a.cleanup();
+  });
+});

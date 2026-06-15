@@ -39,6 +39,7 @@ import type {
   TaskUpdateData,
   ActionCallOptions,
   ActionCallResult,
+  OnboardingSeed,
 } from "./types.js";
 
 const DEFAULT_RECONNECT_INTERVAL = 5_000;
@@ -63,6 +64,33 @@ function noConversationError(api: string, taskKind: string | undefined): Error {
   return new Error(
     `${api} is unavailable: this task (taskKind=${taskKind ?? "unknown"}) is not bound to a conversation`,
   );
+}
+
+/**
+ * Validate a raw `auth_ok.onboardingSeed` payload (OB-11 §5.7). The server is
+ * authoritative; this guard only ensures we surface a well-formed seed and
+ * silently drop anything malformed or of an unknown kind, so a partial/garbled
+ * field never drives a seeded turn. Returns `null` when absent or invalid.
+ */
+function parseOnboardingSeed(raw: unknown): OnboardingSeed | null {
+  if (!raw || typeof raw !== "object") return null;
+  const seed = raw as Record<string, unknown>;
+  if (seed.kind !== "first_touch_opening") return null;
+  if (
+    typeof seed.seedId !== "string" ||
+    typeof seed.agentId !== "string" ||
+    typeof seed.action !== "string" ||
+    typeof seed.prompt !== "string"
+  ) {
+    return null;
+  }
+  return {
+    kind: "first_touch_opening",
+    seedId: seed.seedId,
+    agentId: seed.agentId,
+    action: seed.action,
+    prompt: seed.prompt,
+  };
 }
 const AUTH_ERROR_MAX_RETRIES = 5;
 const AUTH_ERROR_BASE_DELAY = 5_000; // 5s, 10s, 20s, 40s, 60s cap
@@ -90,6 +118,10 @@ export class ArinovaAgent {
   private authRetryAttempt = 0;
   private isAuthRetrying = false;
   private agentId: string | null = null;
+  // Server-authored first-touch seed from the most recent permanent-token
+  // `auth_ok` (OB-11 §5.7). Null on every connection except a genuine first
+  // touch; the consumer reads it once after connect() resolves.
+  private onboardingSeed: OnboardingSeed | null = null;
   private taskHandler: TaskHandler | null = null;
   private taskAbortControllers: Map<string, AbortController> = new Map();
   private activeConversationTasks: Map<string, string> = new Map(); // conversationId → taskId
@@ -150,6 +182,19 @@ export class ArinovaAgent {
   /** Returns the agent ID assigned by the server after successful auth. */
   getAgentId(): string | null {
     return this.agentId;
+  }
+
+  /**
+   * Returns the server-authored onboarding seed delivered on the most recent
+   * permanent-token `auth_ok` (OB-11 §5.7), or `null` when none was present.
+   *
+   * Read this once after {@link connect} resolves: the seed is set before the
+   * connect() promise resolves, so it is observable as soon as connect()
+   * returns. It rides the existing `auth_ok` frame — there is no separate WS
+   * event — and is absent on every connection except a genuine first touch.
+   */
+  getOnboardingSeed(): OnboardingSeed | null {
+    return this.onboardingSeed;
   }
 
   /**
@@ -485,6 +530,12 @@ export class ArinovaAgent {
 
         if (data.type === "auth_ok") {
           this.agentId = data.agentId ?? null;
+
+          // OB-11 AC8.7: surface the server-authored first-touch seed (if any)
+          // before connect() resolves below, so a consumer reading it right
+          // after `await connect()` sees it deterministically. Rides this
+          // existing auth_ok frame — no extra WS event. Absent on reconnect.
+          this.onboardingSeed = parseOnboardingSeed(data.onboardingSeed);
 
           if (data.permanentToken) {
             this.botToken = data.permanentToken;

@@ -36,4 +36,5 @@ export type {
   ActionErrorBody,
   ActionConfirmationPayload,
   TokenClaimedData,
+  OnboardingSeed,
 } from "./types.js";
