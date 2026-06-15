@@ -580,6 +580,29 @@ export class ArinovaAgent {
           return;
         }
 
+        if (data.type === "claim_ok") {
+          // OB-3 onboarding claim: a bootstrap `obt_*` token is exchanged for a
+          // permanent `ari_*` token on this *separate* frame (never `auth_ok`),
+          // after which the server closes the socket (auth.rs returns `None`).
+          // We adopt the permanent token and let the normal close→reconnect path
+          // re-authenticate with it; that second connection is the genuine
+          // permanent-token `auth_ok`, which is the first connect that carries
+          // the onboarding seed (OB-11 §5.7). We deliberately do NOT resolve
+          // connect() here and never parse a seed off `claim_ok` — claim is token
+          // exchange only, and connect() must stay pending until the real
+          // `auth_ok` so a consumer reading getOnboardingSeed() after it sees the
+          // populated (or cleared) value from that frame.
+          if (data.permanentToken) {
+            this.botToken = data.permanentToken;
+            this.agentId = data.agentId ?? this.agentId;
+            this.emit("token_claimed", {
+              agentId: this.agentId,
+              permanentToken: data.permanentToken,
+            });
+          }
+          return;
+        }
+
         if (data.type === "auth_error") {
           this.handleAuthError(data.error);
           return;

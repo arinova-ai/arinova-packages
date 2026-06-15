@@ -1136,4 +1136,61 @@ describe("onboarding seed (auth_ok pass-through)", () => {
 
     a.cleanup();
   });
+
+  // OB-3/OB-11 two-step claim: obt_* → claim_ok (token exchange, no seed) →
+  // reconnect re-auths with the permanent ari_* token → that auth_ok carries the
+  // first-touch seed. Proves the seed is actually reachable end-to-end.
+  it("obt_* → claim_ok → re-auth with permanent token → auth_ok carries the seed", async () => {
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:9999",
+      botToken: "obt_bootstrap",
+      reconnectInterval: 50,
+      pingInterval: 1_000,
+      pingTimeout: 2_500,
+    });
+    const a = agent as unknown as { cleanup: () => void };
+
+    const claimed: Array<{ agentId: string | null; permanentToken: string }> = [];
+    agent.on("token_claimed", (d) => claimed.push(d));
+
+    const connected = agent.connect();
+
+    // 1) The first socket authenticates with the bootstrap obt_* token.
+    const ws1 = MockWebSocket.instances[0];
+    ws1.onopen?.();
+    const firstAuth = JSON.parse(ws1.send.mock.calls[0][0] as string);
+    expect(firstAuth.type).toBe("agent_auth");
+    expect(firstAuth.botToken).toBe("obt_bootstrap");
+
+    // 2) Server exchanges the token via claim_ok (never carries a seed) and
+    //    drops the socket. connect() must stay pending; seed must stay null.
+    ws1.onmessage?.({
+      data: JSON.stringify({
+        type: "claim_ok",
+        agentId: "agent-1",
+        permanentToken: "ari_permanent",
+        tokenId: "tok_123",
+      }),
+    });
+    expect(claimed).toEqual([{ agentId: "agent-1", permanentToken: "ari_permanent" }]);
+    expect(agent.getOnboardingSeed()).toBeNull();
+    ws1.onclose?.();
+
+    // 3) The scheduled reconnect re-auths with the permanent ari_* token.
+    await vi.advanceTimersByTimeAsync(50);
+    const ws2 = MockWebSocket.instances[1];
+    expect(ws2).toBeDefined();
+    ws2.onopen?.();
+    const secondAuth = JSON.parse(ws2.send.mock.calls[0][0] as string);
+    expect(secondAuth.type).toBe("agent_auth");
+    expect(secondAuth.botToken).toBe("ari_permanent");
+
+    // 4) The permanent-token auth_ok is the genuine first connect → carries the
+    //    seed, and resolving connect() makes it observable to the consumer.
+    ws2.onmessage?.({ data: authOk({ onboardingSeed: validSeed }) });
+    await connected;
+    expect(agent.getOnboardingSeed()).toEqual(validSeed);
+
+    a.cleanup();
+  });
 });
