@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { createRequire } from "node:module";
 import { ArinovaAgent } from "./client.js";
+
+// Derive the expected version from package.json — the same single source of
+// truth the SDK reads at runtime — so this assertion never drifts from the
+// published package version again.
+const PKG_VERSION = (
+  createRequire(import.meta.url)("../package.json") as { version: string }
+).version;
 
 // Test API client configuration
 describe("API client configuration", () => {
@@ -850,7 +858,7 @@ describe("pong watchdog", () => {
       botToken: "ari_test",
       runtime: {
         name: "arinova-agent-sdk",
-        version: "0.0.19-staging.6",
+        version: PKG_VERSION,
         language: "typescript",
       },
       capabilities: {
