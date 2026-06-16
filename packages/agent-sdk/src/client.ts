@@ -41,12 +41,17 @@ import type {
   ActionCallResult,
   OnboardingSeed,
 } from "./types.js";
+import { createRequire } from "node:module";
 
 const DEFAULT_RECONNECT_INTERVAL = 5_000;
 const DEFAULT_PING_INTERVAL = 30_000;
 const TASK_HEARTBEAT_INTERVAL = 60_000;
 const ACTION_PROTOCOL_VERSION = "2026-05-05";
-const SDK_VERSION = "0.0.19-staging.6";
+// Read the SDK version from package.json (single source of truth) so the
+// version reported in agent_auth never drifts from the published package.
+const SDK_VERSION: string = (
+  createRequire(import.meta.url)("../package.json") as { version: string }
+).version;
 const DEFAULT_ACTION_TIMEOUT = 60_000;
 const WS_OPEN = 1;
 const MAX_QUEUE_SIZE = 10;
