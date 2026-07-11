@@ -29,15 +29,20 @@ export function registerApp(program: Command): void {
 
   app
     .command("create")
-    .description("Create a new OAuth app (public client, uses PKCE)")
+    .description(
+      "Create an OAuth app (public/PKCE client) for standalone login. To make an app embeddable inside Arinova, use 'arinova space create --url' instead — a Space and an OAuth app are separate things."
+    )
     .requiredOption("--name <name>", "App name")
-    .option("--redirect-uri <uri>", "Redirect URI")
+    .requiredOption(
+      "--redirect-uri <uri>",
+      "OAuth redirect URI — the origin must match your app's callback URL (required; the server otherwise stores a placeholder that breaks login)"
+    )
     .option("--description <desc>", "Description")
     .option("--category <cat>", "Category (game, tool, social, etc.)", "other")
     .action(
       async (opts: {
         name: string;
-        redirectUri?: string;
+        redirectUri: string;
         description?: string;
         category: string;
       }) => {
@@ -51,8 +56,9 @@ export function registerApp(program: Command): void {
           printResult(data);
           const d = data as Record<string, unknown>;
           if (d.clientId) {
-            console.log(`\n  Client ID: ${d.clientId}`);
-            console.log("  Type:      Public (PKCE) — no client_secret needed");
+            console.log(`\n  Client ID:    ${d.clientId}`);
+            console.log(`  Redirect URI: ${(d.externalUrl as string) ?? opts.redirectUri}`);
+            console.log("  Type:         Public (PKCE) — no client_secret needed");
           }
         } catch (err) {
           printError(err);

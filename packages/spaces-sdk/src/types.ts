@@ -1,37 +1,50 @@
-// ===== Config =====
+/**
+ * @arinova-ai/spaces-sdk — shared type definitions (single source of truth).
+ *
+ * Shapes mirror the arinova-chat server exactly:
+ *   - OAuth:   apps/rust-server/src/routes/oauth.rs
+ *   - API v1:  apps/rust-server/src/routes/api_v1.rs
+ * All /oauth/* and /api/v1/* endpoints are served by the API host
+ * (https://api.chat.arinova.ai); the consent/login UI is on the frontend
+ * (https://chat.arinova.ai).
+ */
+
+// ── Config ───────────────────────────────────────────────────────
 export interface ArinovaConfig {
-  appId: string;
-  baseUrl?: string; // defaults to "https://api.arinova.ai"
+  /** Your OAuth app client_id (public/PKCE client). */
+  clientId: string;
+  /** API host that serves /oauth/* and /api/v1/*. Default: https://api.chat.arinova.ai */
+  apiUrl?: string;
+  /** Consent/login UI host. Default: https://chat.arinova.ai */
+  authUrl?: string;
+  /** OAuth redirect URI. Default: `${location.origin}/callback`. */
+  redirectUri?: string;
+  /** Requested OAuth scopes (joined with spaces). Default: ["profile"]. */
+  scopes?: ArinovaScope[] | string[];
 }
 
-// ===== Auth =====
-export interface LoginOptions {
-  scope?: string[]; // defaults to ["profile"]
+/** Server-side (secret-bearing) config — never use in a browser bundle. */
+export interface ArinovaServerConfig {
+  clientId: string;
+  clientSecret: string;
+  /** Default: https://api.chat.arinova.ai */
+  apiUrl?: string;
 }
 
-export interface LoginResult {
-  user: ArinovaUser;
-  accessToken: string;
-}
+/** Scopes the server recognizes (space-separated on the wire). */
+export type ArinovaScope = "profile" | "email" | "agents" | "economy";
 
-export interface ConnectOptions {
-  timeout?: number; // milliseconds, defaults to 5000
-}
-
-export interface ConnectResult {
-  user: ArinovaUser;
-  accessToken: string;
-  agents: AgentInfo[];
-}
-
+// ── User / session ───────────────────────────────────────────────
 export interface ArinovaUser {
   id: string;
   name: string;
-  email: string;
+  /** null unless the token carries the `profile`/`email` scope. */
+  email: string | null;
   image: string | null;
+  /** Only present from `user.profile()`. */
+  isVerified?: boolean;
 }
 
-// ===== Agent =====
 export interface AgentInfo {
   id: string;
   name: string;
@@ -39,66 +52,55 @@ export interface AgentInfo {
   avatarUrl: string | null;
 }
 
-export interface AgentChatOptions {
-  agentId: string;
-  prompt: string;
-  systemPrompt?: string;
+export interface ArinovaSession {
+  user: ArinovaUser;
   accessToken: string;
+  tokenType: string;
+  /** Epoch milliseconds when the access token expires. */
+  expiresAt: number;
+  scopes: string[];
+  agents: AgentInfo[];
 }
 
-export interface AgentChatResponse {
-  response: string;
-  agentId: string;
+// ── Auth options ─────────────────────────────────────────────────
+export type ConnectMode = "auto" | "iframe" | "popup" | "redirect";
+export interface ConnectOptions {
+  /** Default "auto": iframe when embedded, else popup. */
+  mode?: ConnectMode;
+  /** postMessage wait (ms) in iframe mode. Default 5000. */
+  timeout?: number;
+}
+export interface LoginOptions {
+  /** "popup" (default) resolves with a session; "redirect" navigates away. */
+  mode?: "popup" | "redirect";
 }
 
-export interface AgentChatStreamOptions extends AgentChatOptions {
-  onChunk: (chunk: string) => void;
+/** Raw OAuth token endpoint response. */
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  scope: string;
+  user: { id: string; name: string; email: string | null; image: string | null };
 }
 
-export interface AgentChatStreamResponse {
-  content: string;
-  agentId: string;
-}
-
-// ===== Economy =====
-export interface ChargeOptions {
-  userId: string;
-  amount: number;
-  description?: string;
-}
-
-export interface ChargeResponse {
-  transactionId: string;
-  newBalance: number;
-}
-
-export interface AwardOptions {
-  userId: string;
-  amount: number;
-  description?: string;
-}
-
-export interface AwardResponse {
-  transactionId: string;
-  newBalance: number;
-  platformFee: number;
-}
-
+// ── Economy ──────────────────────────────────────────────────────
 export interface BalanceResponse {
   balance: number;
 }
-
-export interface PurchaseOptions {
-  productId: string;
+export interface PurchaseParams {
+  productId?: string;
   amount: number;
   description?: string;
 }
-
 export interface PurchaseResponse {
   transactionId: string;
   newBalance: number;
 }
-
+export interface TransactionsParams {
+  limit?: number;
+  offset?: number;
+}
 export interface TransactionRecord {
   id: string;
   type: string;
@@ -106,28 +108,53 @@ export interface TransactionRecord {
   description: string | null;
   createdAt: string;
 }
-
 export interface TransactionsResponse {
   transactions: TransactionRecord[];
   total: number;
   limit: number;
   offset: number;
 }
+/** Server-to-server: charge coins from a user (requires clientId + clientSecret). */
+export interface ChargeParams {
+  userId: string;
+  amount: number;
+  description?: string;
+}
+export interface ChargeResponse {
+  transactionId: string;
+  newBalance: number;
+}
+export interface AwardParams {
+  userId: string;
+  amount: number;
+  description?: string;
+}
+export interface AwardResponse {
+  transactionId: string;
+  newBalance: number;
+  platformFee: number;
+}
 
-// ===== SSE Event =====
-export interface SSEChunkEvent {
-  type: "chunk";
+// ── Agent chat ───────────────────────────────────────────────────
+export interface ChatMessage {
+  role: "user" | "assistant" | "system";
   content: string;
 }
-
-export interface SSEDoneEvent {
-  type: "done";
-  content: string;
+export interface AgentChatParams {
+  agentId: string;
+  /** One of prompt / messages is required. */
+  prompt?: string;
+  messages?: ChatMessage[];
+  /** Overrides the agent's default system prompt. */
+  systemPrompt?: string;
+  /** App/game state, injected into the system prompt as a context block. */
+  context?: unknown;
 }
-
-export interface SSEErrorEvent {
-  type: "error";
-  error: string;
+export interface AgentChatResponse {
+  response: string;
+  agentId: string;
 }
-
-export type SSEEvent = SSEChunkEvent | SSEDoneEvent | SSEErrorEvent;
+export type AgentChatEvent =
+  | { type: "chunk"; content: string }
+  | { type: "done"; content: string; agentId: string }
+  | { type: "error"; error: string };

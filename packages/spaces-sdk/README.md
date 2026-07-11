@@ -1,177 +1,147 @@
 # @arinova-ai/spaces-sdk
 
-SDK for building apps on Arinova — authentication, agent chat, and economy.
-
-## Installation
+Build apps on Arinova — OAuth-PKCE login, the user's agents, an in-app economy, and agent chat.
 
 ```bash
 npm install @arinova-ai/spaces-sdk
 ```
 
-## Quick Start
+## Two hosts
 
-### Embedded in Arinova Chat (iframe)
+Arinova runs on two origins, and the SDK talks to both:
 
-```js
-import { Arinova } from "@arinova-ai/spaces-sdk";
+| | Host | Used for |
+|---|---|---|
+| **API** | `https://api.chat.arinova.ai` | `/oauth/token`, all `/api/v1/*` — the SDK's default `apiUrl` |
+| **Consent UI** | `https://chat.arinova.ai` | the login/consent page — the SDK's default `authUrl` |
 
-const arinova = new Arinova({ appId: "your-client-id" });
+`GET api.chat.arinova.ai/oauth/authorize` 302-redirects to the consent page, so you always point the SDK at the **API** host and it handles the rest. (The old `chat.arinova.ai` default did not serve the API and 404'd.)
 
-// Automatically receives auth token from Arinova Chat via postMessage
-const { user, accessToken, agents } = await arinova.connect();
-console.log(user.name);    // "Ripple"
-console.log(agents);       // User's agents available in this space
-```
+## Quick start
 
 ### Standalone (external website)
 
 ```js
-const arinova = new Arinova({ appId: "your-client-id" });
+import { Arinova } from "@arinova-ai/spaces-sdk";
 
-// Opens popup for OAuth PKCE login
-const token = await arinova.login();
-console.log(token.user.name);
-console.log(token.access_token);
+const arinova = new Arinova({
+  clientId: "my-app",                     // from `arinova app create`
+  scopes: ["profile", "agents", "economy"],
+});
+
+// Popup PKCE login → resolves with a session
+const session = await arinova.connect();  // or arinova.connect({ mode: "redirect" })
+console.log(session.user.name, session.accessToken);
+
+await arinova.economy.balance();          // { balance }
 ```
 
-## Setup
-
-1. Register your app: `arinova-cli app create --name "My App" --redirect-uri "https://myapp.com"`
-2. Copy the `Client ID` from the output
-3. No `client_secret` needed — all apps use PKCE
-
-## API Reference
-
-### `new Arinova(config)`
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `appId` | `string` | *required* | Your OAuth app client_id |
-| `endpoint` | `string` | `https://chat.arinova.ai` | Arinova server URL |
-| `redirectUri` | `string` | `{origin}/callback` | OAuth callback URL |
-| `scope` | `string` | `"profile"` | OAuth scope |
-
----
-
-### Authentication
-
-#### `arinova.connect(options?): Promise<ConnectResult>`
-
-**Recommended for Spaces.** Auto-detects environment:
-- **Inside iframe** (Arinova Chat): receives auth via postMessage from parent window
-- **Outside iframe** (standalone): falls back to `login()` popup flow
+Redirect mode instead of a popup:
 
 ```js
-const { user, accessToken, agents } = await arinova.connect({ timeout: 10000 });
+await arinova.connect({ mode: "redirect" });   // navigates to Arinova
+// …on your redirect_uri page:
+const session = await new Arinova({ clientId: "my-app" }).handleCallback();
 ```
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `timeout` | `number` | `5000` | Timeout in ms for postMessage (iframe mode) |
+### Embedded Space (iframe inside Arinova Chat)
 
-Returns: `{ user: { id, name, email, image }, accessToken: string, agents: Agent[] }`
+```js
+const arinova = new Arinova({ clientId: "my-app" });
+const { user, accessToken, agents } = await arinova.connect();  // auto-detects the iframe
+```
 
-#### `arinova.login(): Promise<TokenResponse>`
+Inside an iframe, `connect()` receives auth from the Arinova parent via `postMessage` — **validated against the `authUrl` origin** (a foreign embedder can't inject a token). To be embeddable, register a Space and give its iframe URL:
 
-Opens a popup for OAuth PKCE authorization. Falls back to redirect if popup is blocked.
+```bash
+arinova space create --name "My Game" --url "https://mygame.example.com"
+```
 
-#### `arinova.handleCallback(): Promise<TokenResponse>`
+> A **Space** (embeddable, `space create --url`) and an **OAuth app** (`app create` → `client_id`) are separate things. The `client_id` is for standalone login; a Space is what makes your app appear inside Arinova. Embedded auth also requires your Space origin to be authorized by Arinova — see *Embedding* below.
 
-Call on your redirect_uri page to complete the OAuth flow (redirect mode).
+### Server side (secrets — never in the browser)
 
----
+Server-to-server economy and confidential token exchange live in a **separate entry** so a `clientSecret` can't reach a browser bundle:
 
-### Agent Chat
+```js
+import { ArinovaServer } from "@arinova-ai/spaces-sdk/server";
 
-Chat with the user's AI agents. Supports streaming (SSE).
+const server = new ArinovaServer({ clientId: "my-app", clientSecret: process.env.ARINOVA_SECRET });
+await server.economy.charge({ userId, amount: 50, description: "Boss reward" });
+await server.economy.award({ userId, amount: 10 });   // -> { transactionId, newBalance, platformFee }
+```
 
-#### `POST /api/v1/agents/{agentId}/chat`
+## API reference
 
-**Auth:** Bearer token (requires `agents` scope)
+### `new Arinova(config)` — browser client
 
-**Request Body:**
+| Option | Type | Default |
+|---|---|---|
+| `clientId` | `string` | **required** |
+| `apiUrl` | `string` | `https://api.chat.arinova.ai` |
+| `authUrl` | `string` | `https://chat.arinova.ai` |
+| `redirectUri` | `string` | `${location.origin}/callback` |
+| `scopes` | `ArinovaScope[]` | `["profile"]` |
 
-```json
-{
-  "agentId": "uuid",
-  "prompt": "Hello!",
-  "systemPrompt": "You are a brave adventurer's companion...",
-  "messages": [
-    { "role": "user", "content": "Let's go north" },
-    { "role": "assistant", "content": "We arrived at the dark forest..." }
-  ],
-  "context": {
-    "player": { "name": "Ripple", "level": 5, "hp": 120 },
-    "location": { "name": "Village Square", "exits": ["north", "south"] },
-    "inventory": ["Wooden Sword", "Health Potion x3"]
-  }
+**Auth**
+
+- `connect(options?)` → `Promise<ArinovaSession>` — one entry point. In an iframe: origin-validated `postMessage` auth. Standalone: PKCE popup (`mode:"popup"`, default) or `mode:"redirect"`. Rejects with a clear error on timeout / unauthorized origin / empty token.
+- `login(options?)` → popup resolves with a session; `mode:"redirect"` navigates away.
+- `handleCallback()` → `Promise<ArinovaSession>` — call on your `redirectUri` page (redirect mode).
+- `session` (getter) · `accessToken` (getter) · `logout()`.
+
+**Resources** (use the session's token automatically)
+
+| Call | Scope | Returns |
+|---|---|---|
+| `user.profile()` | `profile` | `ArinovaUser` |
+| `user.agents()` | `agents` | `AgentInfo[]` |
+| `economy.balance()` | — | `{ balance }` |
+| `economy.purchase({ productId?, amount, description? })` | `economy` | `{ transactionId, newBalance }` |
+| `economy.transactions({ limit?, offset? })` | `economy` | `{ transactions, total, limit, offset }` |
+| `agent.chat({ agentId, prompt?\|messages?, systemPrompt?, context? })` | `agents` | `{ response, agentId }` |
+| `agent.chatStream(params)` | `agents` | `AsyncGenerator<AgentChatEvent>` |
+
+```js
+for await (const ev of arinova.agent.chatStream({ agentId, prompt: "Hi" })) {
+  if (ev.type === "chunk") process.stdout.write(ev.content);
+  if (ev.type === "done") console.log("\n[done]");
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `agentId` | `string` | Yes | The agent's UUID |
-| `prompt` | `string` | No* | Single user message |
-| `systemPrompt` | `string` | No | Overrides agent's default system prompt |
-| `messages` | `Array<{role, content}>` | No* | Multi-turn conversation history |
-| `context` | `object` | No | Game/app state, injected into system prompt as `[Context]` block |
+### `new ArinovaServer(config)` — `@arinova-ai/spaces-sdk/server`
 
-*Either `prompt` or `messages` must be provided.
+`{ clientId, clientSecret, apiUrl? }`. Methods: `economy.charge({ userId, amount, description? })`, `economy.award(...)` (`+platformFee`), and `exchangeCode({ code, redirectUri, codeVerifier? })` (confidential token exchange). Authenticated with `x-client-id` + `x-app-secret`.
 
-**Response:** Server-Sent Events (SSE)
+## Scopes
 
-```
-data: {"type":"chunk","content":"Hello"}
-data: {"type":"chunk","content":" there!"}
-data: {"type":"done"}
-```
-
-**Usage Tips:**
-- `systemPrompt` = stable character/role definition (doesn't change often)
-- `context` = real-time app state (updated every request)
-- `messages` = conversation history (accumulated by your app)
-
----
-
-### Economy
-
-#### `arinova.balance(): Promise<{ balance: number }>`
-
-Get the current user's coin balance.
+Space-separated on the wire; pass an array to the SDK. Recognized: `profile`, `email`, `agents`, `economy`. Economy and agent calls return `403 insufficient_scope` without `economy` / `agents` — request them up front:
 
 ```js
-const { balance } = await arinova.balance();
+new Arinova({ clientId: "my-app", scopes: ["profile", "agents", "economy"] });
 ```
 
-#### `arinova.purchase(productId, amount, description?): Promise<PurchaseResponse>`
+## Registration
 
-Charge coins from the user's balance. Requires `economy` scope (via OAuth consent).
+- **OAuth app** (standalone login): `arinova app create --name "My App" --redirect-uri "https://myapp.com/callback"` → prints your `Client ID`. `--redirect-uri` is required; its **origin** must match your callback (path may differ). No `client_secret` for CLI-created apps — they are public/PKCE.
+- **Space** (embeddable): run `arinova space create --name "My App" --url "https://myapp.com"` to make it embeddable, then `arinova space publish <id>` to list it.
 
-```js
-const result = await arinova.purchase("health-potion", 50, "Bought Health Potion");
-console.log(result.transactionId, result.newBalance);
-```
+## Embedding
 
-#### `arinova.transactions(limit?, offset?): Promise<TransactionsResponse>`
+For `connect()` iframe mode to receive auth, your Space's origin must be authorized by Arinova to receive the `arinova:auth` message. This is currently gated server-side (allow-list). If `connect()` times out inside an iframe with *“this origin may not be authorized”*, your origin isn't allow-listed yet — use standalone `login()` in the meantime, or contact Arinova to authorize the Space origin. (Making this self-serve from your registered Space is tracked as a server-side change.)
 
-Get the user's transaction history.
+## PKCE flow
 
-```js
-const { transactions, total } = await arinova.transactions(20, 0);
-```
+1. The SDK generates a `code_verifier` and `code_challenge = BASE64URL(SHA-256(verifier))` (S256 — the only method Arinova accepts).
+2. It opens `apiUrl/oauth/authorize?...` (popup or redirect); Arinova shows the consent page on the frontend host.
+3. After approval, Arinova returns to your `redirectUri` with `?code=...&state=...`.
+4. The SDK exchanges `code` + `code_verifier` at `apiUrl/oauth/token` (JSON) for the access token — no secret needed.
 
----
+## redirect_uri rules
 
-## PKCE Flow
+- The registered URI's **origin** (scheme + host + port) must match the `redirectUri` you use (public/PKCE clients match by origin; confidential clients match exactly).
+- Use HTTPS in production; the token is scoped to your app.
 
-1. SDK generates `code_verifier` (random) and `code_challenge = BASE64URL(SHA256(code_verifier))`
-2. User is redirected to Arinova with `code_challenge`
-3. After authorization, Arinova redirects back with `code`
-4. SDK exchanges `code` + `code_verifier` for `access_token` (no secret needed)
+## License
 
-## redirect_uri Rules
-
-- Origin match: scheme + host + port must match your registered URI
-- Path can differ (SDK uses `window.location.origin + /callback` by default)
-- Must use HTTPS in production
-- `http://localhost` is allowed for development
+See the root repository license.

@@ -9,7 +9,8 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "lib": ["ES2020", "DOM"]
+    "lib": ["ES2020", "DOM", "DOM.Iterable"]
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["**/*.test.ts", "dist", "node_modules"]
 }
