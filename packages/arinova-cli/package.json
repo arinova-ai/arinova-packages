@@ -10,9 +10,11 @@
     "dist"
   ],
   "scripts": {
+    "prebuild": "node scripts/inline-bridge.mjs",
     "build": "tsc",
     "dev": "tsc --watch",
     "lint": "tsc --noEmit",
+    "pretest": "node scripts/inline-bridge.mjs",
     "test": "vitest run"
   },
   "dependencies": {

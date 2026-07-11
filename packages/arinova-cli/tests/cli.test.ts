@@ -702,7 +702,9 @@ describe("theme help commands", () => {
       const fs = require("node:fs");
       expect(fs.existsSync(`${tmpDir}/theme.json`)).toBe(true);
       expect(fs.existsSync(`${tmpDir}/theme.js`)).toBe(true);
-      expect(fs.existsSync(`${tmpDir}/assets`)).toBe(true);
+      // Preview is required by upload; assets live flat, so no assets/ subfolder.
+      expect(fs.existsSync(`${tmpDir}/preview.png`)).toBe(true);
+      expect(fs.existsSync(`${tmpDir}/assets`)).toBe(false);
     } finally {
       execSync(`rm -rf ${tmpDir}`, { stdio: "pipe" });
     }

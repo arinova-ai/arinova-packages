@@ -7,568 +7,542 @@ Build interactive visual themes for Arinova Office — the virtual workspace whe
 ## Table of Contents
 
 1. [What Is an Office Theme?](#1-what-is-an-office-theme)
-2. [What Does a Theme Look Like?](#2-what-does-a-theme-look-like)
-3. [Quick Start](#3-quick-start)
+2. [Quick Start](#2-quick-start)
+3. [Theme Manifest (`theme.json`)](#3-theme-manifest-themejson)
 4. [SDK API Reference](#4-sdk-api-reference)
-5. [TypeScript Types](#5-typescript-types)
-6. [Examples](#6-examples)
+5. [Lifecycle](#5-lifecycle)
+6. [Styling & Assets under the Runtime CSP](#6-styling--assets-under-the-runtime-csp)
+7. [Examples](#7-examples)
+8. [Publishing Lifecycle](#8-publishing-lifecycle)
+9. [Monetization & Licensing](#9-monetization--licensing)
+10. [Versioning & Ownership](#10-versioning--ownership)
+11. [TypeScript Types](#11-typescript-types)
+12. [PostMessage Protocol](#12-postmessage-protocol)
 
 ---
 
 ## 1. What Is an Office Theme?
 
-Every Arinova user has a **virtual office** — a personal workspace where their AI agents carry out tasks. Think of it as a digital room you can peek into and watch your agents work in real time.
-
-An **Office Theme** is the visual layer of that room. It controls what the office looks like — the background, the characters, the animations, and how agent activity is rendered on screen. Themes are entirely customizable: you could build a cozy studio with pixel art characters, a futuristic command center with holographic dashboards, or a serene garden where agents meditate between tasks.
+Every Arinova user has a **virtual office** — a personal workspace where their AI agents carry out tasks. An **Office Theme** is the visual layer of that room: the background, the characters, the animations, and how agent activity is rendered.
 
 ### How it works
 
 ```
 ┌─────────────────────────────────────────┐
-│  Arinova Host App                       │
-│                                         │
-│  ┌───────────────────────────────────┐  │
-│  │  Theme iframe                     │  │
-│  │                                   │  │
-│  │  Your theme code runs here.       │  │
-│  │  The SDK bridges data between     │  │
-│  │  the host and your theme.         │  │
-│  │                                   │  │
-│  └───────────────────────────────────┘  │
-│                                         │
-│  [Agent Panel]  [Chat]  [Settings]      │
+│  Arinova Host App                        │
+│  ┌────────────────────────────────────┐  │
+│  │  Theme runtime iframe (sandboxed)  │  │
+│  │  · host injects the bridge script  │  │
+│  │  · your theme.js runs here         │  │
+│  │  · bridge <-> host over postMessage│  │
+│  └────────────────────────────────────┘  │
+│  [Agent Panel]  [Chat]  [Settings]       │
 └─────────────────────────────────────────┘
 ```
 
-- Your theme runs inside a **sandboxed iframe** embedded in the Arinova host app.
-- The host injects a **bridge script** (`bridge.js`) that gives your code access to an `sdk` object.
-- Through the SDK, your theme receives **live agent data** (who's online, what they're doing, their status) and can **send actions** back to the host (open a chat, select an agent, navigate).
-- Agents have real-time statuses — `idle`, `working`, `blocked`, `collaborating`, or `unbound` — and your theme can visualize these however you like: animations, color changes, icons, particles, anything.
+- Your theme runs inside a **sandboxed iframe** (`sandbox="allow-scripts"`, so its origin is opaque) served by the Arinova runtime.
+- The runtime injects a **bridge script** that exposes an `sdk` object to your code and speaks a secured `postMessage` protocol with the host (origin-locked, with a per-iframe `bridgeToken`).
+- Through the SDK your theme receives **live agent data** and can **send actions** back to the host (select an agent, open a chat, navigate, bind/unbind agents to slots).
+- Agents have real-time statuses — `working`, `idle`, `blocked`, `collaborating`, `unbound` — visualize them however you like.
+
+> The bridge is injected for you. You do not include it — you only ship `theme.js` (and assets). `src/bridge.js` in this package is the exact reference the host injects and the local `arinova theme dev` server serves, so local dev matches production.
 
 ### Key concepts
 
 | Concept | Description |
 |---|---|
 | **Office** | A user's virtual workspace containing one or more AI agents |
-| **Agent** | An AI entity (e.g., powered by Claude, GPT) that performs tasks. Each has a name, role, emoji, status, and activity history |
-| **Theme** | A self-contained HTML/JS/CSS package that renders the office scene |
-| **Slot** | A position in the theme where an agent can be bound (placed) |
+| **Agent** | An AI entity that performs tasks — name, role, emoji, status, activity |
+| **Theme** | A self-contained `theme.js` + assets package that renders the office scene |
+| **Slot** | A position in the theme an agent can be bound to (`0 .. maxAgents-1`) |
 | **Binding** | The mapping between a slot and a specific agent |
-| **Bridge** | The SDK script that handles postMessage communication between your theme and the host |
+
+### Picture-in-Picture (PiP)
+
+Users can shrink the office into a small floating window. Handle small viewports gracefully — subscribe to `sdk.onResize(cb)` to adapt your layout.
 
 ---
 
-## 2. What Does a Theme Look Like?
+## 2. Quick Start
 
-### Example: Cozy Studio
-
-Imagine a warm, illustrated workspace. A wooden desk sits in the center with a glowing monitor. Your AI agent — let's call her Linda — sits at the desk typing. A status bubble above her head reads "Working on PRD review." When she finishes, she leans back and the bubble changes to "Idle." Another agent, Ron, is at a side table writing code, with a small progress bar floating near him.
-
-**What the user sees:**
-
-- Agents are rendered as characters in the scene, each in their designated spot (slot).
-- Agent status is reflected visually — working agents animate, idle ones rest, blocked ones show a warning icon.
-- Clicking an agent opens their detail panel or chat.
-- Task info, token usage, and recent activity can be shown as overlays, tooltips, or HUD elements.
-
-### Picture-in-Picture (PiP) mode
-
-Users can shrink the office into a small floating window that hovers over other pages. Your theme should handle smaller viewports gracefully — the SDK provides `width`, `height`, and a `resize` callback so you can adapt your layout.
-
-### What your theme controls
-
-- **Scene rendering** — background art, furniture, decorations, particle effects
-- **Agent visualization** — character sprites/avatars, animations per status, position in scene
-- **Data overlays** — task titles, context usage, activity feeds
-- **Interaction** — click handlers that call `sdk.selectAgent()` or `sdk.openChat()`
-- **Binding UI** — let users drag agents into slots using `sdk.bindAgent()` / `sdk.unbindAgent()`
-
-### What the host controls
-
-- Injecting the bridge script and initializing the SDK
-- Providing agent data and pushing updates
-- Handling navigation, chat panels, and agent selection UI outside the iframe
-
----
-
-## 3. Quick Start
-
-### Prerequisites
-
-Install the [Arinova CLI](https://www.npmjs.com/package/@arinova-ai/cli):
+### Install the CLI
 
 ```bash
 npm install -g @arinova-ai/cli
 ```
 
-### Create a new theme
+### Scaffold a theme
 
 ```bash
 arinova theme init my-theme
 cd my-theme
 ```
 
-This scaffolds a project with:
+This creates:
 
 ```
 my-theme/
-├── theme.json          # Theme metadata (name, version, slots, preview image)
-├── theme.js            # Your main entry point
-└── assets/             # Images, fonts, spritesheets, JSON data
-    └── preview.png
+├── theme.json     # manifest (id, name, version, author, preview, entry, …)
+├── theme.js       # your entry point — export default { init(sdk, container) }
+└── preview.png    # required preview image (replace with a real 16:9 screenshot)
 ```
+
+Asset files (`png`, `jpg`, `svg`, `mp3`, `glb`, …) live **flat** next to `theme.js` — the runtime serves a single, flat filename namespace, so **no subdirectories**.
 
 ### Develop locally
 
 ```bash
-arinova theme dev
+arinova theme dev        # http://localhost:3100
 ```
 
-Opens a local preview with mock agent data so you can iterate on your theme without deploying.
+The dev server serves the **real** SDK bridge and drives it over the real protocol with mock agent data, so behavior matches production (same API surface, `sdk.onResize` for resize, flat assets, string `currentTask`).
 
-### Build for distribution
+### Build & upload
 
 ```bash
-arinova theme build
+arinova theme build                          # packages a flat <id>.zip
+arinova theme upload theme.json my-theme.zip  # upload (creates a draft)
+arinova theme publish my-theme                # publish once your review is approved
 ```
 
-Produces a `.zip` file ready for upload.
+`upload` uploads a **draft** and runs an automated safety scan — see [Publishing Lifecycle](#8-publishing-lifecycle).
 
-### Upload to Arinova
+### Entry point
 
-```bash
-arinova theme upload
-```
-
-Publishes your theme to the Arinova theme marketplace. Users can then apply it to their office.
-
-### Theme entry point
-
-Your `theme.js` must export a module with at least an `init` function:
+Your `theme.js` must `export default` an object with an `init` function:
 
 ```js
 export default {
-  async init(sdk, container) {
-    // sdk — the Arinova SDK object (agent data, actions, environment)
-    // container — the #container DOM element to render into
-  },
-
-  resize(width, height) {
-    // Called when the viewport changes size
-  },
-
-  destroy() {
-    // Called when the theme is unloaded — clean up here
+  init(sdk, container) {
+    // sdk — the Arinova SDK (agent data, actions, environment)
+    // container — the DOM element to render into
   },
 };
 ```
 
-The bridge script (`bridge.js`) is injected automatically by the host. You do not need to include it.
+The runtime calls **only** `init`. There are no `resize()` / `destroy()` hooks — subscribe to viewport changes via `sdk.onResize(cb)`.
+
+---
+
+## 3. Theme Manifest (`theme.json`)
+
+```jsonc
+{
+  "id": "my-theme",                 // REQUIRED. kebab-case, ≤100 chars, globally unique & permanent
+  "name": "My Theme",               // REQUIRED. 1–100 characters
+  "version": "1.0.0",               // REQUIRED. semver X.Y.Z
+  "entry": "theme.js",              // REQUIRED. must be "theme.js" (the runtime always loads theme.js)
+  "preview": "preview.png",         // REQUIRED in the bundle. flat filename at the zip root
+  "author": { "name": "You", "id": "your-creator-id" },
+  "description": "A short description (≤ ~500 chars by convention).",
+  "tags": ["cozy", "modern"],
+  "license": "standard",            // "standard" | "exclusive" (default "standard")
+  "price": 0,                       // integer points, ≥ 0. 0 or omitted = free
+  "maxAgents": 6                    // slots the theme exposes; Binding.slotIndex runs 0..maxAgents-1
+}
+```
+
+**Validation enforced on upload** (fail these and the upload is rejected):
+
+| Field | Rule |
+|---|---|
+| `id` | matches `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, ≤100 chars. Globally unique; permanently owned by the first author to claim it (re-uploading someone else's id → `403`). |
+| `name` | 1–100 characters |
+| `version` | semver `X.Y.Z` |
+| `entry` / `preview` | relative, path-safe (no leading `/`, no `..`, no `:`); the preview must exist as a flat entry at the bundle root |
+| `price` | integer ≥ 0 |
+| bundle files | only allowed extensions: `png jpg jpeg webp gif svg glb gltf mp3 ogg wav json js css html` (no font files); images ≤ 10 MB, audio ≤ 5 MB, bundle ≤ 200 MB, `theme.json` ≤ 256 KB |
+
+`maxAgents` is optional. If omitted, the server derives it from `zones` capacity, else defaults to `1`.
 
 ---
 
 ## 4. SDK API Reference
 
-The `sdk` object is passed to your `init()` function and is also available globally as `window.__ARINOVA_SDK__`.
+The `sdk` object is passed to your `init(sdk, container)`.
 
-### Agent Data
+### Agent data (read-only)
 
-Read-only access to the agents in the user's office.
-
-| Property / Method | Type | Description |
+| Member | Type | Description |
 |---|---|---|
-| `sdk.agents` | `Agent[]` | All agents currently in the office |
-| `sdk.agent` | `Agent \| null` | First agent (convenience shortcut) |
-| `sdk.getAgent(id)` | `(id: string) => Agent \| undefined` | Look up a specific agent by ID |
-| `sdk.onAgentsChange(cb)` | `(cb: (agents: Agent[]) => void) => () => void` | Subscribe to agent list updates. Returns an unsubscribe function |
+| `sdk.agents` | `Agent[]` | All agents in the office. Derive one with `sdk.agents[0]` or `sdk.agents.find(a => a.id === id)`. |
+| `sdk.onAgentsChange(cb)` | `(cb: (agents: Agent[]) => void) => () => void` | Subscribe to agent updates. Returns an unsubscribe function. |
 
-**Agent statuses:**
+**Agent statuses:** `working` · `idle` · `blocked` · `collaborating` · `unbound`.
 
-| Status | Meaning |
-|---|---|
-| `"working"` | Agent is actively executing a task |
-| `"idle"` | Agent is online but not doing anything |
-| `"blocked"` | Agent is stuck and needs intervention |
-| `"collaborating"` | Agent is working with other agents |
-| `"unbound"` | Agent exists but is not assigned to a slot in this theme |
-
-### Agent Actions
-
-Send commands to the host app.
+### Agent actions
 
 | Method | Signature | Description |
 |---|---|---|
-| `sdk.selectAgent(agentId)` | `(agentId: string) => void` | Highlight an agent in the host UI (e.g., show their detail panel) |
-| `sdk.openChat(agentId)` | `(agentId: string) => void` | Open the chat panel for a specific agent |
-| `sdk.navigate(path)` | `(path: string) => void` | Navigate the host app to a given route |
-| `sdk.emit(event, data?)` | `(event: string, data?: unknown) => void` | Emit a custom event to the host (for advanced integrations) |
+| `sdk.selectAgent(agentId)` | `(agentId: string) => void` | Highlight an agent in the host UI |
+| `sdk.openChat(agentId)` | `(agentId: string) => void` | Open the chat panel for an agent |
+| `sdk.navigate(path)` | `(path: string) => void` | Navigate the host app to a route |
 
 ### Bindings
 
-Manage which agents are placed in which slots of your theme.
-
-| Property / Method | Type | Description |
+| Member | Type | Description |
 |---|---|---|
-| `sdk.connectedAgents` | `ConnectedAgent[]` | All agents available to be bound (includes agents not yet placed) |
+| `sdk.connectedAgents` | `ConnectedAgent[]` | Agents available to be bound |
 | `sdk.bindings` | `Binding[]` | Current slot-to-agent mappings |
-| `sdk.bindAgent(slotIndex, agentId)` | `(slotIndex: number, agentId: string) => void` | Assign an agent to a slot |
-| `sdk.unbindAgent(slotIndex)` | `(slotIndex: number) => void` | Remove the agent from a slot |
-| `sdk.onBindingsChange(cb)` | `(cb: (bindings: Binding[]) => void) => () => void` | Subscribe to binding changes. Returns an unsubscribe function |
+| `sdk.bindAgent(slotIndex, agentId)` | `(number, string) => void` | Assign an agent to a slot |
+| `sdk.unbindAgent(slotIndex)` | `(number) => void` | Clear a slot |
+| `sdk.onBindingsChange(cb)` | `(cb) => () => void` | Subscribe to binding changes |
+| `sdk.onConnectedAgentsChange(cb)` | `(cb) => () => void` | Subscribe to connected-agent changes |
 
 ### Assets
 
-Load theme assets (images, JSON data, fonts) using resolved URLs.
-
 | Method | Signature | Description |
 |---|---|---|
-| `sdk.assetUrl(path)` | `(relativePath: string) => string` | Resolve a relative path (e.g., `"sprites/idle.png"`) to a full URL |
-| `sdk.loadJSON(path)` | `<T>(relativePath: string) => Promise<T>` | Fetch and parse a JSON asset |
-| `sdk.loadFont(name, path)` | `(name: string, relativePath: string) => Promise<void>` | Load a custom font via the FontFace API |
+| `sdk.assetUrl(path)` | `(relativePath: string) => string` | Resolve a **flat** asset filename (e.g. `"bg.png"`) to a same-origin URL. Filenames are a single segment — no subdirectories. To load JSON: `fetch(sdk.assetUrl("data.json")).then(r => r.json())`. |
 
-### Environment
+### Environment & viewport
 
-Read-only info about the current viewport and user context.
-
-| Property | Type | Description |
+| Member | Type | Description |
 |---|---|---|
-| `sdk.width` | `number` | Current viewport width in pixels |
-| `sdk.height` | `number` | Current viewport height in pixels |
-| `sdk.isMobile` | `boolean` | `true` if the user is on a mobile device |
-| `sdk.pixelRatio` | `number` | Device pixel ratio (for crisp rendering on HiDPI screens) |
-| `sdk.user` | `User` | Current user: `{ id, name, username }` |
-| `sdk.themeId` | `string` | The unique identifier of this theme |
-| `sdk.themeVersion` | `string` | The current version string of this theme |
-
-### Lifecycle
-
-Your theme module can export three lifecycle hooks:
-
-| Hook | Required | Signature | When it's called |
-|---|---|---|---|
-| `init` | **Yes** | `(sdk: ArinovaSDK, container: HTMLElement) => void \| Promise<void>` | Once, after the host sends the `init` message. Build your scene inside `container`. |
-| `resize` | No | `(width: number, height: number) => void` | Whenever the viewport changes size (including PiP transitions). Update your layout. |
-| `destroy` | No | `() => void` | When the theme is being unloaded. Release resources — remove event listeners, stop animations, dispose canvases. |
+| `sdk.width` / `sdk.height` | `number` | Current viewport size (px) |
+| `sdk.onResize(cb)` | `(cb: (size: { width: number; height: number }) => void) => () => void` | Subscribe to viewport changes. **This is the only resize mechanism.** Returns unsubscribe. |
+| `sdk.isMobile` | `boolean` | Whether the device is mobile |
+| `sdk.pixelRatio` | `number` | Device pixel ratio |
+| `sdk.user` | `User \| null` | Current user (`null` until the host `init` arrives) |
+| `sdk.themeId` | `string` | This theme's id |
+| `sdk.themeVersion` | `string` | Reserved — currently always `"0.0.0"`; do not depend on it |
 
 ---
 
-## 5. TypeScript Types
+## 5. Lifecycle
 
-The full type definitions are available in [`src/types.d.ts`](./src/types.d.ts). Here is the complete reference:
+The runtime invokes **only** `init(sdk, container)`, once. There is **no** `resize()` or `destroy()` module hook — historic examples that exported them never ran in production.
 
-```ts
-type AgentStatus = "working" | "idle" | "blocked" | "collaborating" | "unbound";
+- To react to viewport changes, subscribe with `sdk.onResize(cb)` inside `init`.
+- Any cleanup you'd put in `destroy()` isn't needed: the whole iframe is torn down when the theme unloads.
 
-interface AgentActivity {
-  time: string;                   // ISO timestamp
-  text: string;                   // Human-readable description
-}
-
-interface AgentTokenUsage {
-  /** Context window usage percentage, e.g. "42%" */
-  contextPercent?: string;
-}
-
-interface Agent {
-  id: string;
-  name: string;
-  /** Agent description / role, e.g. "Coding Engineer" */
-  role: string;
-  /** Display emoji, e.g. "💻" (default: "🤖") */
-  emoji: string;
-  /** Accent color (CSS hex), e.g. "#3B82F6" */
-  color: string;
-  status: AgentStatus;
-  online?: boolean;
-  /** Current task title, or undefined if idle */
-  currentTask?: string;
-  recentActivity: AgentActivity[];
-  model?: string;                 // e.g. "claude-opus-4-6"
-  tokenUsage?: AgentTokenUsage;
-  sessionDurationMs?: number;
-  currentToolDetail?: string;     // e.g. "Reading src/index.ts"
-}
-
-interface User {
-  id: string;
-  name: string;
-  username: string;
-}
-
-interface ConnectedAgent {
-  id: string;
-  name: string;
-  avatarUrl?: string;
-}
-
-interface Binding {
-  slotIndex: number;
-  agentId: string;
-  agentName?: string;
-}
-
-interface ArinovaSDK {
-  // Agent Data
-  readonly agents: Agent[];
-  readonly agent: Agent | null;
-  onAgentsChange(callback: (agents: Agent[]) => void): () => void;
-  getAgent(id: string): Agent | undefined;
-
-  // Bindings
-  readonly connectedAgents: ConnectedAgent[];
-  readonly bindings: Binding[];
-  bindAgent(slotIndex: number, agentId: string): void;
-  unbindAgent(slotIndex: number): void;
-  onBindingsChange(callback: (bindings: Binding[]) => void): () => void;
-
-  // Assets
-  assetUrl(relativePath: string): string;
-  loadJSON<T = unknown>(relativePath: string): Promise<T>;
-  loadFont(name: string, relativePath: string): Promise<void>;
-
-  // Agent Actions
-  selectAgent(agentId: string): void;
-  openChat(agentId: string): void;
-  navigate(path: string): void;
-  emit(event: string, data?: unknown): void;
-
-  // Environment
-  readonly width: number;
-  readonly height: number;
-  readonly isMobile: boolean;
-  readonly pixelRatio: number;
-  readonly user: User;
-  readonly themeId: string;
-  readonly themeVersion: string;
-}
-
-interface ThemeModule {
-  init(sdk: ArinovaSDK, container: HTMLElement): void | Promise<void>;
-  resize?(width: number, height: number): void;
-  destroy?(): void;
-}
+```js
+export default {
+  init(sdk, container) {
+    const stop = sdk.onResize(({ width, height }) => layout(width, height));
+    // `stop()` unsubscribes if you ever need to.
+  },
+};
 ```
 
 ---
 
-## 6. Examples
+## 6. Styling & Assets under the Runtime CSP
 
-### Hello World — Minimal theme
+The runtime enforces a strict Content-Security-Policy. It changes how you style and load things:
 
-The simplest possible theme: display the first agent's name and status.
+- **No author `<style>` blocks and no inline `style="…"` attributes** — `style-src` is nonce-based with no `unsafe-inline`, so both are dropped. **Set styles via the CSSOM instead**: `el.style.color = "#fff"` or `Object.assign(el.style, { … })`, and build DOM with `createElement`. (A constructable/adopted stylesheet also works.)
+- **Images:** `img-src 'self' data: blob:` — bundle images as flat assets (`sdk.assetUrl`) or use `data:` / `blob:` URIs. Remote image hosts are blocked.
+- **Fetch:** `connect-src 'self'` — you may `fetch(sdk.assetUrl(...))` for same-origin assets; cross-origin requests are blocked.
+- **Fonts:** `font-src 'self'` **and** font files (`woff`, `woff2`, `ttf`, …) are **not** an allowed bundle extension, so custom fonts effectively can't be shipped. Use the system font stack (`system-ui`, …). (A base64 `data:` `@font-face` is the only theoretical path and is not recommended.)
+- **Assets are a flat namespace:** `sdk.assetUrl("sprite.png")` resolves to a single filename — subdirectories 404. Keep every asset flat at the bundle root.
+
+---
+
+## 7. Examples
+
+All examples are CSP-safe (CSSOM styling) and use the real SDK surface.
+
+### Hello World — first agent's name & status
 
 ```js
 export default {
   init(sdk, container) {
     const el = document.createElement("div");
-    el.style.cssText = `
-      display: flex; align-items: center; justify-content: center;
-      width: 100%; height: 100%;
-      font-family: system-ui; font-size: 24px; color: #fff;
-      background: #1a1a2e;
-    `;
+    Object.assign(el.style, {
+      display: "flex", alignItems: "center", justifyContent: "center",
+      width: "100%", height: "100%",
+      fontFamily: "system-ui, sans-serif", fontSize: "24px",
+      color: "#fff", background: "#1a1a2e",
+    });
+    container.appendChild(el);
 
     function render() {
-      const a = sdk.agent;
+      const a = sdk.agents[0];
       el.textContent = a ? `${a.emoji} ${a.name} — ${a.status}` : "No agent";
     }
 
     render();
     sdk.onAgentsChange(render);
-    container.appendChild(el);
   },
 };
 ```
 
-### Single Agent — Status card with task info
-
-A focused view for one agent showing current task and context usage.
+### Single Agent — status card with task & context
 
 ```js
 export default {
   init(sdk, container) {
-    container.innerHTML = `
-      <style>
-        * { margin: 0; box-sizing: border-box; }
-        body { background: #0f172a; color: #e2e8f0; font-family: system-ui; }
-        .card {
-          position: absolute; top: 50%; left: 50%;
-          transform: translate(-50%, -50%);
-          background: #1e293b; border-radius: 16px; padding: 32px;
-          min-width: 320px; text-align: center;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-        }
-        .emoji { font-size: 48px; margin-bottom: 8px; }
-        .name { font-size: 20px; font-weight: 600; }
-        .role { font-size: 14px; color: #94a3b8; margin-top: 4px; }
-        .status { margin-top: 16px; font-size: 14px; }
-        .status .dot {
-          display: inline-block; width: 8px; height: 8px;
-          border-radius: 50%; margin-right: 6px;
-        }
-        .working .dot { background: #22c55e; }
-        .idle .dot { background: #eab308; }
-        .blocked .dot { background: #ef4444; }
-        .task { margin-top: 16px; font-size: 13px; color: #94a3b8; }
-        .context { margin-top: 8px; font-size: 12px; color: #64748b; }
-      </style>
-      <div class="card" id="agent-card">
-        <div class="emoji" id="agent-emoji"></div>
-        <div class="name" id="agent-name"></div>
-        <div class="role" id="agent-role"></div>
-        <div class="status" id="agent-status"></div>
-        <div class="task" id="agent-task"></div>
-        <div class="context" id="agent-context"></div>
-      </div>
-    `;
+    Object.assign(container.style, {
+      background: "#0f172a", color: "#e2e8f0",
+      fontFamily: "system-ui, sans-serif", height: "100%",
+    });
+
+    const card = document.createElement("div");
+    Object.assign(card.style, {
+      position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+      background: "#1e293b", borderRadius: "16px", padding: "32px",
+      minWidth: "320px", textAlign: "center", cursor: "pointer",
+      boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+    });
+    container.appendChild(card);
+
+    const emoji = mk("div", { fontSize: "48px", marginBottom: "8px" });
+    const name = mk("div", { fontSize: "20px", fontWeight: "600" });
+    const role = mk("div", { fontSize: "14px", color: "#94a3b8", marginTop: "4px" });
+    const status = mk("div", { fontSize: "14px", marginTop: "16px" });
+    const task = mk("div", { fontSize: "13px", color: "#94a3b8", marginTop: "16px" });
+    const ctx = mk("div", { fontSize: "12px", color: "#64748b", marginTop: "8px" });
+    card.append(emoji, name, role, status, task, ctx);
+
+    const DOT = { working: "#22c55e", idle: "#eab308", blocked: "#ef4444" };
 
     function render() {
-      const a = sdk.agent;
+      const a = sdk.agents[0];
       if (!a) return;
-
-      document.getElementById("agent-emoji").textContent = a.emoji;
-      document.getElementById("agent-name").textContent = a.name;
-      document.getElementById("agent-role").textContent = a.role;
-
-      const statusEl = document.getElementById("agent-status");
-      statusEl.className = `status ${a.status}`;
-      statusEl.innerHTML = `<span class="dot"></span>${a.status}`;
-
-      const taskEl = document.getElementById("agent-task");
-      taskEl.textContent = a.currentTask || "";
-
-      const ctxEl = document.getElementById("agent-context");
-      ctxEl.textContent = a.tokenUsage?.contextPercent
-        ? `Context: ${a.tokenUsage.contextPercent}`
-        : "";
+      emoji.textContent = a.emoji;
+      name.textContent = a.name;
+      role.textContent = a.role;
+      status.textContent = "● " + a.status;
+      status.style.color = DOT[a.status] || "#94a3b8";
+      task.textContent = a.currentTask || "";        // currentTask is a string
+      ctx.textContent = a.tokenUsage?.contextPercent ? `Context: ${a.tokenUsage.contextPercent}` : "";
     }
 
     render();
     sdk.onAgentsChange(render);
-
-    // Click card to open chat
-    document.getElementById("agent-card").addEventListener("click", () => {
-      if (sdk.agent) sdk.openChat(sdk.agent.id);
+    card.addEventListener("click", () => {
+      const a = sdk.agents[0];
+      if (a) sdk.openChat(a.id);
     });
+
+    function mk(tag, style) {
+      const node = document.createElement(tag);
+      Object.assign(node.style, style);
+      return node;
+    }
   },
 };
 ```
 
-### Multi-Agent — Grid layout with binding support
-
-A grid that shows all bound agents and lets users bind new ones to empty slots.
+### Multi-Agent — slot grid with binding support
 
 ```js
-const SLOT_COUNT = 6;
-
 export default {
   init(sdk, container) {
-    container.innerHTML = `
-      <style>
-        * { margin: 0; box-sizing: border-box; }
-        body { background: #111827; font-family: system-ui; }
-        .grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 12px; padding: 16px;
-          height: 100vh;
-        }
-        .slot {
-          background: #1f2937; border-radius: 12px;
-          display: flex; flex-direction: column;
-          align-items: center; justify-content: center;
-          padding: 16px; cursor: pointer;
-          border: 2px solid transparent;
-          transition: border-color 0.2s;
-        }
-        .slot:hover { border-color: #3b82f6; }
-        .slot.working { border-color: #22c55e; }
-        .slot.blocked { border-color: #ef4444; }
-        .empty { color: #4b5563; font-size: 14px; }
-        .emoji { font-size: 32px; }
-        .name { color: #e5e7eb; font-size: 14px; font-weight: 600; margin-top: 8px; }
-        .info { color: #9ca3af; font-size: 12px; margin-top: 4px; }
-      </style>
-      <div class="grid" id="grid"></div>
-    `;
+    const SLOT_COUNT = 6; // match your manifest `maxAgents`
 
-    const grid = document.getElementById("grid");
+    const grid = document.createElement("div");
+    Object.assign(grid.style, {
+      display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
+      gap: "12px", padding: "16px", height: "100%", boxSizing: "border-box",
+      background: "#111827", fontFamily: "system-ui, sans-serif",
+    });
+    container.appendChild(grid);
+
+    function agentById(id) {
+      return sdk.agents.find((a) => a.id === id);
+    }
 
     function render() {
-      grid.innerHTML = "";
-
+      grid.replaceChildren();
       for (let i = 0; i < SLOT_COUNT; i++) {
         const binding = sdk.bindings.find((b) => b.slotIndex === i);
         const slot = document.createElement("div");
-        slot.className = "slot";
+        Object.assign(slot.style, {
+          background: "#1f2937", borderRadius: "12px",
+          display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center",
+          padding: "16px", cursor: "pointer", color: "#e5e7eb",
+          border: "2px solid transparent",
+        });
 
         if (binding) {
-          const agent = sdk.getAgent(binding.agentId);
+          const agent = agentById(binding.agentId);
           if (agent) {
-            slot.classList.add(agent.status);
-            slot.innerHTML = `
-              <div class="emoji">${agent.emoji}</div>
-              <div class="name">${agent.name}</div>
-              <div class="info">${agent.role} · ${agent.status}</div>
-            `;
+            slot.style.borderColor =
+              agent.status === "working" ? "#22c55e" : agent.status === "blocked" ? "#ef4444" : "transparent";
+            const emoji = document.createElement("div");
+            emoji.style.fontSize = "32px";
+            emoji.textContent = agent.emoji;
+            const name = document.createElement("div");
+            Object.assign(name.style, { fontSize: "14px", fontWeight: "600", marginTop: "8px" });
+            name.textContent = agent.name;
+            const info = document.createElement("div");
+            Object.assign(info.style, { fontSize: "12px", color: "#9ca3af", marginTop: "4px" });
+            info.textContent = `${agent.role} · ${agent.status}`;
+            slot.append(emoji, name, info);
             slot.addEventListener("click", () => sdk.selectAgent(agent.id));
           } else {
-            slot.innerHTML = `<div class="name">${binding.agentName || "Unknown"}</div>`;
+            slot.textContent = binding.agentName || "Unknown";
           }
         } else {
-          slot.innerHTML = `<div class="empty">+ Empty Slot</div>`;
+          slot.textContent = "+ Empty Slot";
+          slot.style.color = "#4b5563";
+          const idx = i;
           slot.addEventListener("click", () => {
-            // Bind the first unbound connected agent, if any
-            const boundIds = new Set(sdk.bindings.map((b) => b.agentId));
-            const available = sdk.connectedAgents.find((a) => !boundIds.has(a.id));
-            if (available) sdk.bindAgent(i, available.id);
+            const bound = new Set(sdk.bindings.map((b) => b.agentId));
+            const free = sdk.connectedAgents.find((a) => !bound.has(a.id));
+            if (free) sdk.bindAgent(idx, free.id);
           });
         }
-
-        grid.appendChild(slot);
+        grid.append(slot);
       }
     }
 
     render();
     sdk.onAgentsChange(render);
     sdk.onBindingsChange(render);
-  },
-
-  resize(width, height) {
-    const grid = document.getElementById("grid");
-    if (!grid) return;
-    // Switch to 2 columns on narrow viewports (e.g., PiP mode)
-    grid.style.gridTemplateColumns = width < 480 ? "repeat(2, 1fr)" : "repeat(3, 1fr)";
+    sdk.onConnectedAgentsChange(render);
+    sdk.onResize(({ width }) => {
+      grid.style.gridTemplateColumns = width < 480 ? "repeat(2, 1fr)" : "repeat(3, 1fr)";
+    });
   },
 };
 ```
 
 ---
 
-## PostMessage Protocol
+## 8. Publishing Lifecycle
 
-For advanced use cases, here's the raw message protocol the bridge handles. You typically won't need this — the SDK abstracts it.
+Uploading is **not** publishing. The flow:
 
-**Host → Theme iframe:**
+1. **`arinova theme upload theme.json <id>.zip`** — stores your theme as a **draft** (`published = false`).
+2. **Automated safety scan** — the server scans your `theme.js` (plus name/description). If it flags high risk, the upload is blocked as `pending_review` and returns HTTP `422 THEME_SAFETY_REVIEW_REQUIRED`; a human review is queued. A clean theme is recorded with `review_status = approved`.
+3. **`arinova theme publish <id>`** — flips the theme to published. Only allowed once `review_status = approved` (otherwise `409`).
+
+States: `draft` → (`pending_review`) → `approved` → `published`. Use `arinova theme unpublish <id>` to return to draft.
+
+---
+
+## 9. Monetization & Licensing
+
+Set in `theme.json`:
+
+- **`price`** — integer points, `≥ 0`. `0` or omitted = free.
+- **`license`** — `"standard"` (default) or `"exclusive"`.
+
+Marketplace rules to know:
+
+- Buyers have a **1-hour refund window** after purchase.
+- Creators earn a **revenue share** on each sale; a refund within the window **claws back** the corresponding share.
+- A buyer who refunds a theme **cannot repurchase** it.
+
+---
+
+## 10. Versioning & Ownership
+
+- **`id` is a permanent, globally-unique, author-owned handle.** The first author to upload an id owns it; anyone else uploading that id gets `403`.
+- **`version` must be semver** and should increase across updates.
+- **Re-uploading** the same id (yours) **overwrites in place**, **resets the theme to unpublished**, and **re-triggers the safety review**. Publish again after approval to make the update live.
+
+---
+
+## 11. TypeScript Types
+
+Full definitions ship in [`src/types.d.ts`](./src/types.d.ts). Summary:
+
+```ts
+type AgentStatus = "working" | "idle" | "blocked" | "collaborating" | "unbound";
+
+interface AgentActivity {
+  time: string;                 // preformatted display string (NOT ISO)
+  text: string;
+}
+
+interface AgentTokenUsage {
+  contextPercent?: string;      // e.g. "42%"
+}
+
+interface Agent {
+  id: string;
+  name: string;
+  role: string;
+  emoji: string;
+  color: string;                // CSS hex
+  status: AgentStatus;
+  online?: boolean;
+  currentTask?: string;         // plain string title, or undefined when idle
+  taskStartedAt?: number;       // epoch ms; elapsed = Date.now() - taskStartedAt
+  recentActivity: AgentActivity[];
+  model?: string;
+  tokenUsage?: AgentTokenUsage;
+}
+
+interface User { id: string; name: string; username: string }
+interface ConnectedAgent { id: string; name: string }
+interface Binding { slotIndex: number; agentId: string; agentName?: string }
+interface Size { width: number; height: number }
+
+interface ArinovaSDK {
+  readonly agents: Agent[];
+  onAgentsChange(cb: (agents: Agent[]) => void): () => void;
+
+  readonly connectedAgents: ConnectedAgent[];
+  readonly bindings: Binding[];
+  bindAgent(slotIndex: number, agentId: string): void;
+  unbindAgent(slotIndex: number): void;
+  onBindingsChange(cb: (bindings: Binding[]) => void): () => void;
+  onConnectedAgentsChange(cb: (connectedAgents: ConnectedAgent[]) => void): () => void;
+
+  assetUrl(relativePath: string): string;
+
+  selectAgent(agentId: string): void;
+  openChat(agentId: string): void;
+  navigate(path: string): void;
+
+  onResize(cb: (size: Size) => void): () => void;
+
+  readonly width: number;
+  readonly height: number;
+  readonly isMobile: boolean;
+  readonly pixelRatio: number;
+  readonly user: User | null;
+  readonly themeId: string;
+  readonly themeVersion: string; // reserved, always "0.0.0"
+}
+
+interface ThemeModule {
+  init(sdk: ArinovaSDK, container: HTMLElement): void | Promise<void>;
+  // No resize()/destroy() — the runtime never calls them. Use sdk.onResize().
+}
+
+interface ThemeManifest {
+  id: string; name: string; version: string; entry: string;
+  preview?: string; description?: string;
+  author?: { name: string; id: string };
+  tags?: string[];
+  license?: "standard" | "exclusive";
+  price?: number; renderer?: string; maxAgents?: number;
+}
+```
+
+---
+
+## 12. PostMessage Protocol
+
+You normally never touch this — the bridge abstracts it. **Every message carries a `bridgeToken`**, minted per-iframe by the host and passed in the iframe URL fragment (`#bridgeToken=…`). The bridge attaches it to every outbound message and rejects any inbound message whose `bridgeToken`, source, or origin doesn't match; the host does the same. `sdk.emit` / arbitrary custom events are **not** supported.
+
+**Host → theme iframe** (each also includes `bridgeToken`):
 
 | Message | Payload |
 |---|---|
-| `init` | `{ type: "init", user, themeId, themeVersion, isMobile, pixelRatio, width, height, agents, connectedAgents, bindings }` |
-| `agents:update` | `{ type: "agents:update", agents }` |
-| `bindings:update` | `{ type: "bindings:update", bindings }` |
-| `connectedAgents:update` | `{ type: "connectedAgents:update", connectedAgents }` |
-| `resize` | `{ type: "resize", width, height }` |
+| `init` | `{ type, user, themeId, themeVersion, isMobile, pixelRatio, agents, connectedAgents, bindings, width, height }` |
+| `agents:update` | `{ type, agents }` |
+| `bindings:update` | `{ type, bindings }` |
+| `connectedAgents:update` | `{ type, connectedAgents }` |
+| `resize` | `{ type, width, height }` |
 
-**Theme iframe → Host:**
+**Theme iframe → host** (each also includes `bridgeToken`):
 
 | Message | Payload |
 |---|---|
-| `ready` | `{ type: "ready" }` |
-| `agent:select` | `{ type: "agent:select", agentId }` |
-| `agent:openChat` | `{ type: "agent:openChat", agentId }` |
-| `agent:bind` | `{ type: "agent:bind", slotIndex, agentId }` |
-| `agent:unbind` | `{ type: "agent:unbind", slotIndex }` |
-| `navigate` | `{ type: "navigate", path }` |
-| `custom:event` | `{ type: "custom:event", event, data }` |
+| `ready` | `{ type }` |
+| `agent:select` | `{ type, agentId }` |
+| `agent:openChat` | `{ type, agentId }` |
+| `agent:bind` | `{ type, slotIndex, agentId }` |
+| `agent:unbind` | `{ type, slotIndex }` |
+| `navigate` | `{ type, path }` |
 
 ---
 
