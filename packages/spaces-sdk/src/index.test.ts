@@ -170,7 +170,7 @@ describe("connect() iframe mode — origin validation", () => {
 
   function stubIframeWindow() {
     listeners = [];
-    parentWindow = { id: "parent" };
+    parentWindow = { id: "parent", postMessage: vi.fn() };
     const win: Record<string, unknown> = {
       parent: parentWindow,
       top: { id: "top" },
@@ -218,6 +218,21 @@ describe("connect() iframe mode — origin validation", () => {
     const p = client().connect({ mode: "iframe", timeout: 1000 });
     dispatch({ origin: "https://ui.test", source: parentWindow as Window, data: { type: "arinova:auth", payload: { user: {}, accessToken: "" } } });
     await expect(p).rejects.toThrow(/did not issue an access token/);
+  });
+
+  it("requestScope posts a request and resolves on the widened-scope re-auth", async () => {
+    stubIframeWindow();
+    const p = client().requestScope("economy", { timeout: 1000 });
+    expect((parentWindow as { postMessage: (m: unknown, o: string) => void }).postMessage).toHaveBeenCalledWith(
+      { type: "arinova:request-scope", payload: { scope: "economy" } },
+      "https://ui.test",
+    );
+    // A re-auth still lacking economy is ignored; the one that carries it resolves.
+    dispatch({ origin: "https://ui.test", source: parentWindow as Window, data: { type: "arinova:auth", payload: { user: {}, accessToken: "t1", scope: "profile agents" } } });
+    dispatch({ origin: "https://ui.test", source: parentWindow as Window, data: { type: "arinova:auth", payload: { user: {}, accessToken: "t2", scope: "profile agents economy" } } });
+    const session = await p;
+    expect(session.accessToken).toBe("t2");
+    expect(session.scopes).toContain("economy");
   });
 });
 

@@ -78,6 +78,36 @@ export class Arinova {
 
   /** Embedded (iframe) mode: wait for an origin-validated `arinova:auth`. */
   private connectIframe(timeout: number): Promise<ArinovaSession> {
+    return this.awaitAuth(timeout);
+  }
+
+  /**
+   * Ask the Arinova parent to upgrade the embedded session to include an extra
+   * scope (e.g. "economy"). The host shows a consent prompt and, on approval,
+   * re-sends `arinova:auth` with the widened scope. Embedded mode only.
+   */
+  requestScope(scope: ArinovaScope | string, options: { timeout?: number } = {}): Promise<ArinovaSession> {
+    if (typeof window === "undefined" || window.self === window.top) {
+      return Promise.reject(new ArinovaError("requestScope() is only available inside an embedded Space", 0));
+    }
+    const target = new URL(this.authUrl).origin;
+    window.parent.postMessage({ type: "arinova:request-scope", payload: { scope } }, target);
+    return this.awaitAuth(
+      options.timeout ?? 30000,
+      (session) => session.scopes.includes(scope),
+      `scope "${scope}" was not granted`,
+    );
+  }
+
+  /**
+   * Resolve with the next origin-validated `arinova:auth` message. If `accept`
+   * is given, keep waiting until a message satisfies it (e.g. carries a scope).
+   */
+  private awaitAuth(
+    timeout: number,
+    accept?: (session: ArinovaSession) => boolean,
+    timeoutMessage = "connect timeout — this origin may not be authorized to receive Arinova auth",
+  ): Promise<ArinovaSession> {
     const expectedOrigin = new URL(this.authUrl).origin;
     return new Promise<ArinovaSession>((resolve, reject) => {
       let settled = false;
@@ -88,18 +118,7 @@ export class Arinova {
         window.removeEventListener("message", onMessage);
         fn();
       };
-      const timer = setTimeout(
-        () =>
-          finish(() =>
-            reject(
-              new ArinovaError(
-                "connect timeout — this origin may not be authorized to receive Arinova auth",
-                0,
-              ),
-            ),
-          ),
-        timeout,
-      );
+      const timer = setTimeout(() => finish(() => reject(new ArinovaError(timeoutMessage, 0))), timeout);
       const onMessage = (event: MessageEvent): void => {
         // Reject anything not from the expected Arinova parent window.
         if (event.origin !== expectedOrigin || event.source !== window.parent) return;
@@ -124,6 +143,8 @@ export class Arinova {
           scopes: parseScopes(p.scope),
           agents: p.agents ?? [],
         };
+        // Keep waiting until a message satisfies `accept` (if provided).
+        if (accept && !accept(session)) return;
         this._session = session;
         finish(() => resolve(session));
       };

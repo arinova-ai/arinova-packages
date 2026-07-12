@@ -128,7 +128,15 @@ new Arinova({ clientId: "my-app", scopes: ["profile", "agents", "economy"] });
 
 ## Embedding
 
-For `connect()` iframe mode to receive auth, your Space's origin must be authorized by Arinova to receive the `arinova:auth` message. This is currently gated server-side (allow-list). If `connect()` times out inside an iframe with *“this origin may not be authorized”*, your origin isn't allow-listed yet — use standalone `login()` in the meantime, or contact Arinova to authorize the Space origin. (Making this self-serve from your registered Space is tracked as a server-side change.)
+For `connect()` iframe mode to receive auth, your Space's origin must be authorized by Arinova to receive the `arinova:auth` message. This is currently gated server-side (allow-list). If `connect()` times out inside an iframe with *“this origin may not be authorized”*, your origin isn't allow-listed yet — use standalone `login()` in the meantime, or contact Arinova to authorize the Space origin.
+
+**Requesting economy inside a Space.** Embedded sessions start with `profile agents` (no coin-spending). To let a Space charge coins, ask for the scope — Arinova shows the user a consent prompt and, on approval, re-issues the session with `economy`:
+
+```js
+await arinova.connect();                 // embedded session (profile + agents)
+await arinova.requestScope("economy");   // prompts the user; resolves with an economy-scoped session
+await arinova.economy.purchase({ amount: 50 });
+```
 
 ## PKCE flow
 
