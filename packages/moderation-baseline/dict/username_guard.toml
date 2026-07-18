@@ -1,0 +1,333 @@
+[meta]
+list_name      = "username_guard"
+version        = "0.1.0-seed"
+last_updated   = "2026-07-18"
+maintained_by  = "Ripple Company / Iris (seed) → Hank (extend)"
+review_cadence = "monthly"
+
+# Username guard list — applies only to `username.input` (one-time
+# username setup). Three concerns:
+#   1. reserved-handle: platform-role impersonation (admin/support/…)
+#   2. brand-impersonation: Arinova brand squatting
+#   3. profanity: EN + romanized-zh slurs/vulgarity
+#   4. celebrity-impersonation: romanized names for zh_celeb entries
+#      that carry no ASCII alias (politicians / religious figures).
+#      Alias-bearing zh_celeb entries are covered by the consumer's
+#      normalized-alias derivation, NOT duplicated here.
+#
+# Matching notes: usernames are already format-validated to
+# ^[a-z][a-z0-9_]* before this list runs. `pattern` entries use
+# (^|[^a-z]) / ([^a-z]|$) as token boundaries — digits and underscores
+# both break a token — so `admin_team` and `admin123` match while
+# `badminton` does not. Plain `key` entries are substring matches;
+# only terms that essentially never occur inside innocent words go in
+# as keys.
+
+# ── reserved-handle ─────────────────────────────────────────────────
+
+[[entries]]
+pattern  = "(^|[^a-z])admin"
+category = "reserved-handle"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])moderator"
+category = "reserved-handle"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])official"
+category = "reserved-handle"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])support"
+category = "reserved-handle"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])system"
+category = "reserved-handle"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])staff([^a-z]|$)"
+category = "reserved-handle"
+severity = "block"
+applies  = ["username.input"]
+note     = "token-exact so given names like `staffan` stay usable"
+
+[[entries]]
+pattern  = "(^|[^a-z])security"
+category = "reserved-handle"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])helpdesk"
+category = "reserved-handle"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])webmaster"
+category = "reserved-handle"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])postmaster"
+category = "reserved-handle"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])root([^a-z]|$)"
+category = "reserved-handle"
+severity = "block"
+applies  = ["username.input"]
+note     = "token-exact so `rootbeer_fan` stays usable"
+
+[[entries]]
+pattern  = "(^|[^a-z])superuser"
+category = "reserved-handle"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "sysadmin"
+category = "reserved-handle"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])verif"
+category = "reserved-handle"
+severity = "block"
+applies  = ["username.input"]
+note     = "prefix covers verify / verified / verification"
+
+# ── brand-impersonation ─────────────────────────────────────────────
+
+[[entries]]
+key      = "arinova"
+category = "brand-impersonation"
+severity = "block"
+applies  = ["username.input"]
+note     = "substring anywhere — brand squatting"
+
+# ── profanity (EN) ──────────────────────────────────────────────────
+# Substring-safe terms as keys; boundary-sensitive terms as token
+# patterns (therapist / grapefruit / analyst / sussex / peacock /
+# dickens / cucumber / shiitake all stay usable).
+
+[[entries]]
+key      = "fuck"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "nigger"
+aliases  = ["nigga"]
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "faggot"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "cunt"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "bitch"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "wanker"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "dildo"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "blowjob"
+aliases  = ["handjob"]
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "porn"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "hitler"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])shit"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])whore"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])slut"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])rape([^a-z]|$)"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])rapist([^a-z]|$)"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])anal([^a-z]|$)"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])sex([^a-z]|$)"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])cock([^a-z]|$)"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])dick([^a-z]|$)"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])cum([^a-z]|$)"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])penis"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])vagina"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])nazi([^a-z]|$)"
+category = "profanity-en"
+severity = "block"
+applies  = ["username.input"]
+note     = "token-exact so the given name `nazir` stays usable"
+
+# ── profanity (romanized zh) ────────────────────────────────────────
+
+[[entries]]
+key      = "caonima"
+category = "profanity-zh"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "nmsl"
+category = "profanity-zh"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "shabi"
+category = "profanity-zh"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+pattern  = "(^|[^a-z])jiba([^a-z]|$)"
+category = "profanity-zh"
+severity = "block"
+applies  = ["username.input"]
+
+# ── celebrity-impersonation (romanized, zh_celeb no-alias entries) ──
+
+[[entries]]
+key      = "tsaiingwen"
+category = "celebrity-impersonation"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "laichingte"
+aliases  = ["williamlai"]
+category = "celebrity-impersonation"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "mayingjeou"
+category = "celebrity-impersonation"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "xijinping"
+category = "celebrity-impersonation"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "dalailama"
+category = "celebrity-impersonation"
+severity = "block"
+applies  = ["username.input"]
+
+[[entries]]
+key      = "chengyen"
+category = "celebrity-impersonation"
+severity = "block"
+applies  = ["username.input"]

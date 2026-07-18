@@ -47,13 +47,14 @@ function loadDict(file: string): Dict {
 const dictFiles = readdirSync(DICT_DIR).filter((f) => extname(f) === ".toml").sort();
 
 describe("moderation-baseline/dict — schema validation", () => {
-  it("ships the expected 6 seed dict files", () => {
+  it("ships the expected 7 seed dict files", () => {
     expect(dictFiles).toEqual([
       "fraud_pattern.toml",
       "ip_keyword.toml",
       "minor_safety_zh.toml",
       "url_allow.toml",
       "url_deny.toml",
+      "username_guard.toml",
       "zh_celeb.toml",
     ]);
   });
@@ -131,6 +132,14 @@ describe("moderation-baseline/dict — schema validation", () => {
     });
     it("minor_safety_zh has 3 pattern-family stub entries (Iris §8.5 verbatim)", () => {
       expect(loadDict("minor_safety_zh.toml").entries?.length).toBe(3);
+    });
+    it("username_guard seeds reserved/profanity/celebrity coverage", () => {
+      const dict = loadDict("username_guard.toml");
+      expect(dict.entries?.length).toBeGreaterThanOrEqual(40);
+      for (const entry of dict.entries ?? []) {
+        expect(entry.severity).toBe("block");
+        expect(entry.applies).toEqual(["username.input"]);
+      }
     });
   });
 
