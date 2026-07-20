@@ -190,8 +190,9 @@ describe("init → build (end to end)", () => {
     expect(existsSync(zipPath)).toBe(true);
     const back = unzipStored(readFileSync(zipPath));
     const names = [...back.keys()];
-    // Flat entries, no nesting.
-    expect(names).toContain("theme.json");
+    // Flat entries, no nesting. theme.json is excluded — the server derives
+    // the manifest from the multipart field and rejects a duplicate member.
+    expect(names).not.toContain("theme.json");
     expect(names).toContain("theme.js");
     expect(names).toContain("preview.png");
     expect(names.every((n) => !n.includes("/"))).toBe(true);

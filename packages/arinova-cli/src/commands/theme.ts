@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { get, del, patch, uploadMultipart } from "../client.js";
+import { resolveApiKey } from "../config.js";
 import { printResult, printError, printSuccess, table } from "../output.js";
 import {
   readFileSync,
@@ -46,6 +47,18 @@ function blobPartFromBuffer(data: Buffer): ArrayBuffer {
 export function registerTheme(program: Command): void {
   const theme = program.command("theme").description("Theme management");
 
+  // Resolve the API key the same way bot-era commands do (api.ts getOpts):
+  // honor --token / --profile. Falling back to client.ts getApiKey() would
+  // silently use the first configured profile regardless of --profile.
+  const resolveKey = (): string => {
+    const opts = program.optsWithGlobals();
+    const { apiKey } = resolveApiKey({
+      token: opts.token as string | undefined,
+      profile: opts.profile as string | undefined,
+    });
+    return apiKey;
+  };
+
   // ── Existing commands ─────────────────────────────────────
 
   theme
@@ -53,7 +66,7 @@ export function registerTheme(program: Command): void {
     .description("List your themes")
     .action(async () => {
       try {
-        const data = await get("/api/v1/creator/themes");
+        const data = await get("/api/v1/creator/themes", resolveKey());
         const themes = (data as Record<string, unknown>).themes ?? data;
         if (Array.isArray(themes)) {
           table(themes as Record<string, unknown>[], [
@@ -103,7 +116,7 @@ export function registerTheme(program: Command): void {
           const bundleData = readFileSync(resolvedBundle);
           fields.bundle = new Blob([blobPartFromBuffer(bundleData)], { type: "application/zip" });
         }
-        const data = await uploadMultipart("/api/v1/themes/upload", fields);
+        const data = await uploadMultipart("/api/v1/themes/upload", fields, "POST", resolveKey());
         printResult(data);
       } catch (err) {
         printError(err);
@@ -125,7 +138,7 @@ export function registerTheme(program: Command): void {
           const bundleData = readFileSync(bundleFile);
           fields.bundle = new Blob([blobPartFromBuffer(bundleData)], { type: "application/zip" });
         }
-        const data = await uploadMultipart(`/api/themes/${id}`, fields, "PUT");
+        const data = await uploadMultipart(`/api/themes/${id}`, fields, "PUT", resolveKey());
         printResult(data);
       } catch (err) {
         printError(err);
@@ -137,7 +150,7 @@ export function registerTheme(program: Command): void {
     .description("Delete a theme")
     .action(async (id: string) => {
       try {
-        await del(`/api/themes/${id}`);
+        await del(`/api/themes/${id}`, resolveKey());
         printSuccess(`Theme ${id} deleted.`);
       } catch (err) {
         printError(err);
@@ -149,7 +162,7 @@ export function registerTheme(program: Command): void {
     .description("Publish a theme (requires an approved safety review)")
     .action(async (id: string) => {
       try {
-        const data = await patch(`/api/themes/${id}/status`, { status: "published" });
+        const data = await patch(`/api/themes/${id}/status`, { status: "published" }, resolveKey());
         printResult(data);
       } catch (err) {
         printError(err);
@@ -161,7 +174,7 @@ export function registerTheme(program: Command): void {
     .description("Unpublish a theme")
     .action(async (id: string) => {
       try {
-        const data = await patch(`/api/themes/${id}/status`, { status: "draft" });
+        const data = await patch(`/api/themes/${id}/status`, { status: "draft" }, resolveKey());
         printResult(data);
       } catch (err) {
         printError(err);
@@ -173,7 +186,7 @@ export function registerTheme(program: Command): void {
     .description("Show detailed info about a theme")
     .action(async (id: string) => {
       try {
-        const data = await get(`/api/themes/${id}`);
+        const data = await get(`/api/themes/${id}`, resolveKey());
         printResult(data);
       } catch (err) {
         printError(err);
@@ -388,8 +401,10 @@ export function registerTheme(program: Command): void {
 
         // Assemble a FLAT bundle keyed by final entry name (production serves a
         // single-segment filename namespace and rejects nested paths).
+        // theme.json is deliberately NOT packed: the server derives the
+        // manifest from the multipart 'manifest' field and rejects bundles
+        // that contain a duplicate theme.json member.
         const entries = new Map<string, Buffer>();
-        entries.set("theme.json", readFileSync(manifestPath));
         entries.set("theme.js", readFileSync(join(cwd, entry)));
         entries.set(previewName, readFileSync(join(cwd, previewName)));
 

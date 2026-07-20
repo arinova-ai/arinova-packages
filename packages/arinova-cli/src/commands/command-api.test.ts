@@ -43,6 +43,16 @@ vi.mock("../output.js", () => ({
   table: vi.fn(),
 }));
 
+// theme.ts resolves keys via config.resolveApiKey — mock it so tests stay
+// hermetic and never read the real ~/.arinova-cli/config.
+vi.mock("../config.js", () => ({
+  resolveApiKey: vi.fn(() => ({
+    apiKey: "ari_cli_theme_token",
+    profileName: "default",
+    source: "test",
+  })),
+}));
+
 const { registerFileCommands } = await import("./file.js");
 const { registerCommunity } = await import("./community.js");
 const { registerExpert } = await import("./expert.js");
@@ -257,7 +267,7 @@ describe("CLI command API request shapes", () => {
     expect(mocks.uploadMultipart).toHaveBeenCalledWith("/api/v1/themes/upload", {
       manifest: expect.any(Blob),
       bundle: expect.any(Blob),
-    });
+    }, "POST", "ari_cli_theme_token");
     expect(mocks.printResult).toHaveBeenCalledWith({ ok: true });
   });
 
@@ -311,7 +321,7 @@ describe("CLI command API request shapes", () => {
 
     expect(mocks.uploadMultipart).toHaveBeenCalledWith("/api/themes/theme-1", {
       manifest: expect.any(Blob),
-    }, "PUT");
+    }, "PUT", "ari_cli_theme_token");
     expect(mocks.printError).toHaveBeenCalledWith(error);
   });
 
@@ -323,10 +333,10 @@ describe("CLI command API request shapes", () => {
 
     expect(mocks.patch).toHaveBeenNthCalledWith(1, "/api/themes/theme-1/status", {
       status: "published",
-    });
+    }, "ari_cli_theme_token");
     expect(mocks.patch).toHaveBeenNthCalledWith(2, "/api/themes/theme-1/status", {
       status: "draft",
-    });
+    }, "ari_cli_theme_token");
     expect(mocks.printResult).toHaveBeenCalledTimes(2);
   });
 
