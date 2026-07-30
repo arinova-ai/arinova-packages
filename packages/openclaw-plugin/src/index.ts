@@ -15,7 +15,6 @@ const plugin: {
   description: string;
   configSchema: ReturnType<typeof emptyPluginConfigSchema>;
   register: (api: OpenClawPluginApi) => void;
-  destroy: () => void;
 } = {
   id: "openclaw-arinova-ai",
   name: "Arinova Chat",
@@ -32,12 +31,12 @@ const plugin: {
     registerCli(api);
 
     // Inject Arinova Chat tool docs into agent context
-    (api as unknown as { on: (event: string, cb: (...args: unknown[]) => unknown) => void }).on("before_prompt_build", (_event: unknown, ctx: unknown) => {
-      const ctxRec = ctx as Record<string, unknown>;
-      const provider = ctxRec.messageProvider as string | undefined;
+    api.on("before_prompt_build", (_event, ctx) => {
+      const provider = ctx.messageProvider;
       if (provider !== "openclaw-arinova-ai") return;
 
-      const accountId = ctxRec.accountId as string | undefined;
+      const accountId =
+        "accountId" in ctx && typeof ctx.accountId === "string" ? ctx.accountId : undefined;
       const channels = (api.config as Record<string, unknown>).channels as Record<string, unknown> | undefined;
       const arinova = (channels?.["openclaw-arinova-ai"] ?? {}) as Record<string, unknown>;
       const apiUrl = (arinova.apiUrl as string) ?? "https://api.chat.arinova.ai";
@@ -144,6 +143,10 @@ Note: The conversation owner can disable agent note access. If disabled, all not
       }
     });
 
+    api.on("gateway_stop", () => {
+      shutdownOffice();
+    });
+
     // CLI: openclaw arinova setup-openclaw --token <bot-token> [--api-url <url>]
     api.registerCli(
       async (ctx) => {
@@ -200,10 +203,6 @@ Note: The conversation owner can disable agent note access. If disabled, all not
       },
       { commands: ["arinova"] },
     );
-  },
-
-  destroy() {
-    shutdownOffice();
   },
 };
 

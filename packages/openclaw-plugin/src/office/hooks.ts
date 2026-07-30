@@ -261,36 +261,33 @@ export function registerHooks(api: OpenClawPluginApi): void {
   });
 
   // ── Subagent collaboration ────────────────────────────
-  // These hooks may not be in the SDK type definitions yet — cast to avoid TS errors.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const apiAny = api as any;
 
-  apiAny.on("subagent_spawned", (event: Record<string, unknown>, ctx: Record<string, unknown>) => {
+  api.on("subagent_spawned", (event, ctx) => {
     emit({
       type: "subagent_start",
-      agentId: event.agentId as string,
-      sessionId: event.childSessionKey as string,
+      agentId: event.agentId,
+      sessionId: event.childSessionKey,
       timestamp: Date.now(),
       data: {
         parentSessionKey: ctx.requesterSessionKey,
         label: event.label,
         mode: event.mode,
       },
-    }, ctx.accountId as string | undefined);
+    }, event.requester?.accountId);
   });
 
-  apiAny.on("subagent_ended", (event: Record<string, unknown>, ctx: Record<string, unknown>) => {
+  api.on("subagent_ended", (event, ctx) => {
     emit({
       type: "subagent_end",
-      agentId: (ctx.childSessionKey ?? event.targetSessionKey) as string,
-      sessionId: event.targetSessionKey as string,
+      agentId: ctx.childSessionKey ?? event.targetSessionKey,
+      sessionId: event.targetSessionKey,
       timestamp: Date.now(),
       data: {
         parentSessionKey: ctx.requesterSessionKey,
         outcome: event.outcome,
         reason: event.reason,
       },
-    }, ctx.accountId as string | undefined);
+    }, event.accountId);
   });
 }
 

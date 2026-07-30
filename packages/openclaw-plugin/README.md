@@ -8,6 +8,13 @@ OpenClaw plugin for [Arinova Chat](https://chat.arinova.ai) — provides A2A str
 openclaw plugin install @arinova-ai/openclaw-arinova-ai
 ```
 
+## OpenClaw 2026.7 configuration migration
+
+OpenClaw 2026.7 removes compatibility for flat `blockStreaming*` channel keys.
+If your `openclaw.json` contains any of those keys under
+`channels.openclaw-arinova-ai`, move them into the nested `streaming.block`
+configuration before upgrading. Flat keys are ignored by OpenClaw 2026.7.
+
 ## MCP Tools
 
 All tools are automatically available to connected bots via the MCP protocol.

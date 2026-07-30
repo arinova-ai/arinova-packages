@@ -2,6 +2,68 @@
   "id": "openclaw-arinova-ai",
   "description": "Arinova Chat channel plugin with Virtual Office integration — agent status tracking via SSE",
   "channels": ["openclaw-arinova-ai"],
+  "channelConfigs": {
+    "openclaw-arinova-ai": {
+      "label": "Arinova Chat",
+      "description": "Arinova Chat channel accounts, credentials, and direct-message policy.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "enabled": { "type": "boolean" },
+          "apiUrl": { "type": "string" },
+          "botToken": { "type": "string" },
+          "email": { "type": "string" },
+          "password": { "type": "string" },
+          "sessionToken": { "type": "string" },
+          "agentId": { "type": "string", "format": "uuid" },
+          "dmPolicy": {
+            "type": "string",
+            "enum": ["pairing", "allowlist", "open", "disabled"],
+            "default": "open"
+          },
+          "allowFrom": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "textChunkLimit": { "type": "integer", "minimum": 1 },
+          "accounts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string" },
+                "enabled": { "type": "boolean" },
+                "apiUrl": { "type": "string" },
+                "botToken": { "type": "string" },
+                "email": { "type": "string" },
+                "password": { "type": "string" },
+                "sessionToken": { "type": "string" },
+                "agentId": { "type": "string", "format": "uuid" },
+                "dmPolicy": {
+                  "type": "string",
+                  "enum": ["pairing", "allowlist", "open", "disabled"],
+                  "default": "open"
+                },
+                "allowFrom": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "textChunkLimit": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
+        }
+      },
+      "uiHints": {
+        "botToken": { "sensitive": true },
+        "password": { "sensitive": true },
+        "sessionToken": { "sensitive": true }
+      }
+    }
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
