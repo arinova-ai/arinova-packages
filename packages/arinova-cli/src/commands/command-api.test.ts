@@ -118,6 +118,10 @@ const { registerSkill } = await import("./skill.js");
 const { registerSpace } = await import("./space.js");
 const { registerAgentCommands } = await import("./agent.js");
 const { registerSticker } = await import("./sticker.js");
+const { registerCalendarCommands } = await import("./calendar.js");
+const { registerDocCommands } = await import("./doc.js");
+const { registerFormCommands } = await import("./form.js");
+const { registerMindmapCommands } = await import("./mindmap.js");
 
 const tempDirs: string[] = [];
 
@@ -722,5 +726,94 @@ describe("CLI command API request shapes", () => {
     expect(mocks.printError).toHaveBeenCalledTimes(2);
     expect(mocks.patch).not.toHaveBeenCalled();
     expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it("calendar create/update preserve typed event fields", async () => {
+    const program = createProgram(registerCalendarCommands);
+    await program.parseAsync([
+      "node", "arinova", "calendar", "event", "create",
+      "--title", "Launch", "--timezone", "UTC", "--start-at", "2026-08-01T10:00:00Z",
+      "--end-at", "2026-08-01T11:00:00Z", "--metadata", '{"kind":"release"}',
+      "--reminders", "10,30",
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "calendar", "event", "delete", "event/a",
+      "--delete-scope", "series",
+    ]);
+    expect(mocks.post).toHaveBeenCalledWith("/api/v1/calendar/events", expect.objectContaining({
+      title: "Launch",
+      timezone: "UTC",
+      metadata: { kind: "release" },
+      reminders: [10, 30],
+    }));
+    expect(mocks.del).toHaveBeenCalledWith(
+      "/api/v1/calendar/events/event%2Fa?deleteScope=series",
+    );
+  });
+
+  it("docs and forms use lifecycle routes and version concurrency fields", async () => {
+    const root = new Command().exitOverride().name("arinova");
+    registerDocCommands(root);
+    registerFormCommands(root);
+    await root.parseAsync(["node", "arinova", "doc", "create", "--title", "Spec", "--content", '{"type":"doc"}']);
+    await root.parseAsync(["node", "arinova", "doc", "archive", "doc/a"]);
+    await root.parseAsync([
+      "node", "arinova", "form", "field", "add", "form/a",
+      "--type", "text", "--label", "Name", "--required",
+    ]);
+    await root.parseAsync([
+      "node", "arinova", "form", "version", "restore", "form/a", "version/a",
+      "--expected-head-version-id", "head-1", "--idempotency-key", "restore-1",
+    ]);
+    expect(mocks.post).toHaveBeenNthCalledWith(1, "/api/v1/docs", {
+      title: "Spec", contentJson: { type: "doc" }, pageSettings: undefined, spaceId: undefined,
+    });
+    expect(mocks.post).toHaveBeenNthCalledWith(2, "/api/v1/docs/doc%2Fa/archive");
+    expect(mocks.post).toHaveBeenNthCalledWith(3, "/api/v1/forms/form%2Fa/fields", {
+      fieldType: "text", label: "Name", helpText: undefined, required: true,
+      options: undefined, validation: undefined, sortKey: undefined, imageAssetId: undefined,
+    });
+    expect(mocks.post).toHaveBeenNthCalledWith(
+      4,
+      "/api/v1/forms/form%2Fa/versions/version%2Fa/restore",
+      {
+        expectedHeadVersionId: "head-1",
+        idempotencyKey: "restore-1",
+        correlationId: undefined,
+      },
+    );
+  });
+
+  it("mindmap node, outline, delete-batch, and version routes are encoded", async () => {
+    const program = createProgram(registerMindmapCommands);
+    await program.parseAsync(["node", "arinova", "mindmap", "outline", "put", "map/a", "--outline", "- Root"]);
+    await program.parseAsync([
+      "node", "arinova", "mindmap", "node", "move", "node/a",
+      "--body", '{"newParentId":"parent-1","sortKey":"a0"}',
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "mindmap", "node", "restore-batch", "map/a", "batch/a",
+      "--client-mutation-id", "mutation-1",
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "mindmap", "version", "copy", "map/a", "version/a",
+      "--idempotency-key", "copy-1",
+    ]);
+    expect(mocks.put).toHaveBeenCalledWith("/api/v1/mindmaps/map%2Fa/outline", {
+      outline: "- Root",
+    });
+    expect(mocks.post).toHaveBeenNthCalledWith(1, "/api/v1/mindmaps/nodes/node%2Fa/move", {
+      newParentId: "parent-1", sortKey: "a0",
+    });
+    expect(mocks.post).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/mindmaps/map%2Fa/node-delete-batches/batch%2Fa/restore",
+      { clientMutationId: "mutation-1" },
+    );
+    expect(mocks.post).toHaveBeenNthCalledWith(
+      3,
+      "/api/v1/mindmaps/map%2Fa/versions/version%2Fa/copy",
+      { idempotencyKey: "copy-1", correlationId: undefined },
+    );
   });
 });

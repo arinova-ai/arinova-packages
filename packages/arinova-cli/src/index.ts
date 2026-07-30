@@ -36,6 +36,10 @@ import { registerPainterCommands } from "./commands/painter.js";
 import { registerAgentCommands } from "./commands/agent.js";
 import { registerProfile } from "./commands/profile.js";
 import { registerUserCommands } from "./commands/user.js";
+import { registerCalendarCommands } from "./commands/calendar.js";
+import { registerDocCommands } from "./commands/doc.js";
+import { registerFormCommands } from "./commands/form.js";
+import { registerMindmapCommands } from "./commands/mindmap.js";
 
 const program = new Command();
 
@@ -81,6 +85,10 @@ registerAgentCommands(program);
 // Profile management
 registerProfile(program);
 registerUserCommands(program);
+registerCalendarCommands(program);
+registerDocCommands(program);
+registerFormCommands(program);
+registerMindmapCommands(program);
 
 // Creator commands (config-based auth)
 registerAuth(program);
