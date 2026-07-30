@@ -126,7 +126,7 @@ describe.skipIf(!HAS_TOKEN)("memory create/delete", () => {
   });
 
   it("memory list executes", () => {
-    const r = runSafe("memory list --limit 2");
+    const r = runSafe("memory list --agent 00000000-0000-0000-0000-000000000000 --limit 2");
     expect(typeof r.status).toBe("number");
   });
 
@@ -138,7 +138,7 @@ describe.skipIf(!HAS_TOKEN)("memory create/delete", () => {
         const data = JSON.parse(r.stdout);
         testMemoryId = data.id;
         if (testMemoryId) {
-          const del = runSafe(`memory delete --id ${testMemoryId}`);
+          const del = runSafe(`memory delete ${testMemoryId}`);
           if (del.status === 0) testMemoryId = null;
         }
       } catch {}

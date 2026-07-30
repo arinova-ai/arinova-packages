@@ -515,7 +515,7 @@ describe.skipIf(!HAS_TOKEN)("memory commands", () => {
   });
 
   it("memory list exits 0 and outputs JSON", () => {
-    const result = runSafe("memory list");
+    const result = runSafe("memory list --agent 00000000-0000-0000-0000-000000000000");
     expect(typeof result.status).toBe("number");
   });
 });
@@ -561,7 +561,7 @@ describe.skipIf(!HAS_TOKEN)("message commands (dummy conversation)", () => {
 describe.skipIf(!HAS_TOKEN)("file commands", () => {
   it("file upload with a dummy conversation-id and missing file does not crash", () => {
     const result = runSafe(
-      "file upload --conversation-id 00000000-0000-0000-0000-000000000000 --file-path /tmp/__cli_test_nonexistent_file__",
+      "file upload --conversation-id 00000000-0000-0000-0000-000000000000 --file /tmp/__cli_test_nonexistent_file__",
     );
     expect(typeof result.status).toBe("number");
     expect(result.status).not.toBe(0);

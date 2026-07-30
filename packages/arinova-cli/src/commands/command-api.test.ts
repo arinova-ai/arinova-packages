@@ -7,6 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   apiCall: vi.fn(),
   clientUpload: vi.fn(),
+  clientDelete: vi.fn(),
+  clientDownload: vi.fn(),
+  clientGet: vi.fn(),
+  clientPatch: vi.fn(),
+  clientPost: vi.fn(),
+  clientPut: vi.fn(),
   getOpts: vi.fn(() => ({
     token: "ari_cli_token",
     apiUrl: "https://api.example.test",
@@ -33,9 +39,35 @@ vi.mock("../api.js", () => ({
 
 vi.mock("../client.js", () => ({
   ApiClient: class ApiClient {
+    get(path: string) {
+      return mocks.clientGet(path);
+    }
+    post(path: string, body?: unknown) {
+      return mocks.clientPost(path, body);
+    }
+    put(path: string, body?: unknown) {
+      return mocks.clientPut(path, body);
+    }
+    patch(path: string, body?: unknown) {
+      return mocks.clientPatch(path, body);
+    }
+    delete(path: string) {
+      return mocks.clientDelete(path);
+    }
     upload(path: string, form: FormData, method?: string) {
       return mocks.clientUpload(path, form, method);
     }
+    download(path: string, destination: string, force?: boolean) {
+      return mocks.clientDownload(path, destination, force);
+    }
+  },
+  buildQuery: (values: Record<string, unknown>) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(values)) {
+      if (value !== undefined && value !== null) query.set(key, String(value));
+    }
+    const rendered = query.toString();
+    return rendered ? `?${rendered}` : "";
   },
   UnsupportedCommandError: class UnsupportedCommandError extends Error {
     code = "UNSUPPORTED_COMMAND";
@@ -72,10 +104,16 @@ const { registerCommunity } = await import("./community.js");
 const { registerConversation } = await import("./conversation.js");
 const { registerExpert } = await import("./expert.js");
 const { registerKanbanCommands } = await import("./kanban.js");
+const { registerMemoryCommands } = await import("./memory.js");
+const { registerMessageCommands } = await import("./message.js");
+const { registerNoteCommands } = await import("./note.js");
+const { registerNotebookCommands } = await import("./notebook.js");
 const { registerPainterCommands } = await import("./painter.js");
 const { registerTheme } = await import("./theme.js");
 const { registerMemoCommands, registerWikiCommands } = await import("./wiki.js");
 const { registerUserCommands } = await import("./user.js");
+const { registerSearchCommands } = await import("./search.js");
+const { registerResolveCommands } = await import("./resolve.js");
 
 const tempDirs: string[] = [];
 
@@ -92,6 +130,12 @@ describe("CLI command API request shapes", () => {
     vi.clearAllMocks();
     mocks.apiCall.mockResolvedValue([]);
     mocks.clientUpload.mockResolvedValue({ fileId: "file-1" });
+    mocks.clientDelete.mockResolvedValue({ ok: true });
+    mocks.clientDownload.mockResolvedValue(undefined);
+    mocks.clientGet.mockResolvedValue([]);
+    mocks.clientPatch.mockResolvedValue({ ok: true });
+    mocks.clientPost.mockResolvedValue({ ok: true });
+    mocks.clientPut.mockResolvedValue({ ok: true });
     mocks.del.mockResolvedValue({});
     mocks.get.mockResolvedValue([]);
     mocks.patch.mockResolvedValue({ ok: true });
@@ -461,7 +505,7 @@ describe("CLI command API request shapes", () => {
       "upload",
       "--conversation-id",
       "conv-1",
-      "--file-path",
+      "--file",
       file,
     ]);
 
@@ -476,5 +520,113 @@ describe("CLI command API request shapes", () => {
     expect(uploaded.name).toBe("note.txt");
     expect(uploaded.size).toBe(5);
     expect(mocks.output).toHaveBeenCalledWith({ fileId: "file-1" });
+  });
+
+  it("message search and feedback use encoded v1 routes and contract bodies", async () => {
+    const program = createProgram(registerMessageCommands);
+    await program.parseAsync(["node", "arinova", "message", "search", "-q", "hello", "--conversation-id", "conv/a", "--limit", "5"]);
+    await program.parseAsync(["node", "arinova", "message", "feedback", "get", "--message-id", "msg/a"]);
+    await program.parseAsync(["node", "arinova", "message", "feedback", "set", "--message-id", "msg/a", "--rating", "down"]);
+
+    expect(mocks.apiCall).toHaveBeenNthCalledWith(1, {
+      method: "GET",
+      url: "https://api.example.test/api/v1/messages/search?q=hello&conversationId=conv%2Fa&limit=5",
+      token: "ari_cli_token",
+    });
+    expect(mocks.apiCall).toHaveBeenNthCalledWith(2, {
+      method: "GET",
+      url: "https://api.example.test/api/v1/messages/msg%2Fa/feedback",
+      token: "ari_cli_token",
+    });
+    expect(mocks.apiCall).toHaveBeenNthCalledWith(3, {
+      method: "POST",
+      url: "https://api.example.test/api/v1/messages/msg%2Fa/feedback",
+      token: "ari_cli_token",
+      body: { helpful: false },
+    });
+  });
+
+  it("memory CRUD uses server casing and import lifecycle uses official paths", async () => {
+    const program = createProgram(registerMemoryCommands);
+    await program.parseAsync(["node", "arinova", "memory", "create", "--agent", "agent-1", "--category", "knowledge", "--summary", "fact", "--pattern-key", "p1"]);
+    await program.parseAsync(["node", "arinova", "memory", "update", "mem/a", "--tier", "warm"]);
+    await program.parseAsync(["node", "arinova", "memory", "grant", "set", "--agent", "agent-1", "--target-agent", "agent-2", "--granted", "true"]);
+    await program.parseAsync(["node", "arinova", "memory", "import", "confirm", "cap/a", "--entries", '[{"entryId":"entry-1","action":"create"}]']);
+
+    expect(mocks.clientPost).toHaveBeenNthCalledWith(1, "/api/v1/memories", {
+      agent_id: "agent-1",
+      category: "knowledge",
+      summary: "fact",
+      detail: undefined,
+      pattern_key: "p1",
+    });
+    expect(mocks.clientPatch).toHaveBeenCalledWith("/api/v1/memories/mem%2Fa", {
+      category: undefined, tier: "warm", summary: undefined, detail: undefined,
+    });
+    expect(mocks.clientPut).toHaveBeenCalledWith("/api/v1/memories/grants", {
+      agent_id: "agent-1", target_agent_id: "agent-2", granted: true,
+    });
+    expect(mocks.clientPost).toHaveBeenNthCalledWith(2, "/api/v1/memories/import/cap%2Fa/confirm", {
+      entries: [{ entryId: "entry-1", action: "create" }],
+    });
+  });
+
+  it("note and notebook lifecycle commands use encoded official routes", async () => {
+    const program = new Command().exitOverride().name("arinova");
+    registerNoteCommands(program);
+    registerNotebookCommands(program);
+    await program.parseAsync(["node", "arinova", "note", "thread", "add", "--note-id", "note/a", "--content", "reply"]);
+    await program.parseAsync(["node", "arinova", "notebook", "archive", "--id", "book/a"]);
+    await program.parseAsync(["node", "arinova", "notebook", "unarchive", "--id", "book/a"]);
+
+    expect(mocks.apiCall).toHaveBeenNthCalledWith(1, {
+      method: "POST", url: "https://api.example.test/api/v1/notes/note%2Fa/thread",
+      token: "ari_cli_token", body: { content: "reply" },
+    });
+    expect(mocks.apiCall).toHaveBeenNthCalledWith(2, {
+      method: "POST", url: "https://api.example.test/api/v1/notebooks/book%2Fa/archive",
+      token: "ari_cli_token",
+    });
+    expect(mocks.apiCall).toHaveBeenNthCalledWith(3, {
+      method: "POST", url: "https://api.example.test/api/v1/notebooks/book%2Fa/unarchive",
+      token: "ari_cli_token",
+    });
+  });
+
+  it("kanban additions use contract routes and archive fails before any request", async () => {
+    const program = createProgram(registerKanbanCommands);
+    await program.parseAsync(["node", "arinova", "kanban", "board", "unarchive", "--board-id", "board/a"]);
+    await program.parseAsync(["node", "arinova", "kanban", "card", "bulk-move", "--moves", '[{"cardId":"c1","toColumnId":"col1"}]']);
+    expect(mocks.apiCall).toHaveBeenNthCalledWith(1, {
+      method: "POST", url: "https://api.example.test/api/v1/kanban/boards/board%2Fa/unarchive",
+      token: "ari_cli_token",
+    });
+    expect(mocks.apiCall).toHaveBeenNthCalledWith(2, {
+      method: "POST", url: "https://api.example.test/api/v1/kanban/cards/bulk-move",
+      token: "ari_cli_token", body: { moves: [{ cardId: "c1", toColumnId: "col1" }] },
+    });
+    const calls = mocks.apiCall.mock.calls.length;
+    await expect(program.parseAsync(["node", "arinova", "kanban", "card", "archive", "--card-id", "c1"]))
+      .rejects.toMatchObject({ code: "UNSUPPORTED_COMMAND" });
+    expect(mocks.apiCall).toHaveBeenCalledTimes(calls);
+  });
+
+  it("file center, content search, and resolve commands preserve request contracts", async () => {
+    const root = new Command().exitOverride().name("arinova");
+    registerFileCommands(root);
+    registerSearchCommands(root);
+    registerResolveCommands(root);
+    await root.parseAsync(["node", "arinova", "file", "move", "file/a", "--space-id", "space-1"]);
+    await root.parseAsync(["node", "arinova", "search", "content", "-q", "deploy", "--entity-types", "note,kanban"]);
+    await root.parseAsync(["node", "arinova", "resolve", "batch", "--conversation-id", "conv-1", "--content", "see abcdef1"]);
+
+    expect(mocks.clientPost).toHaveBeenNthCalledWith(1, "/api/v1/files/file%2Fa/move", {
+      spaceId: "space-1", folderId: undefined,
+    });
+    expect(mocks.clientGet).toHaveBeenCalledWith("/api/v1/search/content?q=deploy&entity_types=note%2Ckanban");
+    expect(mocks.clientPost).toHaveBeenNthCalledWith(2, "/api/v1/resolve-identifiers", {
+      conversationId: "conv-1", content: "see abcdef1", agentId: undefined,
+      messageId: undefined, maxTokens: undefined,
+    });
   });
 });
