@@ -1,0 +1,17 @@
+{
+  "name": "hermes-arinova-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Node sidecar that bridges Hermes Agent to Arinova Chat via @arinova-ai/agent-sdk",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node index.mjs",
+    "check": "node --check index.mjs && node --check runtime.mjs && node --check check-runtime.mjs && node --check check-sdk-e2e.mjs && node --check check-sdk-http.mjs && node check-runtime.mjs && node check-sdk-e2e.mjs && node check-sdk-http.mjs"
+  },
+  "dependencies": {
+    "@arinova-ai/agent-sdk": "0.0.19-staging.8"
+  }
+}

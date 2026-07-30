@@ -1,0 +1,172 @@
+name: hermes-arinova-plugin
+label: Arinova Chat
+kind: platform
+version: 0.1.0
+description: >
+  Hermes gateway platform plugin that connects Hermes Agent to Arinova Chat
+  through @arinova-ai/agent-sdk using a supervised Node sidecar.
+author: Arinova
+provides_hooks:
+  - post_tool_call
+provides_tools:
+  - arinova_sdk_call
+  - arinova_task_call
+  - arinova_get_agent_id
+  - arinova_get_onboarding_seed
+  - arinova_send_message
+  - arinova_send_telemetry
+  - arinova_send_hud
+  - arinova_send_task_update
+  - arinova_report_tool_call
+  - arinova_call_action
+  - arinova_upload_file
+  - arinova_fetch_history
+  - arinova_list_notes
+  - arinova_create_note
+  - arinova_update_note
+  - arinova_delete_note
+  - arinova_list_boards
+  - arinova_create_card
+  - arinova_update_card
+  - arinova_create_board
+  - arinova_update_board
+  - arinova_archive_board
+  - arinova_list_columns
+  - arinova_create_column
+  - arinova_update_column
+  - arinova_delete_column
+  - arinova_reorder_columns
+  - arinova_list_cards
+  - arinova_complete_card
+  - arinova_list_archived_cards
+  - arinova_add_card_commit
+  - arinova_list_card_commits
+  - arinova_link_card_note
+  - arinova_unlink_card_note
+  - arinova_list_card_notes
+  - arinova_list_labels
+  - arinova_create_label
+  - arinova_update_label
+  - arinova_delete_label
+  - arinova_add_card_label
+  - arinova_remove_card_label
+  - arinova_query_memory
+  - arinova_fetch_skill_prompt
+  - arinova_share_note
+  - arinova_task_upload_file
+  - arinova_task_fetch_history
+  - arinova_task_call_action
+requires_env:
+  - name: ARINOVA_SERVER_URL
+    description: "Arinova Chat websocket origin, for example wss://chat.arinova.ai"
+    prompt: "Arinova server URL"
+    password: false
+  - name: ARINOVA_BOT_TOKEN
+    description: "Bot token from the Arinova dashboard"
+    prompt: "Arinova bot token"
+    password: true
+optional_env:
+  - name: ARINOVA_ALLOW_ALL_USERS
+    description: "Allow any Arinova Chat sender to trigger Hermes (true/false)"
+    prompt: "Allow all users?"
+    password: false
+  - name: ARINOVA_ALLOWED_USERS
+    description: "Comma-separated Arinova user IDs allowed to talk to Hermes"
+    prompt: "Allowed Arinova user IDs"
+    password: false
+  - name: ARINOVA_ALLOW_BOTS
+    description: "Allow Arinova agent-authored tasks to bypass user allowlists when set to all/true"
+    prompt: "Allow Arinova agent senders?"
+    password: false
+  - name: ARINOVA_HOME_CONVERSATION
+    description: "Arinova conversation ID for cron and out-of-process send_message delivery"
+    prompt: "Home conversation ID"
+    password: false
+  - name: ARINOVA_HOME_CONVERSATION_NAME
+    description: "Display name for the Arinova home conversation"
+    prompt: "Home conversation name"
+    password: false
+  - name: ARINOVA_NODE_BIN
+    description: "Node executable path (default: node from PATH)"
+    prompt: "Node executable"
+    password: false
+  - name: ARINOVA_AGENT_SDK_ROOT
+    description: "Local @arinova-ai/agent-sdk checkout used for sidecar package drift checks"
+    prompt: "Agent SDK root"
+    password: false
+  - name: ARINOVA_SIDECAR_PORT
+    description: "Loopback port for the Node sidecar control API (default 8793)"
+    prompt: "Sidecar port"
+    password: false
+  - name: ARINOVA_ADAPTER_PORT
+    description: "Loopback port for Python adapter inbound tasks (default 8794)"
+    prompt: "Adapter port"
+    password: false
+  - name: ARINOVA_SIDECAR_BIND
+    description: "Loopback bind host for the Node sidecar control API (default 127.0.0.1)"
+    prompt: "Sidecar bind host"
+    password: false
+  - name: ARINOVA_ADAPTER_BIND
+    description: "Loopback bind host for Python adapter inbound tasks (default 127.0.0.1)"
+    prompt: "Adapter bind host"
+    password: false
+  - name: ARINOVA_SIDECAR_AUTOSTART
+    description: "Spawn the Node sidecar when the Hermes gateway connects (default true)"
+    prompt: "Auto-start sidecar?"
+    password: false
+  - name: ARINOVA_AGENT_SKILLS_JSON
+    description: "JSON array of SDK skills advertised by this agent; each skill needs a unique non-empty id, non-empty name, and description"
+    prompt: "Agent skills JSON"
+    password: false
+  - name: ARINOVA_AGENT_SKILLS
+    description: "Backward-compatible alias for ARINOVA_AGENT_SKILLS_JSON"
+    prompt: "Agent skills JSON alias"
+    password: false
+  - name: ARINOVA_CONCURRENCY_MODE
+    description: "SDK task concurrency mode: per-conversation, agent-wide, or unbounded (default per-conversation)"
+    prompt: "Arinova concurrency mode"
+    password: false
+  - name: ARINOVA_AGENT_CONCURRENCY_MODE
+    description: "Backward-compatible alias for ARINOVA_CONCURRENCY_MODE"
+    prompt: "Agent concurrency mode"
+    password: false
+  - name: ARINOVA_RECONNECT_INTERVAL_MS
+    description: "SDK reconnect interval in milliseconds"
+    prompt: "Reconnect interval (ms)"
+    password: false
+  - name: ARINOVA_PING_INTERVAL_MS
+    description: "SDK websocket ping interval in milliseconds"
+    prompt: "Ping interval (ms)"
+    password: false
+  - name: ARINOVA_PING_TIMEOUT_MS
+    description: "SDK websocket pong timeout in milliseconds"
+    prompt: "Ping timeout (ms)"
+    password: false
+  - name: ARINOVA_MAX_CONSECUTIVE_PER_CONVERSATION
+    description: "SDK agent-wide scheduler max consecutive tasks per conversation"
+    prompt: "Max consecutive tasks per conversation"
+    password: false
+  - name: ARINOVA_CONNECT_TIMEOUT_MS
+    description: "Hermes adapter wait time for sidecar SDK authentication (default 30000)"
+    prompt: "Connect timeout (ms)"
+    password: false
+  - name: ARINOVA_ADAPTER_POST_TIMEOUT_MS
+    description: "Sidecar timeout for callbacks into the Python adapter in milliseconds (default 10000)"
+    prompt: "Adapter callback timeout (ms)"
+    password: false
+  - name: ARINOVA_CONTROL_MAX_BODY_BYTES
+    description: "Maximum JSON request body bytes accepted by the sidecar control API (default 134217728)"
+    prompt: "Sidecar control max body bytes"
+    password: false
+  - name: ARINOVA_SIDECAR_POST_TIMEOUT_MS
+    description: "Python adapter timeout for control calls into the Node sidecar in milliseconds (default 10000)"
+    prompt: "Sidecar control timeout (ms)"
+    password: false
+  - name: ARINOVA_DOWNLOAD_ATTACHMENTS
+    description: "Download inbound Arinova task attachments into Hermes media cache (default true)"
+    prompt: "Download inbound attachments?"
+    password: false
+  - name: ARINOVA_ATTACHMENT_MAX_BYTES
+    description: "Maximum bytes to download per inbound Arinova attachment (default 52428800)"
+    prompt: "Attachment download byte limit"
+    password: false
