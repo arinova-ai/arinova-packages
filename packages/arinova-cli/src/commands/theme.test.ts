@@ -61,10 +61,11 @@ describe("theme bridge parity with @arinova-ai/theme-sdk", () => {
     expect(bridgeSource).not.toContain('postMessage(msg, "*")');
     expect(bridgeSource).not.toContain('postMessage(payload, "*")');
     expect(bridgeSource).not.toContain("__ARINOVA_SDK__");
-    expect(bridgeSource).not.toMatch(/\bloadJSON\b/);
     expect(bridgeSource).not.toMatch(/\bloadFont\b/);
-    expect(bridgeSource).not.toMatch(/\bgetAgent\b/);
     expect(bridgeSource).not.toMatch(/emit:/);
+    expect(bridgeSource).toMatch(/\bloadJSON\b/);
+    expect(bridgeSource).toMatch(/\bgetAgent\b/);
+    expect(bridgeSource).toContain("get agent()");
   });
 });
 

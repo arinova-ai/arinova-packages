@@ -2,7 +2,32 @@
   "name": "@arinova-ai/theme-sdk",
   "version": "0.1.0",
   "description": "Arinova Office Theme SDK — bridge script for theme iframes",
-  "main": "src/bridge.js",
+  "type": "module",
   "types": "src/types.d.ts",
-  "files": ["src/bridge.js", "src/types.d.ts"]
+  "exports": {
+    ".": {
+      "types": "./src/types.d.ts"
+    },
+    "./bridge.js": "./src/bridge.js",
+    "./types": {
+      "types": "./src/types.d.ts"
+    }
+  },
+  "files": ["src/bridge.js", "src/types.d.ts", "README.md"],
+  "scripts": {
+    "lint": "node --check src/bridge.js",
+    "test": "vitest run"
+  },
+  "keywords": ["arinova", "theme", "office", "iframe"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arinova-ai/arinova-packages.git",
+    "directory": "packages/theme-sdk"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7",
+    "jsdom": "^26.1.0",
+    "vitest": "^3.2.4"
+  }
 }

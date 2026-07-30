@@ -1,14 +1,9 @@
 /**
  * Arinova Office Theme SDK — Bridge Script
  *
- * ⚠️ SOURCE OF TRUTH: this file MUST stay byte-for-byte in sync with the
- * `SDK_BRIDGE_STUB` constant in the arinova-chat server at
- *   apps/rust-server/src/routes/themes/sdk.rs
- * That stub is what the host actually injects into the runtime iframe in
- * production (and serves at `GET /sdk/bridge.js`). This published copy is the
- * reference authors/tools (e.g. the CLI `arinova theme dev` harness) run
- * against — if the two drift, local dev stops matching production. Any change
- * here must be mirrored there, and vice versa.
+ * This published bridge is synchronized mechanically with the bridge served by
+ * the Arinova host server. A shared SHA-256 contract test prevents dev and
+ * production runtimes from drifting.
  *
  * Runs inside the theme iframe. It:
  *  - reads a per-iframe `bridgeToken` from the URL hash and the parent origin
@@ -19,8 +14,8 @@
  *
  * Protocol (host -> iframe): init | agents:update | bindings:update |
  *   connectedAgents:update | resize   (every message carries `bridgeToken`)
- * Protocol (iframe -> host): ready | agent:select | agent:openChat |
- *   agent:bind | agent:unbind | navigate
+ * Protocol (iframe -> host): ready | theme:ready | theme:error |
+ *   agent:select | agent:openChat | agent:bind | agent:unbind | navigate
  *
  * The runtime calls ONLY `theme.init(sdk, container)`. There are no `resize()`
  * or `destroy()` lifecycle hooks — subscribe to viewport changes via
@@ -46,8 +41,9 @@
   function broadcast(channel, payload) {
     var list = channels[channel];
     if (!list) return;
-    for (var i = 0; i < list.length; i++) {
-      try { list[i](payload); } catch (err) { console.error("[arinova-sdk]", err); }
+    var snapshot = list.slice();
+    for (var i = 0; i < snapshot.length; i++) {
+      try { snapshot[i](payload); } catch (err) { console.error("[arinova-sdk]", err); }
     }
   }
 
@@ -77,6 +73,14 @@
     isMobile: window.innerWidth < 768,
     pixelRatio: window.devicePixelRatio || 1,
     assetUrl: joinAsset,
+    getAgent: function (id) { return sdk.agents.find(function (a) { return a.id === id; }); },
+    loadJSON: function (rel) {
+      return fetch(sdk.assetUrl(rel)).then(function (r) {
+        if (!r.ok) throw new Error("Failed to load " + rel);
+        return r.json();
+      });
+    },
+    get agent() { return sdk.agents.length ? sdk.agents[0] : null; },
     onAgentsChange: function (cb) { return subscribe("agents", cb); },
     onBindingsChange: function (cb) { return subscribe("bindings", cb); },
     onConnectedAgentsChange: function (cb) { return subscribe("connectedAgents", cb); },
@@ -90,18 +94,55 @@
 
   var hostReady = false;
   var pending = null;
+  var themeStarted = false;
+  var themeReady = false;
+  var themeFailed = false;
+
+  function errorMessage(err) {
+    var message = "";
+    try {
+      message = err && err.message ? String(err.message) : String(err || "Unknown error");
+    } catch (ignored) {
+      message = "Unknown error";
+    }
+    return message.replace(/[\r\n\t]+/g, " ").slice(0, 300);
+  }
+
+  function reportThemeError(stage, err) {
+    if (themeReady || themeFailed) return;
+    themeFailed = true;
+    var message = errorMessage(err);
+    console.error("[arinova-sdk] theme failed during " + stage, err);
+    send("theme:error", { stage: stage, message: message });
+  }
+
   function runTheme(theme) {
-    if (!theme || typeof theme.init !== "function") return;
-    try { theme.init(sdk, mountTarget); }
-    catch (err) { console.error("[arinova-sdk] theme.init threw", err); }
+    if (themeStarted || themeReady || themeFailed) return;
+    if (!theme || typeof theme.init !== "function") {
+      reportThemeError("registration", new Error("Theme module does not export init()"));
+      return;
+    }
+    themeStarted = true;
+    Promise.resolve()
+      .then(function () { return theme.init(sdk, mountTarget); })
+      .then(function () {
+        if (themeFailed) return;
+        themeReady = true;
+        send("theme:ready");
+      })
+      .catch(function (err) { reportThemeError("initialization", err); });
   }
 
   window.__ARINOVA_REGISTER_THEME__ = function (mod) {
     var theme = (mod && mod.default) ? mod.default : mod;
-    if (!theme) return;
+    if (!theme) {
+      reportThemeError("registration", new Error("Theme module has no default export"));
+      return;
+    }
     if (hostReady) runTheme(theme);
     else pending = theme;
   };
+  window.__ARINOVA_REPORT_THEME_ERROR__ = reportThemeError;
 
   function applyInit(data) {
     if (data.themeId) sdk.themeId = data.themeId;

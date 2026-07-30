@@ -55,7 +55,7 @@ export interface User {
 export interface ConnectedAgent {
   id: string;
   name: string;
-  /** @deprecated Not currently sent by the host — always undefined. */
+  /** Avatar URL when the connected agent has one. */
   avatarUrl?: string;
 }
 
@@ -95,6 +95,12 @@ export interface ArinovaSDK {
    * flat segment (no subdirectories) served same-origin — e.g. `assetUrl("bg.png")`.
    */
   assetUrl(relativePath: string): string;
+  /** Find an office agent by id. */
+  getAgent(id: string): Agent | undefined;
+  /** Fetch and parse a JSON asset from this theme's asset base. */
+  loadJSON<T = unknown>(relativePath: string): Promise<T>;
+  /** Convenience accessor for the first agent, or null when none exist. */
+  readonly agent: Agent | null;
 
   /** Tell the host to select (highlight) an agent */
   selectAgent(agentId: string): void;
@@ -121,7 +127,7 @@ export interface ArinovaSDK {
   readonly user: User | null;
   /** Theme identifier */
   readonly themeId: string;
-  /** @deprecated Currently always "0.0.0" — the real manifest version is not yet plumbed through. */
+  /** Theme manifest version supplied by the host. */
   readonly themeVersion: string;
 }
 
@@ -188,5 +194,7 @@ declare global {
   interface Window {
     /** Register your theme module with the runtime bridge (called for you by the runtime HTML). */
     __ARINOVA_REGISTER_THEME__: (themeModule: { default?: ThemeModule } | ThemeModule) => void;
+    /** Report a sanitized pre-init/runtime loading failure to the host. */
+    __ARINOVA_REPORT_THEME_ERROR__: (stage: string, error: unknown) => void;
   }
 }

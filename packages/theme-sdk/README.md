@@ -47,6 +47,11 @@ Every Arinova user has a **virtual office** — a personal workspace where their
 
 > The bridge is injected for you. You do not include it — you only ship `theme.js` (and assets). `src/bridge.js` in this package is the exact reference the host injects and the local `arinova theme dev` server serves, so local dev matches production.
 
+The JavaScript bridge is a runtime script, not an importable library entry:
+loading it executes its iframe IIFE immediately. Tooling that needs the raw
+script can resolve the exported `@arinova-ai/theme-sdk/bridge.js` subpath and
+read the file.
+
 ### Key concepts
 
 | Concept | Description |
@@ -194,6 +199,9 @@ The `sdk` object is passed to your `init(sdk, container)`.
 | Method | Signature | Description |
 |---|---|---|
 | `sdk.assetUrl(path)` | `(relativePath: string) => string` | Resolve a **flat** asset filename (e.g. `"bg.png"`) to a same-origin URL. Filenames are a single segment — no subdirectories. To load JSON: `fetch(sdk.assetUrl("data.json")).then(r => r.json())`. |
+| `sdk.loadJSON(path)` | `<T>(relativePath: string) => Promise<T>` | Load and parse a JSON theme asset. |
+| `sdk.getAgent(id)` | `(id: string) => Agent \| undefined` | Find an office agent by id. |
+| `sdk.agent` | `Agent \| null` | First office agent convenience accessor. |
 
 ### Environment & viewport
 
@@ -205,7 +213,7 @@ The `sdk` object is passed to your `init(sdk, container)`.
 | `sdk.pixelRatio` | `number` | Device pixel ratio |
 | `sdk.user` | `User \| null` | Current user (`null` until the host `init` arrives) |
 | `sdk.themeId` | `string` | This theme's id |
-| `sdk.themeVersion` | `string` | Reserved — currently always `"0.0.0"`; do not depend on it |
+| `sdk.themeVersion` | `string` | Active theme manifest version supplied by the host |
 
 ---
 
@@ -499,7 +507,7 @@ interface ArinovaSDK {
   readonly pixelRatio: number;
   readonly user: User | null;
   readonly themeId: string;
-  readonly themeVersion: string; // reserved, always "0.0.0"
+  readonly themeVersion: string; // active manifest version
 }
 
 interface ThemeModule {
@@ -523,6 +531,13 @@ interface ThemeManifest {
 
 You normally never touch this — the bridge abstracts it. **Every message carries a `bridgeToken`**, minted per-iframe by the host and passed in the iframe URL fragment (`#bridgeToken=…`). The bridge attaches it to every outbound message and rejects any inbound message whose `bridgeToken`, source, or origin doesn't match; the host does the same. `sdk.emit` / arbitrary custom events are **not** supported.
 
+The host first waits for the bridge-level `ready` handshake. After `init` and
+theme registration have both arrived (in either order), the bridge runs
+`theme.init()` exactly once and awaits it. It then sends `theme:ready`; a
+registration error, synchronous throw, rejected initialization promise, or
+explicit `window.__ARINOVA_REPORT_THEME_ERROR__(stage, error)` sends one
+sanitized `theme:error` instead.
+
 **Host → theme iframe** (each also includes `bridgeToken`):
 
 | Message | Payload |
@@ -538,6 +553,8 @@ You normally never touch this — the bridge abstracts it. **Every message carri
 | Message | Payload |
 |---|---|
 | `ready` | `{ type }` |
+| `theme:ready` | `{ type }` — after `theme.init()` resolves |
+| `theme:error` | `{ type, stage, message }` — sanitized initialization failure |
 | `agent:select` | `{ type, agentId }` |
 | `agent:openChat` | `{ type, agentId }` |
 | `agent:bind` | `{ type, slotIndex, agentId }` |
