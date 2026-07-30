@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   clientPost: vi.fn(),
   clientPut: vi.fn(),
   clientRequest: vi.fn(),
+  clientStream: vi.fn(),
   getOpts: vi.fn(() => ({
     token: "ari_cli_token",
     apiUrl: "https://api.example.test",
@@ -65,6 +66,9 @@ vi.mock("../client.js", () => ({
     }
     request(request: unknown) {
       return mocks.clientRequest(request);
+    }
+    stream(path: string, body?: unknown) {
+      return mocks.clientStream(path, body);
     }
   },
   buildQuery: (values: Record<string, unknown>) => {
@@ -132,6 +136,7 @@ const { registerSlideCommands } = await import("./slide.js");
 const { registerWorkbookCommands } = await import("./workbook.js");
 const { registerImageCommands } = await import("./image.js");
 const { registerAutomationCommands } = await import("./automation.js");
+const { registerEconomyChatCommands } = await import("./economy-chat.js");
 
 const tempDirs: string[] = [];
 
@@ -155,6 +160,7 @@ describe("CLI command API request shapes", () => {
     mocks.clientPost.mockResolvedValue({ ok: true });
     mocks.clientPut.mockResolvedValue({ ok: true });
     mocks.clientRequest.mockResolvedValue({ ok: true });
+    mocks.clientStream.mockResolvedValue(new ReadableStream());
     mocks.del.mockResolvedValue({});
     mocks.get.mockResolvedValue([]);
     mocks.patch.mockResolvedValue({ ok: true });
@@ -1017,6 +1023,34 @@ describe("CLI command API request shapes", () => {
     );
     expect(mocks.post).toHaveBeenCalledWith("/api/v1/autopilot/evaluate", {
       agentId: "agent-1", conversationId: "conv-1", dryRun: true,
+    });
+  });
+
+  it("economy purchase requires idempotency and chat follows the server request type", async () => {
+    const program = createProgram(registerEconomyChatCommands);
+    await program.parseAsync([
+      "node", "arinova", "economy", "purchase",
+      "--space-id", "space-1", "--amount", "25", "--product-id", "coins",
+      "--idempotency-key", "purchase-1",
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "chat", "complete",
+      "--agent-id", "agent-1", "--messages", '[{"role":"user","content":"Hi"}]',
+      "--context", '{"locale":"en"}',
+    ]);
+    expect(mocks.post).toHaveBeenNthCalledWith(1, "/api/v1/economy/purchase", {
+      spaceId: "space-1",
+      productId: "coins",
+      amount: 25,
+      description: undefined,
+      idempotencyKey: "purchase-1",
+    });
+    expect(mocks.post).toHaveBeenNthCalledWith(2, "/api/v1/agent/chat", {
+      agentId: "agent-1",
+      prompt: undefined,
+      systemPrompt: undefined,
+      messages: [{ role: "user", content: "Hi" }],
+      context: { locale: "en" },
     });
   });
 });

@@ -43,7 +43,7 @@ Remove a profile:
         profiles.map((p) => ({
           name: p.name,
           type: p.profile.type,
-          key: `${p.profile.apiKey.slice(0, 12)}...`,
+          key: "<redacted>",
         })),
         [
           { key: "name", label: "Profile" },
@@ -87,7 +87,7 @@ Remove a profile:
       printResult({
         profile: activeName,
         type: match.type,
-        keyPrefix: `${match.apiKey.slice(0, 12)}...`,
+        key: "<redacted>",
         environment: getEnvironmentLabel(),
         endpoint: getEndpoint(),
       });

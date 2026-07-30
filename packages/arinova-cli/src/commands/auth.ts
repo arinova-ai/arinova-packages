@@ -76,7 +76,7 @@ export function registerAuth(program: Command): void {
 
         setProfile(profileName, { type: "user", apiKey: key });
 
-        printSuccess(`Logged in! Profile '${profileName}' created (user, key: ${key.slice(0, 12)}...)`);
+        printSuccess(`Logged in! Profile '${profileName}' created (user, key stored securely)`);
         console.log(`\nTo use: arinova --profile ${profileName} <command>`);
       } catch (err) {
         printError(err);
@@ -119,7 +119,7 @@ export function registerAuth(program: Command): void {
       }
       const name = profileFlag;
       setProfile(name, { type: "bot", apiKey: key });
-      printSuccess(`Bot profile '${name}' saved (key: ${key.slice(0, 12)}...)`);
+      printSuccess(`Bot profile '${name}' saved (key stored securely)`);
       console.log(`\nTo use: arinova --profile ${name} <command>`);
     });
 
@@ -136,7 +136,7 @@ export function registerAuth(program: Command): void {
       }
       const name = profileFlag ?? process.env.ARINOVA_PROFILE ?? "default";
       setProfile(name, { type: "bot", apiKey: key });
-      printSuccess(`Profile '${name}' saved (key: ${key.slice(0, 12)}...)`);
+      printSuccess(`Profile '${name}' saved (key stored securely)`);
     });
 
   auth
@@ -146,16 +146,17 @@ export function registerAuth(program: Command): void {
       try {
         const profileFlag = program.optsWithGlobals().profile as string | undefined;
         const tokenFlag = program.optsWithGlobals().token as string | undefined;
+        const endpointFlag = program.optsWithGlobals().apiUrl as string | undefined;
         const { apiKey, profileName, source } = resolveApiKey({ token: tokenFlag, profile: profileFlag });
         const env = getEnvironmentLabel();
-        const endpoint = getEndpoint();
+        const endpoint = (endpointFlag ?? getEndpoint()).replace(/\/+$/, "");
 
         const identity: Record<string, unknown> = {
           profile: profileName,
           source,
           environment: env,
           endpoint,
-          keyPrefix: `${apiKey.slice(0, 12)}...`,
+          key: "<redacted>",
         };
 
         // Try to resolve actual identity from server
@@ -225,7 +226,7 @@ export function registerAuth(program: Command): void {
         environment: getEnvironmentLabel(),
         endpoint: getEndpoint(),
         profiles: profiles.length > 0
-          ? Object.fromEntries(profiles.map((p) => [p.name, { type: p.profile.type, key: `${p.profile.apiKey.slice(0, 12)}...` }]))
+          ? Object.fromEntries(profiles.map((p) => [p.name, { type: p.profile.type, key: "<redacted>" }]))
           : "(none)",
       });
     });

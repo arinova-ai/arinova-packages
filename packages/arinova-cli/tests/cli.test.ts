@@ -31,7 +31,8 @@ const HAS_CONV = HAS_TOKEN && CONV_ID.length > 0;
 
 /** Run the CLI and return stdout. Throws on non-zero exit. */
 function run(args: string): string {
-  return execSync(`node ${CLI} --token ${TOKEN} --api-url ${API_URL} ${args}`, {
+  const tokenArg = TOKEN ? `--token ${JSON.stringify(TOKEN)} ` : "";
+  return execSync(`node ${CLI} ${tokenArg}--api-url ${API_URL} --yes --json ${args}`, {
     encoding: "utf-8",
     timeout: 60_000,
     maxBuffer: 10 * 1024 * 1024,
@@ -42,7 +43,8 @@ function run(args: string): string {
 /** Run the CLI, returning { stdout, status }. Never throws. */
 function runSafe(args: string): { stdout: string; stderr: string; status: number } {
   try {
-    const stdout = execSync(`node ${CLI} --token ${TOKEN} --api-url ${API_URL} ${args}`, {
+    const tokenArg = TOKEN ? `--token ${JSON.stringify(TOKEN)} ` : "";
+    const stdout = execSync(`node ${CLI} ${tokenArg}--api-url ${API_URL} --yes --json ${args}`, {
       encoding: "utf-8",
       timeout: 60_000,
       maxBuffer: 10 * 1024 * 1024,

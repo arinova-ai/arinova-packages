@@ -21,6 +21,26 @@ export class ReportedCliError extends Error {
 export function printResult(data: unknown): void {
   if (jsonMode) {
     console.log(JSON.stringify(data, null, 2));
+  } else if (
+    Array.isArray(data) &&
+    data.length > 0 &&
+    data.every((item) => item && typeof item === "object" && !Array.isArray(item))
+  ) {
+    const keys = [...new Set(data.flatMap((item) =>
+      Object.entries(item as Record<string, unknown>)
+        .filter(([, value]) =>
+          value == null || ["string", "number", "boolean"].includes(typeof value)
+        )
+        .map(([key]) => key)
+    ))].slice(0, 8);
+    if (keys.length > 0) {
+      table(
+        data as Record<string, unknown>[],
+        keys.map((key) => ({ key, label: key })),
+      );
+    } else {
+      prettyPrint(data);
+    }
   } else {
     prettyPrint(data);
   }

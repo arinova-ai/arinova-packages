@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   ApiClient,
   ApiError,
@@ -10,6 +13,7 @@ import {
   post,
   resetClientDefaults,
   uploadMultipart,
+  upload,
 } from "./client.js";
 
 const mocks = vi.hoisted(() => ({
@@ -111,6 +115,28 @@ describe("CLI client", () => {
     } satisfies Partial<ApiError>);
   });
 
+  it.each([400, 401, 403, 404, 409, 429, 500])(
+    "preserves typed API error details for status %i without retry",
+    async (status) => {
+      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          error: {
+            code: `E_${status}`,
+            message: "request rejected",
+            details: { field: "name" },
+          },
+        }), { status }),
+      );
+
+      await expect(get("/api/v1/resource")).rejects.toMatchObject({
+        status,
+        code: `E_${status}`,
+        details: { field: "name" },
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("uploadMultipart sends FormData without JSON content type", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
@@ -128,6 +154,38 @@ describe("CLI client", () => {
     expect(file.size).toBe(blob.size);
     expect(file.type).toBe("application/zip");
     expect(body.get("name")).toBe("dark");
+  });
+
+  it("upload includes the basename, inferred MIME type, and exact bytes", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "arinova-upload-"));
+    const input = join(directory, "asset.png");
+    writeFileSync(input, new Uint8Array([137, 80, 78, 71]));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("{}", { status: 200 }),
+    );
+    try {
+      await upload("/api/v1/files/upload", input);
+      const body = fetchMock.mock.calls[0][1]?.body as FormData;
+      const file = body.get("file") as File;
+      expect(file.name).toBe("asset.png");
+      expect(file.type).toBe("image/png");
+      expect(new Uint8Array(await file.arrayBuffer())).toEqual(
+        new Uint8Array([137, 80, 78, 71]),
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("propagates multipart server size rejection", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        error: { code: "FILE_TOO_LARGE", message: "upload exceeds limit" },
+      }), { status: 413 }),
+    );
+    await expect(uploadMultipart("/api/v1/files/upload", {
+      file: new Blob(["large"]),
+    })).rejects.toMatchObject({ status: 413, code: "FILE_TOO_LARGE" });
   });
 
   it("runtime endpoint and token overrides apply to compatibility helpers", async () => {
@@ -191,5 +249,51 @@ describe("CLI client", () => {
         responseMode: "binary",
       }),
     ).resolves.toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it("downloads exact bytes, protects existing files, and supports force", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "arinova-download-"));
+    const output = join(directory, "asset.bin");
+    const client = new ApiClient({
+      endpoint: "https://api.example.test",
+      token: "ari_binary",
+    });
+    try {
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(new Response(new Uint8Array([0, 1, 255])))
+        .mockResolvedValueOnce(new Response(new Uint8Array([9, 8])));
+      await client.download("/api/v1/files/file-1/content", output);
+      expect(readFileSync(output)).toEqual(Buffer.from([0, 1, 255]));
+      await expect(
+        client.download("/api/v1/files/file-1/content", output),
+      ).rejects.toThrow("Use --force");
+      await client.download("/api/v1/files/file-1/content", output, true);
+      expect(readFileSync(output)).toEqual(Buffer.from([9, 8]));
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps SIGINT abort active until a stream ends", async () => {
+    let interrupt: (() => void) | undefined;
+    vi.spyOn(process, "once").mockImplementation(((event: string, listener: () => void) => {
+      if (event === "SIGINT") interrupt = listener;
+      return process;
+    }) as typeof process.once);
+    vi.spyOn(process, "removeListener").mockReturnValue(process);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        queueMicrotask(() => interrupt?.());
+      });
+    });
+    const client = new ApiClient({
+      endpoint: "https://api.example.test",
+      token: "ari_stream",
+    });
+
+    await expect(client.stream("/api/v1/agent/chat/stream")).rejects.toThrow(
+      "Request interrupted by SIGINT",
+    );
   });
 });

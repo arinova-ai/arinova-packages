@@ -62,6 +62,20 @@ describe("CLI output formatting", () => {
     expect(console.log).toHaveBeenCalledWith("200  B    ");
   });
 
+  it("renders record lists as a human table", () => {
+    printResult([
+      { id: "1", name: "Alpha", nested: { ignored: true } },
+      { id: "2", name: "Beta", nested: { ignored: true } },
+    ]);
+
+    expect(console.log).toHaveBeenCalledWith("id  name ");
+    expect(console.log).toHaveBeenCalledWith("1   Alpha");
+    expect(console.log).toHaveBeenCalledWith("2   Beta ");
+    expect(console.log).not.toHaveBeenCalledWith(
+      expect.stringContaining("[object Object]"),
+    );
+  });
+
   it("prints a stable JSON error envelope to stderr", () => {
     setJsonMode(true);
     expect(() =>

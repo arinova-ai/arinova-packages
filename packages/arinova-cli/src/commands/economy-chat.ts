@@ -1,0 +1,84 @@
+import type { Command } from "commander";
+import { getOpts } from "../api.js";
+import { ApiClient, buildQuery, get, post } from "../client.js";
+import { printResult } from "../output.js";
+import { renderSseStream } from "../sse.js";
+import { addPaginationOptions, paginationQuery } from "../pagination.js";
+
+function parse(value: string, label: string): unknown {
+  try { return JSON.parse(value); } catch { throw new Error(`${label} must be valid JSON`); }
+}
+
+function chatBody(opts: {
+  agentId: string; prompt?: string; systemPrompt?: string;
+  messages?: string; context?: string;
+}) {
+  if (!opts.prompt && !opts.messages) {
+    throw new Error("Specify --prompt or --messages");
+  }
+  const messages = opts.messages ? parse(opts.messages, "--messages") : undefined;
+  if (messages !== undefined && !Array.isArray(messages)) {
+    throw new Error("--messages must be a JSON array");
+  }
+  return {
+    agentId: opts.agentId,
+    prompt: opts.prompt,
+    systemPrompt: opts.systemPrompt,
+    messages,
+    context: opts.context ? parse(opts.context, "--context") : undefined,
+  };
+}
+
+export function registerEconomyChatCommands(program: Command): void {
+  const economy = program.command("economy")
+    .description("User-authorized economy commands (requires OAuth economy scope)");
+  economy.command("balance").action(async () => {
+    printResult(await get("/api/v1/economy/balance"));
+  });
+  addPaginationOptions(economy.command("transactions"))
+    .action(async (opts) => printResult(await get(
+      `/api/v1/economy/transactions${paginationQuery(opts)}`,
+    )));
+  economy.command("purchase")
+    .requiredOption("--space-id <id>")
+    .requiredOption("--amount <n>")
+    .requiredOption("--idempotency-key <key>")
+    .option("--product-id <id>")
+    .option("--description <text>")
+    .action(async (opts) => {
+      const amount = Number(opts.amount);
+      if (!Number.isInteger(amount) || amount <= 0 || amount > 100_000) {
+        throw new Error("--amount must be an integer from 1 to 100000");
+      }
+      printResult(await post("/api/v1/economy/purchase", {
+        spaceId: opts.spaceId,
+        productId: opts.productId,
+        amount,
+        description: opts.description,
+        idempotencyKey: opts.idempotencyKey,
+      }));
+    });
+
+  const chat = program.command("chat")
+    .description("Agent chat proxy (requires a Space OAuth token with agents scope)");
+  chat.command("complete")
+    .requiredOption("--agent-id <id>")
+    .option("--prompt <text>")
+    .option("--system-prompt <text>")
+    .option("--messages <json>")
+    .option("--context <json>")
+    .action(async (opts) => {
+      printResult(await post("/api/v1/agent/chat", chatBody(opts)));
+    });
+  chat.command("stream")
+    .requiredOption("--agent-id <id>")
+    .option("--prompt <text>")
+    .option("--system-prompt <text>")
+    .option("--messages <json>")
+    .option("--context <json>")
+    .action(async (opts) => {
+      const { apiUrl, token } = getOpts(chat);
+      const client = new ApiClient({ endpoint: apiUrl, token });
+      await renderSseStream(await client.stream("/api/v1/agent/chat/stream", chatBody(opts)));
+    });
+}

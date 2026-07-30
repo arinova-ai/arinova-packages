@@ -16,7 +16,7 @@
     "contracts:generate": "node scripts/generate-v1-routes.mjs",
     "dev": "tsc --watch",
     "lint": "tsc --noEmit",
-    "pretest": "node scripts/inline-bridge.mjs",
+    "pretest": "node scripts/inline-bridge.mjs && tsc",
     "test": "vitest run"
   },
   "dependencies": {

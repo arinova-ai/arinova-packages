@@ -25,7 +25,8 @@ const CONV_ID = process.env.TEST_CONVERSATION_ID ?? "db39d380-f132-45a2-929b-1ca
 const HAS_TOKEN = TOKEN.length > 0;
 
 function run(args: string): string {
-  return execSync(`node ${CLI} --token ${TOKEN} --api-url ${API_URL} ${args}`, {
+  const tokenArg = TOKEN ? `--token ${JSON.stringify(TOKEN)} ` : "";
+  return execSync(`node ${CLI} ${tokenArg}--api-url ${API_URL} --yes --json ${args}`, {
     encoding: "utf-8",
     timeout: 60_000,
     maxBuffer: 10 * 1024 * 1024,

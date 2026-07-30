@@ -62,7 +62,7 @@ describe("auth command", () => {
       type: "bot",
       apiKey: "ari_token_123",
     });
-    expect(mocks.printSuccess).toHaveBeenCalledWith("Bot profile 'agent-a' saved (key: ari_token_12...)");
+    expect(mocks.printSuccess).toHaveBeenCalledWith("Bot profile 'agent-a' saved (key stored securely)");
   });
 
   it("set-token rejects invalid key formats before saving", async () => {
@@ -99,7 +99,7 @@ describe("auth command", () => {
       identityType: "bot",
       agentId: "agent-1",
       agentName: "Agent One",
-      keyPrefix: "ari_user_123...",
+      key: "<redacted>",
     }));
   });
 });

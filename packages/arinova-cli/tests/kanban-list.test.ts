@@ -69,7 +69,7 @@ function runCli(apiUrl: string, args: string[]): Promise<{ stdout: string; stder
   return new Promise((resolveP) => {
     const child = spawn(
       "node",
-      [CLI, "--token", TOKEN, "--api-url", apiUrl, ...args],
+      [CLI, "--token", TOKEN, "--api-url", apiUrl, "--json", ...args],
       { env: { ...process.env, NODE_NO_WARNINGS: "1" } },
     );
     let stdout = "";

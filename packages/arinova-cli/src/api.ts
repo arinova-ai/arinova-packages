@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { resolveApiKey, getEndpoint } from "./config.js";
 import { ApiClient, type HttpMethod } from "./client.js";
+import { printResult } from "./output.js";
 
 export function getOpts(cmd: Command): {
   token: string;
@@ -40,5 +41,5 @@ export async function apiCall(opts: {
 }
 
 export function output(data: unknown): void {
-  process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
+  printResult(data);
 }

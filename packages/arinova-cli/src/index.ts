@@ -3,9 +3,11 @@ import { Command } from "commander";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { setJsonMode } from "./output.js";
+import { isJsonMode, setJsonMode } from "./output.js";
 import { migrateConfigIfNeeded } from "./config.js";
 import { configureClientDefaults } from "./client.js";
+import { registerCompletion } from "./completion.js";
+import { requireNonInteractiveConfirmation } from "./safety.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, "../package.json"), "utf-8"));
@@ -44,6 +46,7 @@ import { registerSlideCommands } from "./commands/slide.js";
 import { registerWorkbookCommands } from "./commands/workbook.js";
 import { registerImageCommands } from "./commands/image.js";
 import { registerAutomationCommands } from "./commands/automation.js";
+import { registerEconomyChatCommands } from "./commands/economy-chat.js";
 
 const program = new Command();
 
@@ -55,8 +58,9 @@ program
   .option("--profile <name>", "Profile to use (required for most commands)")
   .option("--api-url <url>", "API endpoint override")
   .option("--json", "Output in JSON format")
-  .hook("preAction", (thisCommand) => {
-    const opts = thisCommand.optsWithGlobals();
+  .option("--yes", "Confirm side effects in non-interactive environments")
+  .hook("preAction", (thisCommand, actionCommand) => {
+    const opts = actionCommand.optsWithGlobals();
     if (opts.json) {
       setJsonMode(true);
     }
@@ -67,6 +71,7 @@ program
       token: opts.token as string | undefined,
       profileName: opts.profile as string | undefined,
     });
+    requireNonInteractiveConfirmation(actionCommand);
   });
 
 // Existing agent commands (bot token based)
@@ -97,6 +102,7 @@ registerSlideCommands(program);
 registerWorkbookCommands(program);
 registerImageCommands(program);
 registerAutomationCommands(program);
+registerEconomyChatCommands(program);
 
 // Creator commands (config-based auth)
 registerAuth(program);
@@ -109,6 +115,7 @@ registerStats(program);
 registerList(program);
 registerApp(program);
 registerSetupOpenclaw(program);
+registerCompletion(program);
 
 program.parseAsync().then(
   () => {
@@ -120,8 +127,23 @@ program.parseAsync().then(
       err instanceof Error &&
       !(err as Error & { reported?: boolean }).reported
     ) {
-      const value = err as Error & { code?: string };
-      console.error(value.code ? `${value.code}: ${value.message}` : value.message);
+      const value = err as Error & {
+        code?: string;
+        status?: number;
+        details?: unknown;
+      };
+      if (isJsonMode()) {
+        console.error(JSON.stringify({
+          error: {
+            status: value.status,
+            code: value.code,
+            message: value.message,
+            details: value.details,
+          },
+        }));
+      } else {
+        console.error(value.code ? `${value.code}: ${value.message}` : value.message);
+      }
     }
     process.exit(1);
   },

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "33b7c06ad9df8b9cb5ab9e21fff109955a3cc3cc",
+  "identities": {
+    "userApiKey": "ari_ key created by a signed-in user",
+    "botToken": "ari_ token scoped to one agent",
+    "oauthUser": "user-authorized OAuth access token",
+    "local": "does not call an authenticated API"
+  },
+  "rules": [
+    {
+      "commands": ["auth login", "auth logout", "auth set-token", "config", "completion", "setup-openclaw"],
+      "identities": ["local"]
+    },
+    {
+      "commands": ["economy", "chat", "user"],
+      "identities": ["oauthUser"],
+      "note": "The server enforces economy or agents OAuth scopes. The CLI never retries with another identity."
+    },
+    {
+      "commands": ["delivery", "action agent-manifest", "action pending"],
+      "identities": ["botToken"],
+      "note": "Visibility is restricted by the caller agent on the server."
+    },
+    {
+      "commands": ["calendar", "doc", "form", "mindmap", "slide", "workbook", "image", "external-image"],
+      "identities": ["userApiKey", "oauthUser"]
+    },
+    {
+      "commands": ["auth whoami", "message", "file", "note", "notebook", "memory", "kanban", "conversation", "skill", "skill-package", "search", "resolve", "memo", "wiki", "agent", "profile", "sticker", "theme", "community", "lounge", "space", "stats", "list", "app", "action", "workflow", "cron", "trigger", "webhook", "autopilot"],
+      "identities": ["userApiKey", "botToken"],
+      "note": "Specific route scopes and ownership are still enforced by the server."
+    },
+    {
+      "commands": ["auto-send", "expert"],
+      "identities": ["local"],
+      "note": "Unsupported compatibility commands fail before making a request."
+    },
+    {
+      "commands": ["painter"],
+      "identities": ["userApiKey", "botToken"],
+      "note": "Legacy-only API surface; there is no equivalent current /api/v1 route."
+    }
+  ]
+}

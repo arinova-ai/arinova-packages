@@ -154,6 +154,33 @@ function combineSignals(
   };
 }
 
+function managedStream(
+  body: ReadableStream<Uint8Array>,
+  cleanup: () => void,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          cleanup();
+          controller.close();
+        } else {
+          controller.enqueue(value);
+        }
+      } catch (error) {
+        cleanup();
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      cleanup();
+      await reader.cancel(reason);
+    },
+  });
+}
+
 export class ApiClient {
   readonly endpoint: string;
   readonly token: string;
@@ -194,17 +221,19 @@ export class ApiClient {
       request.signal,
     );
     init.signal = signal;
+    let keepSignalUntilStreamEnds = false;
     try {
       const res = await fetch(`${this.endpoint}${request.path}`, init);
       if (!res.ok) throw new ApiError(res.status, await parseResponseBody(res));
       if (request.responseMode === "binary") return new Uint8Array(await res.arrayBuffer());
       if (request.responseMode === "stream") {
         if (!res.body) throw new Error("API returned an empty stream");
-        return res.body;
+        keepSignalUntilStreamEnds = true;
+        return managedStream(res.body, cleanup);
       }
       return parseResponseBody(res);
     } finally {
-      cleanup();
+      if (!keepSignalUntilStreamEnds) cleanup();
     }
   }
 
@@ -230,6 +259,15 @@ export class ApiClient {
 
   upload(path: string, form: FormData, method: "POST" | "PUT" = "POST"): Promise<unknown> {
     return this.request({ method, path, form });
+  }
+
+  async stream(path: string, body?: unknown): Promise<ReadableStream<Uint8Array>> {
+    return this.request({
+      method: "POST",
+      path,
+      body,
+      responseMode: "stream",
+    }) as Promise<ReadableStream<Uint8Array>>;
   }
 
   async download(path: string, outputPath: string, force = false): Promise<void> {
@@ -303,7 +341,21 @@ export async function upload(
   apiKey?: string,
 ): Promise<unknown> {
   const fileData = readFileSync(filePath);
-  const blob = new Blob([fileData]);
+  const extension = filePath.toLowerCase().split(".").pop();
+  const mimeType = {
+    csv: "text/csv",
+    gif: "image/gif",
+    jpeg: "image/jpeg",
+    jpg: "image/jpeg",
+    json: "application/json",
+    pdf: "application/pdf",
+    png: "image/png",
+    svg: "image/svg+xml",
+    txt: "text/plain",
+    webp: "image/webp",
+    zip: "application/zip",
+  }[extension ?? ""] ?? "application/octet-stream";
+  const blob = new Blob([fileData], { type: mimeType });
   const form = new FormData();
   form.append(fieldName, blob, basename(filePath));
   return defaultClient(apiKey).upload(path, form);
