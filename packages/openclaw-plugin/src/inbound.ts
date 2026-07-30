@@ -1,6 +1,10 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { createReplyPrefixOptions } from "openclaw/plugin-sdk/channel-outbound";
+import {
+  buildChannelInboundEventContext,
+  resolveChannelInboundRouteEnvelope,
+} from "openclaw/plugin-sdk/channel-inbound";
 import type { ResolvedArinovaChatAccount } from "./accounts.js";
 import type { ArinovaChatInboundMessage, CoreConfig } from "./types.js";
 import { getArinovaChatRuntime } from "./runtime.js";
@@ -135,7 +139,7 @@ export async function handleArinovaChatInbound(params: {
   // Resolve agent route — use conversationId as peer id so each conversation
   // gets its own session (critical for groups where multiple convos exist).
   const peerId = message.conversationId || senderId || message.taskId;
-  const route = core.channel.routing.resolveAgentRoute({
+  const { route, buildEnvelope } = resolveChannelInboundRouteEnvelope({
     cfg: config as OpenClawConfig,
     channel: CHANNEL_ID,
     accountId: account.accountId,
@@ -146,68 +150,58 @@ export async function handleArinovaChatInbound(params: {
   });
 
   const fromLabel = senderDisplayName;
-  const storePath = core.channel.session.resolveStorePath(
-    (config.session as Record<string, unknown> | undefined)?.store as string | undefined,
-    { agentId: route.agentId },
-  );
-  const envelopeOptions = core.channel.reply.resolveEnvelopeFormatOptions(config as OpenClawConfig);
-  const previousTimestamp = core.channel.session.readSessionUpdatedAt({
-    storePath,
-    sessionKey: route.sessionKey,
-  });
 
   // Build enriched body for the LLM with context sections
   const bodyForAgent = buildEnrichedBody(rawBody, message);
 
-  const body = core.channel.reply.formatAgentEnvelope({
+  const body = buildEnvelope({
     channel: "Arinova Chat",
     from: fromLabel,
     timestamp: message.timestamp,
-    previousTimestamp,
-    envelope: envelopeOptions,
     body: rawBody,
   });
 
-  const ctxPayload = core.channel.reply.finalizeInboundContext({
-    Body: body,
-    BodyForAgent: bodyForAgent,
-    RawBody: rawBody,
-    CommandBody: rawBody.replace(/^!\[/, "["),
-    From: `openclaw-arinova-ai:${peerId}`,
-    To: `openclaw-arinova-ai:${account.agentId}`,
-    SessionKey: route.sessionKey,
-    AccountId: route.accountId,
-    ChatType: chatType,
-    ConversationLabel: fromLabel,
-    SenderName: senderNameJson,
-    SenderId: peerId,
-    Provider: CHANNEL_ID,
-    Surface: CHANNEL_ID,
-    MessageSid: message.taskId,
-    Timestamp: message.timestamp,
-    OriginatingChannel: CHANNEL_ID,
-    OriginatingTo: `openclaw-arinova-ai:${account.agentId}`,
-    ReceiverId: account.accountId,
-    ReceiverName: account.accountId,
-    ArinovaConversationId: message.conversationId || peerId,
-    CommandAuthorized: true,
+  const replyTarget = `openclaw-arinova-ai:${account.agentId}`;
+  const ctxPayload = buildChannelInboundEventContext({
+    channel: CHANNEL_ID,
+    accountId: route.accountId,
+    messageId: message.taskId,
+    timestamp: message.timestamp,
+    from: `openclaw-arinova-ai:${peerId}`,
+    sender: { id: peerId, name: senderNameJson },
+    conversation: {
+      kind: chatType === "group" ? "group" : "direct",
+      id: peerId,
+      label: fromLabel,
+    },
+    route: {
+      agentId: route.agentId,
+      dmScope: route.dmScope,
+      accountId: route.accountId,
+      routeSessionKey: route.sessionKey,
+    },
+    reply: {
+      to: replyTarget,
+      originatingTo: replyTarget,
+    },
+    message: {
+      body,
+      bodyForAgent,
+      rawBody,
+      commandBody: rawBody.replace(/^!\[/, "["),
+    },
+    access: {
+      commands: { authorized: true },
+    },
+    extra: {
+      OriginatingChannel: CHANNEL_ID,
+      ReceiverId: account.accountId,
+      ReceiverName: account.accountId,
+      ArinovaConversationId: message.conversationId || peerId,
+    },
   });
 
   const persistedSessionKey = ctxPayload.SessionKey ?? route.sessionKey;
-  await core.channel.session.recordInboundSession({
-    storePath,
-    sessionKey: persistedSessionKey,
-    ctx: ctxPayload,
-    updateLastRoute: {
-      sessionKey: persistedSessionKey,
-      channel: CHANNEL_ID,
-      to: `openclaw-arinova-ai:${peerId}`,
-      accountId: route.accountId,
-    },
-    onRecordError: (err) => {
-      runtime.error?.(`openclaw-arinova-ai: failed updating session meta: ${String(err)}`);
-    },
-  });
 
   const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
     cfg: config as OpenClawConfig,
@@ -245,13 +239,19 @@ export async function handleArinovaChatInbound(params: {
     }, { once: true });
   }
 
-  await core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-    ctx: ctxPayload,
+  await core.channel.inbound.dispatch({
     cfg: config as OpenClawConfig,
-    dispatcherOptions: {
-      ...prefixOptions,
+    channel: CHANNEL_ID,
+    accountId: account.accountId,
+    route: {
+      agentId: route.agentId,
+      dmScope: route.dmScope,
+      sessionKey: route.sessionKey,
+    },
+    ctxPayload,
+    delivery: {
       deliver: async (payload) => {
-        if (aborted) return;
+        if (aborted) return { visibleReplySent: false };
         const p = payload as { text?: string; mediaUrls?: string[] };
         let text = p.text ?? "";
 
@@ -261,7 +261,7 @@ export async function handleArinovaChatInbound(params: {
           text = text.trim() ? `${text}\n\n${md}` : md;
         }
 
-        if (!text.trim()) return;
+        if (!text.trim()) return { visibleReplySent: false };
 
         if (finalText) {
           // If we're inside a GFM table (previous block ends with a table row
@@ -272,10 +272,14 @@ export async function handleArinovaChatInbound(params: {
         }
         finalText += text;
         statusSink?.({ lastOutboundAt: Date.now() });
+        return { visibleReplySent: true, content: text };
       },
       onError: (err, info) => {
         runtime.error?.(`openclaw-arinova-ai ${info.kind} reply failed: ${String(err)}`);
       },
+    },
+    dispatcherOptions: {
+      ...prefixOptions,
       onSkip: (_payload, info) => {
         if (info.reason === "silent") {
           silentReplySkipped = true;
@@ -315,6 +319,18 @@ export async function handleArinovaChatInbound(params: {
             sendChunk(delta.replace(/\r\n?/g, "\n"));
           }
         }
+      },
+    },
+    record: {
+      sessionKey: persistedSessionKey,
+      updateLastRoute: {
+        sessionKey: persistedSessionKey,
+        channel: CHANNEL_ID,
+        to: `openclaw-arinova-ai:${peerId}`,
+        accountId: route.accountId,
+      },
+      onRecordError: (err) => {
+        runtime.error?.(`openclaw-arinova-ai: failed updating session meta: ${String(err)}`);
       },
     },
   });

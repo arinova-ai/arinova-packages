@@ -1,5 +1,42 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedArinovaChatAccount } from "./accounts.js";
+
+const channelInboundMocks = vi.hoisted(() => ({
+  buildContext: vi.fn((params: Record<string, any>) => ({
+    Body: params.message.body,
+    BodyForAgent: params.message.bodyForAgent,
+    RawBody: params.message.rawBody,
+    CommandBody: params.message.commandBody,
+    From: params.from,
+    To: params.reply.to,
+    SessionKey: params.route.routeSessionKey,
+    AccountId: params.route.accountId,
+    ChatType: params.conversation.kind,
+    ConversationLabel: params.conversation.label,
+    SenderName: params.sender.name,
+    SenderId: params.sender.id,
+    Provider: params.channel,
+    Surface: params.channel,
+    MessageSid: params.messageId,
+    Timestamp: params.timestamp,
+    CommandAuthorized: params.access.commands.authorized,
+    ...params.extra,
+  })),
+  resolveRouteEnvelope: vi.fn(() => ({
+    route: {
+      agentId: "agent-1",
+      accountId: "acct-1",
+      sessionKey: "session-1",
+    },
+    buildEnvelope: ({ body }: { body: string }) => body,
+  })),
+}));
+
+vi.mock("openclaw/plugin-sdk/channel-inbound", () => ({
+  buildChannelInboundEventContext: channelInboundMocks.buildContext,
+  resolveChannelInboundRouteEnvelope: channelInboundMocks.resolveRouteEnvelope,
+}));
+
 import {
   buildEnrichedBody,
   collapseToolBlocks,
@@ -50,11 +87,12 @@ function createRuntime(options: {
 } = {}) {
   const runtimeLog = vi.fn();
   const runtimeError = vi.fn();
-  const recordInboundSession = vi.fn().mockResolvedValue(undefined);
-  const dispatchReplyWithBufferedBlockDispatcher = vi.fn(async (request: {
-    dispatcherOptions: {
-      deliver: (payload: { text?: string; mediaUrls?: string[] }) => Promise<void>;
+  const dispatch = vi.fn(async (request: {
+    delivery: {
+      deliver: (payload: { text?: string; mediaUrls?: string[] }) => Promise<unknown>;
       onError: (err: unknown, info: { kind: string }) => void;
+    };
+    dispatcherOptions: {
       onSkip?: (
         payload: { text?: string },
         info: { kind: string; reason: "empty" | "silent" | "heartbeat" },
@@ -66,7 +104,7 @@ function createRuntime(options: {
     };
   }) => {
     if (options.deliverError) {
-      request.dispatcherOptions.onError(options.deliverError, { kind: "test" });
+      request.delivery.onError(options.deliverError, { kind: "test" });
       return;
     }
     for (const payload of options.partialPayloads ?? []) {
@@ -86,7 +124,7 @@ function createRuntime(options: {
       return;
     }
     if (!options.skipDelivery) {
-      await request.dispatcherOptions.deliver({ text: options.deliverText ?? "reply" });
+      await request.delivery.deliver({ text: options.deliverText ?? "reply" });
     }
   });
 
@@ -94,23 +132,8 @@ function createRuntime(options: {
     log: runtimeLog,
     error: runtimeError,
     channel: {
-      routing: {
-        resolveAgentRoute: vi.fn(() => ({
-          agentId: "agent-1",
-          accountId: "acct-1",
-          sessionKey: "session-1",
-        })),
-      },
-      session: {
-        resolveStorePath: vi.fn(() => "/tmp/openclaw-sessions"),
-        readSessionUpdatedAt: vi.fn(() => 123),
-        recordInboundSession,
-      },
-      reply: {
-        resolveEnvelopeFormatOptions: vi.fn(() => ({})),
-        formatAgentEnvelope: vi.fn(({ body }: { body: string }) => body),
-        finalizeInboundContext: vi.fn((ctx: Record<string, unknown>) => ctx),
-        dispatchReplyWithBufferedBlockDispatcher,
+      inbound: {
+        dispatch,
       },
     },
   };
@@ -232,7 +255,7 @@ describe("handleArinovaChatInbound", () => {
     expect(sendComplete).toHaveBeenCalledWith("");
     expect(sendChunk).not.toHaveBeenCalled();
     expect(sendError).not.toHaveBeenCalled();
-    expect(core.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(core.channel.inbound.dispatch).not.toHaveBeenCalled();
   });
 
   it("drops inbound messages when direct messages are disabled", async () => {
@@ -250,8 +273,8 @@ describe("handleArinovaChatInbound", () => {
     });
 
     expect(sendComplete).toHaveBeenCalledWith("");
-    expect(core.channel.routing.resolveAgentRoute).not.toHaveBeenCalled();
-    expect(core.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(channelInboundMocks.resolveRouteEnvelope).not.toHaveBeenCalled();
+    expect(core.channel.inbound.dispatch).not.toHaveBeenCalled();
   });
 
   it("reports an error when dispatch finishes without generated content", async () => {
@@ -387,12 +410,15 @@ describe("handleArinovaChatInbound", () => {
 
     expect(sendChunk).toHaveBeenCalledWith("working");
     expect(sendComplete).toHaveBeenCalledWith("hello @Alice", { mentions: ["agent-a"] });
-    expect(core.channel.session.recordInboundSession).toHaveBeenCalledWith(
+    expect(core.channel.inbound.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionKey: "session-1",
-        updateLastRoute: expect.objectContaining({
-          accountId: "acct-1",
+        route: expect.objectContaining({ sessionKey: "session-1" }),
+        record: expect.objectContaining({
           sessionKey: "session-1",
+          updateLastRoute: expect.objectContaining({
+            accountId: "acct-1",
+            sessionKey: "session-1",
+          }),
         }),
       }),
     );
