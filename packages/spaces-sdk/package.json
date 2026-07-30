@@ -2,6 +2,16 @@
   "name": "@arinova-ai/spaces-sdk",
   "version": "0.2.0",
   "description": "Arinova Spaces SDK — OAuth PKCE login, economy, and agent chat for third-party apps",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arinova-ai/arinova-packages.git",
+    "directory": "packages/spaces-sdk"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -20,7 +30,8 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

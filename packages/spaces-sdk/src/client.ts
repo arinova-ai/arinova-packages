@@ -1,4 +1,4 @@
-import { request, ArinovaError, stripTrailingSlash, parseScopes } from "./http.js";
+import { request, ArinovaError, stripTrailingSlash, parseScopes, parseError } from "./http.js";
 import { randomString, pkceChallenge } from "./pkce.js";
 import type {
   ArinovaConfig,
@@ -27,8 +27,8 @@ const POPUP_TIMEOUT_MS = 300_000;
 
 /**
  * Browser Arinova client — OAuth-PKCE login, iframe `connect()`, and
- * user-token resource calls. Server-to-server operations (charge/award,
- * confidential token exchange) live in `@arinova-ai/spaces-sdk/server`.
+ * user-token resource calls. Confidential token exchange lives in
+ * `@arinova-ai/spaces-sdk/server`.
  */
 export class Arinova {
   readonly clientId: string;
@@ -97,6 +97,7 @@ export class Arinova {
       options.timeout ?? 30000,
       (session) => session.scopes.includes(scope),
       `scope "${scope}" was not granted`,
+      scope,
     );
   }
 
@@ -108,6 +109,7 @@ export class Arinova {
     timeout: number,
     accept?: (session: ArinovaSession) => boolean,
     timeoutMessage = "connect timeout — this origin may not be authorized to receive Arinova auth",
+    deniedScope?: string,
   ): Promise<ArinovaSession> {
     const expectedOrigin = new URL(this.authUrl).origin;
     return new Promise<ArinovaSession>((resolve, reject) => {
@@ -124,13 +126,26 @@ export class Arinova {
         // Reject anything not from the expected Arinova parent window.
         if (event.origin !== expectedOrigin || event.source !== window.parent) return;
         const data = event.data as { type?: string; payload?: Record<string, unknown> };
-        if (!data || data.type !== "arinova:auth") return;
+        if (!data) return;
+        if (data.type === "arinova:scope-denied") {
+          const denied = (data.payload ?? {}) as { scope?: string; reason?: string };
+          if (!accept || !denied.scope || denied.scope === deniedScope) {
+            finish(() => reject(new ArinovaError(
+              denied.reason ?? `scope "${denied.scope ?? "requested"}" was denied`,
+              0,
+              "scope_denied",
+            )));
+          }
+          return;
+        }
+        if (data.type !== "arinova:auth") return;
         const p = (data.payload ?? {}) as {
           user?: ArinovaUser;
           accessToken?: string;
           agents?: AgentInfo[];
           scope?: string;
           expiresAt?: number;
+          spaceId?: string;
         };
         if (!p.accessToken) {
           finish(() => reject(new ArinovaError("Arinova did not issue an access token", 0)));
@@ -143,10 +158,12 @@ export class Arinova {
           expiresAt: p.expiresAt ?? Date.now() + 7 * 24 * 3600 * 1000,
           scopes: parseScopes(p.scope),
           agents: p.agents ?? [],
+          spaceId: p.spaceId,
         };
-        // Keep waiting until a message satisfies `accept` (if provided).
-        if (accept && !accept(session)) return;
+        // Any valid auth refreshes the current session, even while a scope
+        // request is waiting for a wider token.
         this._session = session;
+        if (accept && !accept(session)) return;
         finish(() => resolve(session));
       };
       window.addEventListener("message", onMessage);
@@ -301,7 +318,7 @@ export class Arinova {
 
   // ── economy namespace (user OAuth token) ────────────────────────
   readonly economy = {
-    /** The user's coin balance. */
+    /** The user's coin balance. Requires the `economy` scope. */
     balance: (): Promise<BalanceResponse> => this.apiGet<BalanceResponse>("/api/v1/economy/balance"),
     /** Charge coins from the user's balance. Requires the `economy` scope. */
     purchase: (params: PurchaseParams): Promise<PurchaseResponse> =>
@@ -332,20 +349,20 @@ export class Arinova {
       body: JSON.stringify(params),
     });
     if (!res.ok || !res.body) {
-      const body = (await res.json().catch(() => ({}))) as Record<string, string>;
-      throw new ArinovaError(
-        body.error_description ?? body.error ?? `Agent chat stream failed (${res.status})`,
-        res.status,
-        body.error,
-      );
+      const body = await res.json().catch(() => undefined);
+      const error = parseError(body, `Agent chat stream failed (${res.status})`);
+      throw new ArinovaError(error.message, res.status, error.code);
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     while (true) {
       const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+      if (done) {
+        buffer += decoder.decode();
+      } else {
+        buffer += decoder.decode(value, { stream: true });
+      }
       let nl: number;
       while ((nl = buffer.indexOf("\n")) >= 0) {
         const line = buffer.slice(0, nl).trim();
@@ -358,6 +375,20 @@ export class Arinova {
         } catch {
           /* ignore malformed frame */
         }
+      }
+      if (done) {
+        const line = buffer.trim();
+        if (line.startsWith("data:")) {
+          const payload = line.slice(5).trim();
+          if (payload) {
+            try {
+              yield JSON.parse(payload) as AgentChatEvent;
+            } catch {
+              /* ignore malformed final frame */
+            }
+          }
+        }
+        break;
       }
     }
   }

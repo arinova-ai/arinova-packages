@@ -15,7 +15,35 @@ export interface RequestInitWithToken extends RequestInit {
   token?: string;
 }
 
-/** fetch wrapper: JSON in/out, Bearer auth, `{error, error_description}` parsing. */
+type ErrorBody = {
+  error?: string | {
+    code?: string;
+    message?: string;
+    details?: unknown;
+  };
+  error_description?: string;
+};
+
+/** Parse both API-v1 error envelopes and OAuth's legacy flat errors. */
+export function parseError(body: unknown, fallback: string): { message: string; code?: string } {
+  if (!body || typeof body !== "object") return { message: fallback };
+  const value = body as ErrorBody;
+  if (value.error && typeof value.error === "object") {
+    return {
+      message: typeof value.error.message === "string" ? value.error.message : fallback,
+      code: typeof value.error.code === "string" ? value.error.code : undefined,
+    };
+  }
+  return {
+    message:
+      (typeof value.error_description === "string" && value.error_description)
+      || (typeof value.error === "string" && value.error)
+      || fallback,
+    code: typeof value.error === "string" ? value.error : undefined,
+  };
+}
+
+/** fetch wrapper: JSON in/out, Bearer auth, API-v1 and OAuth error parsing. */
 export async function request<T>(url: string, init: RequestInitWithToken = {}): Promise<T> {
   const { token, headers, ...rest } = init;
   const res = await fetch(url, {
@@ -27,12 +55,9 @@ export async function request<T>(url: string, init: RequestInitWithToken = {}): 
     },
   });
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as Record<string, string>;
-    throw new ArinovaError(
-      body.error_description ?? body.error ?? `Request failed (${res.status})`,
-      res.status,
-      body.error,
-    );
+    const body = await res.json().catch(() => undefined);
+    const error = parseError(body, `Request failed (${res.status})`);
+    throw new ArinovaError(error.message, res.status, error.code);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

@@ -5,8 +5,8 @@
  * user's profile/agents, economy (balance/purchase/transactions), and agent
  * chat — all with the user's OAuth token.
  *
- * Secret-bearing, server-to-server operations (economy charge/award,
- * confidential token exchange) live in `@arinova-ai/spaces-sdk/server` and are
+ * Secret-bearing confidential token exchange lives in
+ * `@arinova-ai/spaces-sdk/server` and is
  * intentionally NOT exported here so a client secret can never reach a browser.
  */
 export { Arinova } from "./client.js";

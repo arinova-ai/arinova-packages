@@ -61,14 +61,13 @@ arinova space create --name "My Game" --url "https://mygame.example.com"
 
 ### Server side (secrets — never in the browser)
 
-Server-to-server economy and confidential token exchange live in a **separate entry** so a `clientSecret` can't reach a browser bundle:
+Confidential token exchange lives in a **separate entry** so a `clientSecret` can't reach a browser bundle:
 
 ```js
 import { ArinovaServer } from "@arinova-ai/spaces-sdk/server";
 
 const server = new ArinovaServer({ clientId: "my-app", clientSecret: process.env.ARINOVA_SECRET });
-await server.economy.charge({ userId, amount: 50, description: "Boss reward" });
-await server.economy.award({ userId, amount: 10 });   // -> { transactionId, newBalance, platformFee }
+const session = await server.exchangeCode({ code, redirectUri });
 ```
 
 ## API reference
@@ -96,8 +95,8 @@ await server.economy.award({ userId, amount: 10 });   // -> { transactionId, new
 |---|---|---|
 | `user.profile()` | `profile` | `ArinovaUser` |
 | `user.agents()` | `agents` | `AgentInfo[]` |
-| `economy.balance()` | — | `{ balance }` |
-| `economy.purchase({ productId?, amount, description? })` | `economy` | `{ transactionId, newBalance }` |
+| `economy.balance()` | `economy` | `{ balance }` |
+| `economy.purchase({ spaceId, productId?, amount, description?, idempotencyKey? })` | `economy` | `{ transactionId, newBalance, spaceId, creatorShare, idempotentReplay }` |
 | `economy.transactions({ limit?, offset? })` | `economy` | `{ transactions, total, limit, offset }` |
 | `agent.chat({ agentId, prompt?\|messages?, systemPrompt?, context? })` | `agents` | `{ response, agentId }` |
 | `agent.chatStream(params)` | `agents` | `AsyncGenerator<AgentChatEvent>` |
@@ -111,7 +110,7 @@ for await (const ev of arinova.agent.chatStream({ agentId, prompt: "Hi" })) {
 
 ### `new ArinovaServer(config)` — `@arinova-ai/spaces-sdk/server`
 
-`{ clientId, clientSecret, apiUrl? }`. Methods: `economy.charge({ userId, amount, description? })`, `economy.award(...)` (`+platformFee`), and `exchangeCode({ code, redirectUri, codeVerifier? })` (confidential token exchange). Authenticated with `x-client-id` + `x-app-secret`.
+`{ clientId, clientSecret, apiUrl? }`. `exchangeCode({ code, redirectUri, codeVerifier? })` performs a confidential authorization-code exchange. App-secret wallet mutation endpoints have been retired.
 
 ## Scopes
 
@@ -128,15 +127,23 @@ new Arinova({ clientId: "my-app", scopes: ["profile", "agents", "economy"] });
 
 ## Embedding
 
-For `connect()` iframe mode to receive auth, your Space's origin must be authorized by Arinova to receive the `arinova:auth` message. This is currently gated server-side (allow-list). If `connect()` times out inside an iframe with *“this origin may not be authorized”*, your origin isn't allow-listed yet — use standalone `login()` in the meantime, or contact Arinova to authorize the Space origin.
+Packaged Spaces run in a sandboxed opaque-origin iframe. The host injects a one-time `bridgeToken` into the runtime URL and binds the iframe through an authenticated ready handshake before it sends `arinova:auth`; the SDK also verifies that auth comes from the expected parent window and Arinova host.
 
-**Requesting economy inside a Space.** Embedded sessions start with `profile agents` (no coin-spending). To let a Space charge coins, ask for the scope — Arinova shows the user a consent prompt and, on approval, re-issues the session with `economy`:
+**Requesting permissions inside a Space.** Embedded sessions start with only `profile`. Ask separately for `agents` or `economy`; Arinova shows the user a consent prompt and, on approval, re-issues the session with the requested scope:
 
 ```js
-await arinova.connect();                 // embedded session (profile + agents)
+const session = await arinova.connect(); // embedded session (profile)
 await arinova.requestScope("economy");   // prompts the user; resolves with an economy-scoped session
-await arinova.economy.purchase({ amount: 50 });
+await arinova.economy.purchase({
+  spaceId: session.spaceId,
+  amount: 50,
+  idempotencyKey: crypto.randomUUID(),
+});
 ```
+
+`requestScope()` rejects immediately when the host denies the request. If its
+timeout expires, a later approval cannot resolve that already-rejected call;
+call `requestScope()` again to observe a subsequent approval.
 
 ## PKCE flow
 

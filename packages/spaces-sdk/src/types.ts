@@ -60,6 +60,8 @@ export interface ArinovaSession {
   expiresAt: number;
   scopes: string[];
   agents: AgentInfo[];
+  /** Present for sessions issued to an embedded Space. */
+  spaceId?: string;
 }
 
 // ── Auth options ─────────────────────────────────────────────────
@@ -89,13 +91,20 @@ export interface BalanceResponse {
   balance: number;
 }
 export interface PurchaseParams {
+  /** Embedded Space ID. Must match the space-bound OAuth token. */
+  spaceId: string;
   productId?: string;
   amount: number;
   description?: string;
+  /** Recommended replay-protection key, unique within the Space and user. */
+  idempotencyKey?: string;
 }
 export interface PurchaseResponse {
   transactionId: string;
   newBalance: number;
+  spaceId: string;
+  creatorShare: number;
+  idempotentReplay: boolean;
 }
 export interface TransactionsParams {
   limit?: number;
@@ -106,7 +115,7 @@ export interface TransactionRecord {
   type: string;
   amount: number;
   description: string | null;
-  createdAt: string;
+  createdAt: string | null;
 }
 export interface TransactionsResponse {
   transactions: TransactionRecord[];
@@ -114,27 +123,6 @@ export interface TransactionsResponse {
   limit: number;
   offset: number;
 }
-/** Server-to-server: charge coins from a user (requires clientId + clientSecret). */
-export interface ChargeParams {
-  userId: string;
-  amount: number;
-  description?: string;
-}
-export interface ChargeResponse {
-  transactionId: string;
-  newBalance: number;
-}
-export interface AwardParams {
-  userId: string;
-  amount: number;
-  description?: string;
-}
-export interface AwardResponse {
-  transactionId: string;
-  newBalance: number;
-  platformFee: number;
-}
-
 // ── Agent chat ───────────────────────────────────────────────────
 export interface ChatMessage {
   role: "user" | "assistant" | "system";

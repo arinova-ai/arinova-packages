@@ -1,10 +1,6 @@
 import { request, stripTrailingSlash, parseScopes } from "./http.js";
 import type {
   ArinovaServerConfig,
-  ChargeParams,
-  ChargeResponse,
-  AwardParams,
-  AwardResponse,
   TokenResponse,
   ArinovaSession,
 } from "./types.js";
@@ -13,8 +9,7 @@ const DEFAULT_API_URL = "https://api.chat.arinova.ai";
 
 /**
  * Server-side Arinova client — secret-bearing operations that must NEVER run in
- * a browser: server-to-server economy charge/award (authenticated with
- * `x-client-id` + `x-app-secret`) and confidential OAuth token exchange.
+ * a browser: confidential OAuth token exchange.
  *
  * Import from `@arinova-ai/spaces-sdk/server` only (Node / your backend).
  */
@@ -31,27 +26,6 @@ export class ArinovaServer {
     this.clientSecret = config.clientSecret;
     this.apiUrl = stripTrailingSlash(config.apiUrl ?? DEFAULT_API_URL);
   }
-
-  private appHeaders(): Record<string, string> {
-    return { "x-client-id": this.clientId, "x-app-secret": this.clientSecret };
-  }
-
-  readonly economy = {
-    /** Charge coins from a user's balance (server-to-server). */
-    charge: (params: ChargeParams): Promise<ChargeResponse> =>
-      request<ChargeResponse>(`${this.apiUrl}/api/v1/economy/charge`, {
-        method: "POST",
-        headers: this.appHeaders(),
-        body: JSON.stringify(params),
-      }),
-    /** Award coins to a user (server-to-server). Response includes `platformFee`. */
-    award: (params: AwardParams): Promise<AwardResponse> =>
-      request<AwardResponse>(`${this.apiUrl}/api/v1/economy/award`, {
-        method: "POST",
-        headers: this.appHeaders(),
-        body: JSON.stringify(params),
-      }),
-  };
 
   /**
    * Confidential-client authorization-code exchange (server-side).
