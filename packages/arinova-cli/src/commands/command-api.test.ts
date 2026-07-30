@@ -114,6 +114,10 @@ const { registerMemoCommands, registerWikiCommands } = await import("./wiki.js")
 const { registerUserCommands } = await import("./user.js");
 const { registerSearchCommands } = await import("./search.js");
 const { registerResolveCommands } = await import("./resolve.js");
+const { registerSkill } = await import("./skill.js");
+const { registerSpace } = await import("./space.js");
+const { registerAgentCommands } = await import("./agent.js");
+const { registerSticker } = await import("./sticker.js");
 
 const tempDirs: string[] = [];
 
@@ -628,5 +632,95 @@ describe("CLI command API request shapes", () => {
       conversationId: "conv-1", content: "see abcdef1", agentId: undefined,
       messageId: undefined, maxTokens: undefined,
     });
+  });
+
+  it("skill catalog and package lifecycle commands use v1 casing and confirmation", async () => {
+    const root = new Command().exitOverride().name("arinova");
+    registerSkill(root);
+    await root.parseAsync(["node", "arinova", "skill", "prompt", "image/edit"]);
+    await root.parseAsync(["node", "arinova", "skill", "suggestion", "restore", "suggestion/a"]);
+    await root.parseAsync([
+      "node", "arinova", "skill-package", "install",
+      "--version", "version/a", "--agent", "agent-1", "--idempotency-key", "install-1",
+      "--entry-keys", "one,two",
+    ]);
+    await root.parseAsync([
+      "node", "arinova", "skill-package", "update", "install/a",
+      "--target-version", "version-2", "--idempotency-key", "update-1", "--confirm",
+    ]);
+
+    expect(mocks.get).toHaveBeenCalledWith("/api/v1/skills/image%2Fedit/prompt");
+    expect(mocks.patch).toHaveBeenCalledWith("/api/v1/skills/suggestions/suggestion%2Fa", {
+      status: "accepted",
+    });
+    expect(mocks.post).toHaveBeenNthCalledWith(1, "/api/v1/skill-package-versions/version%2Fa/install", {
+      agentId: "agent-1",
+      entryKeys: ["one", "two"],
+      activationMode: undefined,
+      idempotencyKey: "install-1",
+    });
+    expect(mocks.post).toHaveBeenNthCalledWith(2, "/api/v1/agent-skill-packages/install%2Fa/update", {
+      targetVersionId: "version-2",
+      entryKeys: undefined,
+      activationMode: undefined,
+      confirm: true,
+      idempotencyKey: "update-1",
+    });
+  });
+
+  it("agent package-resource query parses arguments and encodes the agent id", async () => {
+    const program = createProgram(registerAgentCommands);
+    await program.parseAsync([
+      "node", "arinova", "agent", "skill-resource-query",
+      "--id", "agent/a", "--tool-name", "read_file", "--request-id", "req-1",
+      "--arguments", '{"path":"README.md"}',
+    ]);
+    expect(mocks.apiCall).toHaveBeenCalledWith({
+      method: "POST",
+      url: "https://api.example.test/api/v1/agents/agent%2Fa/skill-package-resources/query",
+      token: "ari_cli_token",
+      body: {
+        toolName: "read_file",
+        requestId: "req-1",
+        arguments: { path: "README.md" },
+        conversationId: undefined,
+      },
+    });
+  });
+
+  it("space generic/owned, storage, and version routes remain distinct", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "arinova-cli-space-"));
+    tempDirs.push(dir);
+    const bundle = join(dir, "bundle.zip");
+    await writeFile(bundle, "zip bytes");
+    const program = createProgram(registerSpace);
+
+    await program.parseAsync(["node", "arinova", "space", "list", "--search", "game"]);
+    await program.parseAsync(["node", "arinova", "space", "owned"]);
+    await program.parseAsync(["node", "arinova", "space", "storage", "set", "space/a", "save/1", "--value", '{"score":9}']);
+    await program.parseAsync(["node", "arinova", "space", "version", "create", "space/a", "--file", bundle]);
+    await program.parseAsync(["node", "arinova", "space", "version", "publish", "space/a", "version/a"]);
+
+    expect(mocks.get).toHaveBeenNthCalledWith(1, "/api/v1/spaces?search=game");
+    expect(mocks.get).toHaveBeenNthCalledWith(2, "/api/v1/spaces/owned");
+    expect(mocks.put).toHaveBeenCalledWith("/api/v1/spaces/space%2Fa/storage/save%2F1", {
+      value: { score: 9 },
+    });
+    expect(mocks.uploadMultipart).toHaveBeenCalledWith(
+      "/api/v1/spaces/space%2Fa/versions",
+      { bundle: expect.any(Blob) },
+    );
+    expect(mocks.post).toHaveBeenCalledWith(
+      "/api/v1/spaces/space%2Fa/versions/version%2Fa/publish",
+    );
+  });
+
+  it("sticker publish shortcuts fail closed instead of bypassing review", async () => {
+    const program = createProgram(registerSticker);
+    await program.parseAsync(["node", "arinova", "sticker", "publish", "pack-1"]);
+    await program.parseAsync(["node", "arinova", "sticker", "unpublish", "pack-1"]);
+    expect(mocks.printError).toHaveBeenCalledTimes(2);
+    expect(mocks.patch).not.toHaveBeenCalled();
+    expect(mocks.post).not.toHaveBeenCalled();
   });
 });

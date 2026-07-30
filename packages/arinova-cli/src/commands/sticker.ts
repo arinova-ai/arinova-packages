@@ -1,5 +1,13 @@
 import { Command } from "commander";
-import { get, post, patch, del, upload, encodePathSegment } from "../client.js";
+import {
+  del,
+  encodePathSegment,
+  get,
+  patch,
+  post,
+  UnsupportedCommandError,
+  upload,
+} from "../client.js";
 import { printResult, printError, printSuccess, table } from "../output.js";
 
 export function registerSticker(program: Command): void {
@@ -118,8 +126,9 @@ export function registerSticker(program: Command): void {
     .description("Publish a sticker pack")
     .action(async (id: string) => {
       try {
-        const data = await patch(`/api/v1/creator/stickers/${encodePathSegment(id)}`, { status: "active" });
-        printResult(data);
+        throw new UnsupportedCommandError(
+          `Sticker pack ${id} must use submit-review; direct publish is not supported.`,
+        );
       } catch (err) {
         printError(err);
       }
@@ -130,8 +139,9 @@ export function registerSticker(program: Command): void {
     .description("Unpublish a sticker pack")
     .action(async (id: string) => {
       try {
-        const data = await patch(`/api/v1/creator/stickers/${encodePathSegment(id)}`, { status: "draft" });
-        printResult(data);
+        throw new UnsupportedCommandError(
+          `Sticker pack ${id} has no supported direct unpublish contract.`,
+        );
       } catch (err) {
         printError(err);
       }
