@@ -40,6 +40,9 @@ import { registerCalendarCommands } from "./commands/calendar.js";
 import { registerDocCommands } from "./commands/doc.js";
 import { registerFormCommands } from "./commands/form.js";
 import { registerMindmapCommands } from "./commands/mindmap.js";
+import { registerSlideCommands } from "./commands/slide.js";
+import { registerWorkbookCommands } from "./commands/workbook.js";
+import { registerImageCommands } from "./commands/image.js";
 
 const program = new Command();
 
@@ -89,6 +92,9 @@ registerCalendarCommands(program);
 registerDocCommands(program);
 registerFormCommands(program);
 registerMindmapCommands(program);
+registerSlideCommands(program);
+registerWorkbookCommands(program);
+registerImageCommands(program);
 
 // Creator commands (config-based auth)
 registerAuth(program);

@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   clientPatch: vi.fn(),
   clientPost: vi.fn(),
   clientPut: vi.fn(),
+  clientRequest: vi.fn(),
   getOpts: vi.fn(() => ({
     token: "ari_cli_token",
     apiUrl: "https://api.example.test",
@@ -42,8 +43,10 @@ vi.mock("../client.js", () => ({
     get(path: string) {
       return mocks.clientGet(path);
     }
-    post(path: string, body?: unknown) {
-      return mocks.clientPost(path, body);
+    post(path: string, body?: unknown, headers?: Record<string, string>) {
+      return headers === undefined
+        ? mocks.clientPost(path, body)
+        : mocks.clientPost(path, body, headers);
     }
     put(path: string, body?: unknown) {
       return mocks.clientPut(path, body);
@@ -59,6 +62,9 @@ vi.mock("../client.js", () => ({
     }
     download(path: string, destination: string, force?: boolean) {
       return mocks.clientDownload(path, destination, force);
+    }
+    request(request: unknown) {
+      return mocks.clientRequest(request);
     }
   },
   buildQuery: (values: Record<string, unknown>) => {
@@ -122,6 +128,9 @@ const { registerCalendarCommands } = await import("./calendar.js");
 const { registerDocCommands } = await import("./doc.js");
 const { registerFormCommands } = await import("./form.js");
 const { registerMindmapCommands } = await import("./mindmap.js");
+const { registerSlideCommands } = await import("./slide.js");
+const { registerWorkbookCommands } = await import("./workbook.js");
+const { registerImageCommands } = await import("./image.js");
 
 const tempDirs: string[] = [];
 
@@ -144,6 +153,7 @@ describe("CLI command API request shapes", () => {
     mocks.clientPatch.mockResolvedValue({ ok: true });
     mocks.clientPost.mockResolvedValue({ ok: true });
     mocks.clientPut.mockResolvedValue({ ok: true });
+    mocks.clientRequest.mockResolvedValue({ ok: true });
     mocks.del.mockResolvedValue({});
     mocks.get.mockResolvedValue([]);
     mocks.patch.mockResolvedValue({ ok: true });
@@ -814,6 +824,108 @@ describe("CLI command API request shapes", () => {
       3,
       "/api/v1/mindmaps/map%2Fa/versions/version%2Fa/copy",
       { idempotencyKey: "copy-1", correlationId: undefined },
+    );
+  });
+
+  it("slides enforce expectedVersion and expose export binary download", async () => {
+    const program = createProgram(registerSlideCommands);
+    await program.parseAsync([
+      "node", "arinova", "slide", "item", "update", "deck/a", "slide/a",
+      "--expected-version", "3", "--content", '{"type":"slide","children":[]}',
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "slide", "export", "start", "deck/a",
+      "--save-to-space-id", "space-1",
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "slide", "export", "download", "deck/a", "job/a",
+      "--output", "/tmp/deck.pdf", "--force",
+    ]);
+    expect(mocks.patch).toHaveBeenCalledWith(
+      "/api/v1/slides/decks/deck%2Fa/slides/slide%2Fa",
+      expect.objectContaining({ expectedVersion: 3, content: { type: "slide", children: [] } }),
+    );
+    expect(mocks.post).toHaveBeenCalledWith("/api/v1/slides/decks/deck%2Fa/export", {
+      format: "pdf", saveToSpaceId: "space-1",
+    });
+    expect(mocks.clientDownload).toHaveBeenCalledWith(
+      "/api/v1/slides/decks/deck%2Fa/export/job%2Fa/download",
+      "/tmp/deck.pdf",
+      true,
+    );
+  });
+
+  it("workbook import/export and version routes use official contracts", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "arinova-cli-workbook-"));
+    tempDirs.push(dir);
+    const input = join(dir, "book.xlsx");
+    await writeFile(input, "xlsx");
+    const program = createProgram(registerWorkbookCommands);
+    await program.parseAsync([
+      "node", "arinova", "workbook", "import", "create",
+      "--file-id", "file-1", "--space-id", "space-1",
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "workbook", "import", "into", "book/a",
+      "--file", input, "--base-version", "4",
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "workbook", "export", "direct", "book/a",
+      "--format", "csv", "--sheet-id", "sheet/a", "--output", "/tmp/book.csv",
+    ]);
+    expect(mocks.post).toHaveBeenCalledWith("/api/v1/workbooks/import", {
+      fileId: "file-1", spaceId: "space-1",
+    });
+    expect(mocks.clientUpload).toHaveBeenCalledWith(
+      "/api/v1/workbooks/book%2Fa/import", expect.any(FormData), undefined,
+    );
+    expect(mocks.clientDownload).toHaveBeenCalledWith(
+      "/api/v1/workbooks/book%2Fa/export?format=csv&sheetId=sheet%2Fa",
+      "/tmp/book.csv",
+      undefined,
+    );
+  });
+
+  it("image upload, revision concurrency, and SSRF-safe proxy preserve headers and paths", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "arinova-cli-image-"));
+    tempDirs.push(dir);
+    const input = join(dir, "image.png");
+    await writeFile(input, "png");
+    const program = createProgram(registerImageCommands);
+    await program.parseAsync([
+      "node", "arinova", "image", "asset", "create",
+      "--file", input, "--role", "embedded", "--idempotency-key", "upload-1",
+      "--document-type", "slide", "--document-id", "doc-1",
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "image", "project", "commit-revision", "project/a",
+      "--source-version-id", "version-1", "--preview-image-asset-id", "asset-1",
+      "--document", '{"schemaVersion":1,"canvas":{"width":1,"height":1},"elements":[]}',
+      "--idempotency-key", "revision-1", "--expected-revision", "7",
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "external-image", "fetch",
+      "--url", "https://images.example/a b.png", "--output", "/tmp/external.png",
+    ]);
+    expect(mocks.clientRequest).toHaveBeenCalledWith(expect.objectContaining({
+      method: "POST",
+      path: "/api/v1/image-assets",
+      form: expect.any(FormData),
+      headers: { "Idempotency-Key": "upload-1" },
+    }));
+    expect(mocks.clientPost).toHaveBeenCalledWith(
+      "/api/v1/image-projects/project%2Fa/revisions",
+      expect.objectContaining({
+        sourceVersionId: "version-1",
+        previewImageAssetId: "asset-1",
+        idempotencyKey: "revision-1",
+      }),
+      { "If-Match": '"7"' },
+    );
+    expect(mocks.clientDownload).toHaveBeenCalledWith(
+      "/api/v1/external-images/content?url=https%3A%2F%2Fimages.example%2Fa+b.png",
+      "/tmp/external.png",
+      undefined,
     );
   });
 });
