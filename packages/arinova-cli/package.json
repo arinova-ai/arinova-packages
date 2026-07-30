@@ -2,6 +2,7 @@
   "name": "@arinova-ai/cli",
   "version": "0.0.27",
   "description": "Arinova CLI — manage messages, notes, kanban, memory, creator tools, and more",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "arinova": "dist/index.js"
