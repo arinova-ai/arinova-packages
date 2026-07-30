@@ -341,7 +341,7 @@ export async function handleArinovaChatInbound(params: {
   // Upstream can intentionally suppress a stale foreground delivery, or skip
   // an exact NO_REPLY final under the silent-reply policy. Both are successful
   // quiet outcomes, not generation failures.
-  if (deliverySuppressed || silentReplySkipped) {
+  if ((deliverySuppressed || silentReplySkipped) && !finalText.trim()) {
     completionSent = true;
     sendComplete("");
     return;
