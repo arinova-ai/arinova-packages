@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { Command } from "commander";
 import { getOpts, apiCall, output } from "../api.js";
+import { ApiClient } from "../client.js";
 
 export function registerPainterCommands(program: Command): void {
   const painter = program.command("painter").description("Painter Hub — AI art style marketplace");
@@ -73,14 +74,13 @@ export function registerPainterCommands(program: Command): void {
       const form = new FormData();
       form.append("file", blob, basename(opts.file));
       if (opts.caption) form.append("caption", opts.caption);
-      const res = await fetch(`${apiUrl}/api/painter/albums/${opts.id}/images`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: form,
-      });
-      const text = await res.text();
-      if (!res.ok) { console.error(`Error ${res.status}: ${text.slice(0, 500)}`); process.exit(1); }
-      try { output(JSON.parse(text)); } catch { console.log(text); }
+      const client = new ApiClient({ endpoint: apiUrl, token });
+      output(
+        await client.upload(
+          `/api/painter/albums/${encodeURIComponent(opts.id)}/images`,
+          form,
+        ),
+      );
     });
 
   painter.command("set-prompt")

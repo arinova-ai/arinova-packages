@@ -1,19 +1,20 @@
 import { Command } from "commander";
-import { get } from "../client.js";
+import { get, UnsupportedCommandError } from "../client.js";
 import { printResult, printError, table } from "../output.js";
 
 const VALID_TYPES = ["theme", "expert", "sticker", "lounge", "community", "space"] as const;
 type ListType = (typeof VALID_TYPES)[number];
 
 interface TypeConfig {
-  endpoint: string;
+  endpoint?: string;
+  unsupported?: string;
   extractKey: string;
   columns: { key: string; label: string }[];
 }
 
 const TYPE_MAP: Record<ListType, TypeConfig> = {
   expert: {
-    endpoint: "/api/v1/creator/agents",
+    unsupported: "Expert listing has no current public v1 contract.",
     extractKey: "listings",
     columns: [
       { key: "id", label: "ID" },
@@ -52,7 +53,7 @@ const TYPE_MAP: Record<ListType, TypeConfig> = {
     ],
   },
   community: {
-    endpoint: "/api/v1/creator/community",
+    endpoint: "/api/v1/communities",
     extractKey: "communities",
     columns: [
       { key: "id", label: "ID" },
@@ -62,7 +63,7 @@ const TYPE_MAP: Record<ListType, TypeConfig> = {
     ],
   },
   lounge: {
-    endpoint: "/api/v1/creator/community?type=lounge",
+    unsupported: "Lounge listing has no current public v1 contract.",
     extractKey: "communities",
     columns: [
       { key: "id", label: "ID" },
@@ -86,6 +87,12 @@ export function registerList(program: Command): void {
 
       const config = TYPE_MAP[t];
       try {
+        if (config.unsupported) {
+          throw new UnsupportedCommandError(config.unsupported);
+        }
+        if (!config.endpoint) {
+          throw new UnsupportedCommandError(`No endpoint configured for ${t}.`);
+        }
         const data = await get(config.endpoint);
         const items =
           (data as Record<string, unknown>)[config.extractKey] ??

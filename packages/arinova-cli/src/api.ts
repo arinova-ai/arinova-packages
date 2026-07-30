@@ -1,16 +1,21 @@
 import type { Command } from "commander";
 import { resolveApiKey, getEndpoint } from "./config.js";
+import { ApiClient, type HttpMethod } from "./client.js";
 
-export function getOpts(cmd: Command): { token: string; apiUrl: string; profileName: string } {
+export function getOpts(cmd: Command): {
+  token: string;
+  apiUrl: string;
+  profileName: string;
+} {
   const opts = cmd.optsWithGlobals();
-
   const { apiKey, profileName } = resolveApiKey({
     token: opts.token as string | undefined,
     profile: opts.profile as string | undefined,
   });
-
-  const apiUrl = (opts.apiUrl as string) ?? getEndpoint();
-
+  const apiUrl = ((opts.apiUrl as string | undefined) ?? getEndpoint()).replace(
+    /\/+$/,
+    "",
+  );
   return { token: apiKey, apiUrl, profileName };
 }
 
@@ -19,33 +24,21 @@ export async function apiCall(opts: {
   url: string;
   token: string;
   body?: unknown;
+  headers?: Record<string, string>;
 }): Promise<unknown> {
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${opts.token}`,
-  };
-  const init: RequestInit = { method: opts.method, headers };
-
-  if (opts.body !== undefined) {
-    headers["Content-Type"] = "application/json";
-    init.body = JSON.stringify(opts.body);
-  }
-
-  const res = await fetch(opts.url, init);
-  const text = await res.text();
-
-  if (!res.ok) {
-    console.error(`Error ${res.status}: ${text.slice(0, 500)}`);
-    process.exit(1);
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
+  const parsed = new URL(opts.url);
+  const client = new ApiClient({
+    endpoint: parsed.origin,
+    token: opts.token,
+  });
+  return client.request({
+    method: opts.method as HttpMethod,
+    path: `${parsed.pathname}${parsed.search}`,
+    body: opts.body,
+    headers: opts.headers,
+  });
 }
 
 export function output(data: unknown): void {
-  const json = JSON.stringify(data, null, 2);
-  process.stdout.write(json + "\n");
+  process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
 }

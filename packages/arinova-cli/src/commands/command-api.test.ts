@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   apiCall: vi.fn(),
+  clientUpload: vi.fn(),
   getOpts: vi.fn(() => ({
     token: "ari_cli_token",
     apiUrl: "https://api.example.test",
@@ -16,9 +17,11 @@ const mocks = vi.hoisted(() => ({
   output: vi.fn(),
   patch: vi.fn(),
   post: vi.fn(),
+  put: vi.fn(),
   printError: vi.fn(),
   printResult: vi.fn(),
   printSuccess: vi.fn(),
+  printWarning: vi.fn(),
   uploadMultipart: vi.fn(),
 }));
 
@@ -29,10 +32,20 @@ vi.mock("../api.js", () => ({
 }));
 
 vi.mock("../client.js", () => ({
+  ApiClient: class ApiClient {
+    upload(path: string, form: FormData, method?: string) {
+      return mocks.clientUpload(path, form, method);
+    }
+  },
+  UnsupportedCommandError: class UnsupportedCommandError extends Error {
+    code = "UNSUPPORTED_COMMAND";
+  },
   del: mocks.del,
+  encodePathSegment: (value: string) => encodeURIComponent(value),
   get: mocks.get,
   patch: mocks.patch,
   post: mocks.post,
+  put: mocks.put,
   uploadMultipart: mocks.uploadMultipart,
 }));
 
@@ -40,6 +53,7 @@ vi.mock("../output.js", () => ({
   printError: mocks.printError,
   printResult: mocks.printResult,
   printSuccess: mocks.printSuccess,
+  printWarning: mocks.printWarning,
   table: vi.fn(),
 }));
 
@@ -55,10 +69,13 @@ vi.mock("../config.js", () => ({
 
 const { registerFileCommands } = await import("./file.js");
 const { registerCommunity } = await import("./community.js");
+const { registerConversation } = await import("./conversation.js");
 const { registerExpert } = await import("./expert.js");
 const { registerKanbanCommands } = await import("./kanban.js");
 const { registerPainterCommands } = await import("./painter.js");
 const { registerTheme } = await import("./theme.js");
+const { registerMemoCommands, registerWikiCommands } = await import("./wiki.js");
+const { registerUserCommands } = await import("./user.js");
 
 const tempDirs: string[] = [];
 
@@ -74,10 +91,12 @@ describe("CLI command API request shapes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.apiCall.mockResolvedValue([]);
+    mocks.clientUpload.mockResolvedValue({ fileId: "file-1" });
     mocks.del.mockResolvedValue({});
     mocks.get.mockResolvedValue([]);
     mocks.patch.mockResolvedValue({ ok: true });
     mocks.post.mockResolvedValue({ ok: true });
+    mocks.put.mockResolvedValue({ ok: true });
     mocks.uploadMultipart.mockResolvedValue({ ok: true });
   });
 
@@ -205,51 +224,139 @@ describe("CLI command API request shapes", () => {
     });
   });
 
-  it("expert create sends creator agent request body and maps errors", async () => {
+  it("expert create fails fast without calling the removed API", async () => {
     const program = createProgram(registerExpert);
 
-    await program.parseAsync([
-      "node",
-      "arinova",
-      "expert",
-      "create",
-      "--name",
-      "Support Bot",
-      "--description",
-      "Answers tickets",
-      "--category",
-      "support",
-      "--model",
-      "gpt-4o",
-      "--system-prompt",
-      "Be concise",
-    ]);
-
-    expect(mocks.post).toHaveBeenCalledWith("/api/v1/creator/agents/create", {
-      agent_name: "Support Bot",
-      description: "Answers tickets",
-      category: "support",
-      model: "gpt-4o",
-      system_prompt: "Be concise",
-    });
-
-    const error = new Error("create failed");
-    mocks.post.mockRejectedValueOnce(error);
-    await program.parseAsync(["node", "arinova", "expert", "create", "--name", "Broken"]);
-    expect(mocks.printError).toHaveBeenCalledWith(error);
+    await expect(
+      program.parseAsync([
+        "node",
+        "arinova",
+        "expert",
+        "create",
+        "--name",
+        "Support Bot",
+      ]),
+    ).rejects.toMatchObject({ code: "UNSUPPORTED_COMMAND" });
+    expect(mocks.post).not.toHaveBeenCalled();
   });
 
-  it("community add-agent sends request body and lounge unpublish patches status", async () => {
+  it("community add-agent uses camelCase and lounge unpublish fails fast", async () => {
     const program = createProgram(registerCommunity);
 
     await program.parseAsync(["node", "arinova", "community", "add-agent", "community-1", "agent-1"]);
     await program.parseAsync(["node", "arinova", "lounge", "unpublish", "lounge-1"]);
 
     expect(mocks.post).toHaveBeenCalledWith("/api/v1/communities/community-1/agents", {
-      agent_id: "agent-1",
+      agentId: "agent-1",
     });
-    expect(mocks.patch).toHaveBeenCalledWith("/api/v1/communities/lounge-1", {
-      status: "draft",
+    expect(mocks.put).not.toHaveBeenCalled();
+    expect(mocks.printError).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "UNSUPPORTED_COMMAND" }),
+    );
+  });
+
+  it("community list/show/update use the current v1 routes and PUT update", async () => {
+    const program = createProgram(registerCommunity);
+
+    await program.parseAsync(["node", "arinova", "community", "list"]);
+    await program.parseAsync(["node", "arinova", "community", "show", "community/1"]);
+    await program.parseAsync([
+      "node",
+      "arinova",
+      "community",
+      "update",
+      "community-1",
+      "--name",
+      "Renamed",
+    ]);
+
+    expect(mocks.get).toHaveBeenNthCalledWith(1, "/api/v1/communities");
+    expect(mocks.get).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/communities/community%2F1",
+    );
+    expect(mocks.put).toHaveBeenCalledWith(
+      "/api/v1/communities/community-1",
+      { name: "Renamed" },
+    );
+  });
+
+  it("memo is canonical and wiki is a warning-only alias to memo routes", async () => {
+    const program = createProgram((root) => {
+      registerMemoCommands(root);
+      registerWikiCommands(root);
+    });
+
+    await program.parseAsync([
+      "node",
+      "arinova",
+      "memo",
+      "create",
+      "--conversation-id",
+      "conv-1",
+      "--title",
+      "Plan",
+    ]);
+    await program.parseAsync(["node", "arinova", "wiki", "list"]);
+
+    expect(mocks.apiCall).toHaveBeenNthCalledWith(1, {
+      method: "POST",
+      url: "https://api.example.test/api/v1/memo",
+      token: "ari_cli_token",
+      body: {
+        conversationId: "conv-1",
+        title: "Plan",
+        content: "",
+        tags: [],
+      },
+    });
+    expect(mocks.apiCall).toHaveBeenNthCalledWith(2, {
+      method: "GET",
+      url: "https://api.example.test/api/v1/memo",
+      token: "ari_cli_token",
+    });
+    expect(mocks.printWarning).toHaveBeenCalledWith(
+      "'arinova wiki' is deprecated; use 'arinova memo'.",
+    );
+  });
+
+  it("conversation create uses agent-scoped v1 route and required type", async () => {
+    const program = createProgram(registerConversation);
+
+    await program.parseAsync([
+      "node",
+      "arinova",
+      "conversation",
+      "create",
+      "--agent-id",
+      "agent/1",
+      "--type",
+      "alert",
+    ]);
+
+    expect(mocks.apiCall).toHaveBeenCalledWith({
+      method: "POST",
+      url: "https://api.example.test/api/v1/agents/agent%2F1/conversations",
+      token: "ari_cli_token",
+      body: { type: "alert" },
+    });
+  });
+
+  it("user commands call the OAuth v1 profile and agents routes", async () => {
+    const program = createProgram(registerUserCommands);
+
+    await program.parseAsync(["node", "arinova", "user", "profile"]);
+    await program.parseAsync(["node", "arinova", "user", "agents"]);
+
+    expect(mocks.apiCall).toHaveBeenNthCalledWith(1, {
+      method: "GET",
+      url: "https://api.example.test/api/v1/user/profile",
+      token: "ari_cli_token",
+    });
+    expect(mocks.apiCall).toHaveBeenNthCalledWith(2, {
+      method: "GET",
+      url: "https://api.example.test/api/v1/user/agents",
+      token: "ari_cli_token",
     });
   });
 
@@ -319,7 +426,7 @@ describe("CLI command API request shapes", () => {
 
     await program.parseAsync(["node", "arinova", "theme", "update", "theme-1", manifest]);
 
-    expect(mocks.uploadMultipart).toHaveBeenCalledWith("/api/themes/theme-1", {
+    expect(mocks.uploadMultipart).toHaveBeenCalledWith("/api/v1/themes/theme-1", {
       manifest: expect.any(Blob),
     }, "PUT", "ari_cli_theme_token");
     expect(mocks.printError).toHaveBeenCalledWith(error);
@@ -331,10 +438,10 @@ describe("CLI command API request shapes", () => {
     await program.parseAsync(["node", "arinova", "theme", "publish", "theme-1"]);
     await program.parseAsync(["node", "arinova", "theme", "unpublish", "theme-1"]);
 
-    expect(mocks.patch).toHaveBeenNthCalledWith(1, "/api/themes/theme-1/status", {
+    expect(mocks.patch).toHaveBeenNthCalledWith(1, "/api/v1/themes/theme-1/status", {
       status: "published",
     }, "ari_cli_theme_token");
-    expect(mocks.patch).toHaveBeenNthCalledWith(2, "/api/themes/theme-1/status", {
+    expect(mocks.patch).toHaveBeenNthCalledWith(2, "/api/v1/themes/theme-1/status", {
       status: "draft",
     }, "ari_cli_theme_token");
     expect(mocks.printResult).toHaveBeenCalledTimes(2);
@@ -345,9 +452,6 @@ describe("CLI command API request shapes", () => {
     tempDirs.push(dir);
     const file = join(dir, "note.txt");
     await writeFile(file, "hello");
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ fileId: "file-1" }), { status: 200 }),
-    );
     const program = createProgram(registerFileCommands);
 
     await program.parseAsync([
@@ -361,11 +465,12 @@ describe("CLI command API request shapes", () => {
       file,
     ]);
 
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("https://api.example.test/api/v1/files/upload");
-    expect(init?.method).toBe("POST");
-    expect(init?.headers).toEqual({ Authorization: "Bearer ari_cli_token" });
-    const form = init?.body as FormData;
+    expect(mocks.clientUpload).toHaveBeenCalledWith(
+      "/api/v1/files/upload",
+      expect.any(FormData),
+      undefined,
+    );
+    const form = mocks.clientUpload.mock.calls[0][1] as FormData;
     expect(form.get("conversationId")).toBe("conv-1");
     const uploaded = form.get("file") as File;
     expect(uploaded.name).toBe("note.txt");

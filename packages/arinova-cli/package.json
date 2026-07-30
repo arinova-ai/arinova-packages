@@ -12,6 +12,7 @@
   "scripts": {
     "prebuild": "node scripts/inline-bridge.mjs",
     "build": "tsc",
+    "contracts:generate": "node scripts/generate-v1-routes.mjs",
     "dev": "tsc --watch",
     "lint": "tsc --noEmit",
     "pretest": "node scripts/inline-bridge.mjs",

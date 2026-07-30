@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { loadConfig, saveConfig, setProfile, getEndpoint, getEnvironmentLabel, resolveApiKey, resolveProfileName, getProfile, listProfiles } from "../config.js";
 import { printResult, printError, printSuccess } from "../output.js";
+import { ApiClient } from "../client.js";
 
 export function registerAuth(program: Command): void {
   const auth = program.command("auth").description("Authentication commands");
@@ -65,14 +66,12 @@ export function registerAuth(program: Command): void {
         // Fetch username to use as profile name
         let profileName = "user";
         try {
-          const res = await fetch(`${apiEndpoint}/api/v1/creator/api-keys/whoami`, {
-            headers: { Authorization: `Bearer ${key}` },
-          });
-          if (res.ok) {
-            const data = await res.json() as Record<string, unknown>;
-            const name = (data.username ?? data.name ?? "") as string;
-            if (name) profileName = name.toLowerCase().replace(/\s+/g, "-");
-          }
+          const data = (await new ApiClient({
+            endpoint: apiEndpoint,
+            token: key,
+          }).get("/api/v1/creator/api-keys/whoami")) as Record<string, unknown>;
+          const name = (data.username ?? data.name ?? "") as string;
+          if (name) profileName = name.toLowerCase().replace(/\s+/g, "-");
         } catch { /* use default name */ }
 
         setProfile(profileName, { type: "user", apiKey: key });
@@ -162,32 +161,28 @@ export function registerAuth(program: Command): void {
         // Try to resolve actual identity from server
         // Try bot endpoint first
         try {
-          const botRes = await fetch(`${endpoint}/api/agent/me`, {
-            headers: { Authorization: `Bearer ${apiKey}` },
-          });
-          if (botRes.ok) {
-            const bot = await botRes.json() as Record<string, unknown>;
-            identity.identityType = "bot";
-            identity.agentName = bot.name;
-            identity.agentId = bot.id;
-            printResult(identity);
-            return;
-          }
+          const bot = (await new ApiClient({
+            endpoint,
+            token: apiKey,
+          }).get("/api/agent/me")) as Record<string, unknown>;
+          identity.identityType = "bot";
+          identity.agentName = bot.name;
+          identity.agentId = bot.id;
+          printResult(identity);
+          return;
         } catch { /* fall through */ }
 
         // Try user endpoint
         try {
-          const userRes = await fetch(`${endpoint}/api/v1/creator/api-keys/whoami`, {
-            headers: { Authorization: `Bearer ${apiKey}` },
-          });
-          if (userRes.ok) {
-            const user = await userRes.json() as Record<string, unknown>;
-            identity.identityType = "user";
-            identity.userName = user.name ?? user.username;
-            identity.userId = user.id ?? user.userId;
-            printResult(identity);
-            return;
-          }
+          const user = (await new ApiClient({
+            endpoint,
+            token: apiKey,
+          }).get("/api/v1/creator/api-keys/whoami")) as Record<string, unknown>;
+          identity.identityType = "user";
+          identity.userName = user.name ?? user.username;
+          identity.userId = user.id ?? user.userId;
+          printResult(identity);
+          return;
         } catch { /* fall through */ }
 
         identity.status = "unauthorized — token may be expired or revoked";

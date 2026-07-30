@@ -2,7 +2,8 @@ import { Command } from "commander";
 import { readFileSync, writeFileSync, copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { getApiKey, getEndpoint } from "../config.js";
+import { getEndpoint, resolveApiKey } from "../config.js";
+import { ApiClient } from "../client.js";
 import { printSuccess, printError } from "../output.js";
 
 interface OpenclawAgent {
@@ -70,33 +71,26 @@ export function registerSetupOpenclaw(program: Command): void {
         const globalOpts = program.optsWithGlobals() as { apiUrl?: string };
         const apiBase = (opts.apiUrl ?? globalOpts.apiUrl ?? getEndpoint()).replace(/\/+$/, "");
 
-        // Helper functions that use resolved base
-        const apiHeaders = (): Record<string, string> => {
-          const key = getApiKey();
-          return { Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
-        };
-        const apiGet = async (path: string): Promise<unknown> => {
-          const res = await fetch(`${apiBase}${path}`, { method: "GET", headers: apiHeaders() });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.json();
-        };
-        const apiPost = async (path: string, body?: unknown): Promise<unknown> => {
-          const res = await fetch(`${apiBase}${path}`, {
-            method: "POST", headers: apiHeaders(),
-            body: body != null ? JSON.stringify(body) : undefined,
-          });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.json();
-        };
-
         console.log(`Using API endpoint: ${apiBase}`);
 
         // 1. Check auth
-        const apiKey = getApiKey();
-        if (!apiKey) {
+        const authOpts = program.optsWithGlobals() as {
+          token?: string;
+          profile?: string;
+        };
+        let apiKey: string;
+        try {
+          apiKey = resolveApiKey({
+            token: authOpts.token,
+            profile: authOpts.profile,
+          }).apiKey;
+        } catch {
           printError("No API key configured. Please run `arinova auth login` first");
-          return; // printError exits, but for clarity
+          return;
         }
+        const client = new ApiClient({ endpoint: apiBase, token: apiKey });
+        const apiGet = (path: string) => client.get(path);
+        const apiPost = (path: string, body?: unknown) => client.post(path, body);
 
         // 2. Find openclaw.json
         const configPath = opts.workspace ?? join(homedir(), ".openclaw", "openclaw.json");

@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { get, del, patch, uploadMultipart } from "../client.js";
+import { get, del, patch, uploadMultipart, encodePathSegment } from "../client.js";
 import { resolveApiKey } from "../config.js";
 import { printResult, printError, printSuccess, table } from "../output.js";
 import {
@@ -138,7 +138,7 @@ export function registerTheme(program: Command): void {
           const bundleData = readFileSync(bundleFile);
           fields.bundle = new Blob([blobPartFromBuffer(bundleData)], { type: "application/zip" });
         }
-        const data = await uploadMultipart(`/api/themes/${id}`, fields, "PUT", resolveKey());
+        const data = await uploadMultipart(`/api/v1/themes/${encodePathSegment(id)}`, fields, "PUT", resolveKey());
         printResult(data);
       } catch (err) {
         printError(err);
@@ -150,7 +150,7 @@ export function registerTheme(program: Command): void {
     .description("Delete a theme")
     .action(async (id: string) => {
       try {
-        await del(`/api/themes/${id}`, resolveKey());
+        await del(`/api/v1/themes/${encodePathSegment(id)}`, resolveKey());
         printSuccess(`Theme ${id} deleted.`);
       } catch (err) {
         printError(err);
@@ -162,7 +162,7 @@ export function registerTheme(program: Command): void {
     .description("Publish a theme (requires an approved safety review)")
     .action(async (id: string) => {
       try {
-        const data = await patch(`/api/themes/${id}/status`, { status: "published" }, resolveKey());
+        const data = await patch(`/api/v1/themes/${encodePathSegment(id)}/status`, { status: "published" }, resolveKey());
         printResult(data);
       } catch (err) {
         printError(err);
@@ -174,7 +174,7 @@ export function registerTheme(program: Command): void {
     .description("Unpublish a theme")
     .action(async (id: string) => {
       try {
-        const data = await patch(`/api/themes/${id}/status`, { status: "draft" }, resolveKey());
+        const data = await patch(`/api/v1/themes/${encodePathSegment(id)}/status`, { status: "draft" }, resolveKey());
         printResult(data);
       } catch (err) {
         printError(err);
@@ -186,7 +186,7 @@ export function registerTheme(program: Command): void {
     .description("Show detailed info about a theme")
     .action(async (id: string) => {
       try {
-        const data = await get(`/api/themes/${id}`, resolveKey());
+        const data = await get(`/api/v1/themes/${encodePathSegment(id)}`, resolveKey());
         printResult(data);
       } catch (err) {
         printError(err);

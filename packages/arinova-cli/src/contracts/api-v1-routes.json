@@ -1,0 +1,3032 @@
+{
+  "generatedAt": "2026-07-30T22:36:42+08:00",
+  "sourceRepository": "arinova-chat",
+  "sourceCommit": "33b7c06ad9df8b9cb5ab9e21fff109955a3cc3cc",
+  "routeCount": 378,
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/v1/actions/{call_id}/cancel",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "actions/routes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/actions/agent-manifest",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "actions/routes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/actions/by-id/{row_id}/cancel",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "actions/routes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/actions/call",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "actions/routes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/actions/confirm/{confirmation_id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "actions/routes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/actions/confirm/{confirmation_id}/reject",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "actions/routes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/actions/history/{conversation_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "actions/routes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/actions/manifest",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "actions/routes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/actions/pending",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "actions/routes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-skill-packages/{install_id}/disable",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-skill-packages/{install_id}/rollback",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-skill-packages/{install_id}/uninstall",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-skill-packages/{install_id}/update",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-skill-packages/{install_id}/update-preview",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent/chat",
+      "auth": "oauth",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/api_v1/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent/chat/stream",
+      "auth": "oauth",
+      "requestMode": "json",
+      "responseMode": "sse",
+      "source": "routes/api_v1/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agents/{agent_id}/skill-package-resources/query",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/{agent_id}/skill-package-tools",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agents/{agentId}/conversations",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/{agentId}/onboarding-knowledge",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/analytics/track",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/analytics/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/autopilot/credit",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/autopilot/http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/autopilot/evaluate",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/autopilot/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/autopilot/runs",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/autopilot/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/autopilot/settings",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/autopilot/http_routes.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/autopilot/settings",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/autopilot/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/calendar/events",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_calendar/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/calendar/events",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_calendar/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/calendar/events/{eventId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_calendar/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/calendar/events/{eventId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_calendar/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/calendar/events/{eventId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_calendar/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/calendars",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_calendar/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/calendars",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_calendar/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/calendars/{calendarId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_calendar/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/community/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/communities/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/community/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/communities/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{id}/agents",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{id}/agents",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/community/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/communities/{id}/agents/{listing_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{id}/members",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/conversations",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/creator/api-keys/whoami",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/api_keys.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/creator/dashboard",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/creator.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/creator/revenue",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/creator.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/creator/spaces",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/creator.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/creator/stickers",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/stickers/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/creator/stickers",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/stickers/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/creator/stickers/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/stickers/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/creator/stickers/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/stickers/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/creator/stickers/{id}/cover",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "routes/stickers/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/creator/stickers/{id}/stickers",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/stickers/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/creator/stickers/{id}/submit-review",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/stickers/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/creator/stickers/{pack_id}/stickers/{sticker_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/stickers/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/creator/themes",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/themes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/deliveries",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_deliveries.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/deliveries/{delivery_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_deliveries.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/deliveries/{delivery_id}/ack",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_deliveries.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/developer/apps",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/developer.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/developer/apps",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/developer.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/developer/apps/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/developer.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/developer/apps/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/developer.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/developer/apps/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/developer.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/docs",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_docs.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/docs",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_docs.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/docs/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_docs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/docs/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_docs.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/docs/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_docs.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/docs/{id}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_docs.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/docs/{id}/unarchive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_docs.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/economy/award",
+      "auth": "oauth",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/api_v1/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/economy/balance",
+      "auth": "oauth",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/api_v1/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/economy/charge",
+      "auth": "oauth",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/api_v1/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/economy/purchase",
+      "auth": "oauth",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/api_v1/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/economy/transactions",
+      "auth": "oauth",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/api_v1/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/external-images/content",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "binary",
+      "source": "routes/external_images.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/file-folders",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/file-folders",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/file-folders/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/file-folders/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/file-folders/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/files",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/files/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/files/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/files/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/files/{id}/content",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "binary",
+      "source": "routes/files.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/files/{id}/copy",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/files/{id}/folder",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/files/{id}/move",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/files/{id}/url",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/files/batch",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/files/upload",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/files/usage",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_files/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/forms",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/forms",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/forms/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/forms/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/forms/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/forms/{id}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/forms/{id}/close",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/forms/{id}/fields",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/forms/{id}/fields",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/forms/{id}/publish",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/forms/{id}/responses",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/forms/{id}/unarchive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/forms/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/forms/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/forms/{id}/versions/{version_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/forms/{id}/versions/{version_id}/copy",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/forms/{id}/versions/{version_id}/restore",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hud",
+      "auth": "websocket",
+      "requestMode": "none",
+      "responseMode": "websocket",
+      "source": "routes/hud.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/image-assets",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "routes/image_assets.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/image-assets/{id}/content",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "binary",
+      "source": "routes/image_assets.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/image-projects",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/image-projects",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/image-projects/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/image-projects/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/image-projects/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/image-projects/{id}/agent-permissions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/image-projects/{id}/agent-permissions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/image-projects/{id}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/image-projects/{id}/asset",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/image-projects/{id}/assets",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/image-projects/{id}/assets/{fileId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/image-projects/{id}/document",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/image-projects/{id}/members",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/image-projects/{id}/members",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/image-projects/{id}/members/{userId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/image-projects/{id}/members/{userId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/image-projects/{id}/public-share",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/image-projects/{id}/public-share",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/image-projects/{id}/revisions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/image-projects/{id}/unarchive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/image-projects/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/image_projects/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/kanban/boards",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/boards",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/kanban/boards/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/kanban/boards/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/boards/{id}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/kanban/boards/{id}/archived-cards",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/kanban/boards/{id}/columns",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/boards/{id}/columns",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/boards/{id}/columns/reorder",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/kanban/boards/{id}/labels",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/boards/{id}/labels",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/boards/{id}/unarchive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/kanban/cards",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/cards",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/kanban/cards/{card_id}/notes/{note_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/kanban/cards/{cardId}/comments",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/cards/{cardId}/comments",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/kanban/cards/{cardId}/commits",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/cards/{cardId}/commits",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/kanban/cards/{cardId}/labels/{labelId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/kanban/cards/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/kanban/cards/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/cards/{id}/complete",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/cards/{id}/labels",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/kanban/cards/{id}/notes",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/cards/{id}/notes",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/cards/bulk-move",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/kanban/columns/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/kanban/columns/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/kanban/comments/{commentId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/kanban/labels/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/kanban/labels/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memo",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memo",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/memo/{pageId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memo/{pageId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/memo/{pageId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memo/{pageId}/comments",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memo/{pageId}/comments",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/memo/comments/{commentId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memories",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memories",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/memories/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memories/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/memories/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memories/cleanup",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memories/export",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memories/grants",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/memories/grants",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memories/import",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/memories/import/{capsuleId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memories/import/{capsuleId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memories/import/{capsuleId}/confirm",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memories/import/{capsuleId}/duplicates",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/memories/import/{capsuleId}/entries/{entryId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/memories/import/{capsuleId}/entries/{entryId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memories/import/{capsuleId}/retry",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memories/import/preview",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memories/imports",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memories/search",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/messages/{conversationId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/messages/{messageId}/feedback",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/messages/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/messages/{messageId}/feedback",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/messages/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/messages/search",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/messages/send",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/mindmaps",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mindmaps",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/mindmaps/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/mindmaps/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mindmaps/{id}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mindmaps/{id}/node-delete-batches/{batchId}/restore",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mindmaps/{id}/nodes",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/mindmaps/{id}/outline",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/mindmaps/{id}/outline",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mindmaps/{id}/subtree",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mindmaps/{id}/unarchive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/mindmaps/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mindmaps/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/mindmaps/{id}/versions/{version_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mindmaps/{id}/versions/{version_id}/copy",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mindmaps/{id}/versions/{version_id}/restore",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/mindmaps/nodes/{nodeId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/mindmaps/nodes/{nodeId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mindmaps/nodes/{nodeId}/move",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mindmaps/nodes/{nodeId}/promote-children",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notebooks",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/notebooks",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/notebooks/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notebooks/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/notebooks/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/notebooks/{id}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notebooks/{id}/notes",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/notebooks/{id}/unarchive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notes",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/notes",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/notes/{noteId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notes/{noteId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/notes/{noteId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notes/{noteId}/linked-cards",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notes/{noteId}/thread",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/notes/{noteId}/thread",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform-cron/confirmations/{id}/approve",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_cron/http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform-cron/confirmations/{id}/reject",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_cron/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/platform-cron/jobs",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/platform_cron/http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform-cron/jobs",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_cron/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/platform-cron/jobs/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/platform_cron/http_routes.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/platform-cron/jobs/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_cron/http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform-cron/jobs/{id}/cancel",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_cron/http_routes.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/platform-cron/jobs/{id}/enabled",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_cron/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/platform-triggers/merged-dispatches/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/platform_trigger/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/platform-triggers/triggers",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/platform_trigger/http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform-triggers/triggers",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_trigger/http_routes.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/platform-triggers/triggers/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/platform_trigger/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/platform-triggers/triggers/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/platform_trigger/http_routes.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/platform-triggers/triggers/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_trigger/http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform-triggers/triggers/{id}/cancel",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_trigger/http_routes.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/platform-triggers/triggers/{id}/enabled",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_trigger/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/platform-triggers/triggers/{id}/fire-events",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/platform_trigger/http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform-triggers/triggers/{id}/test",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_trigger/http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/resolve-identifiers",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/resolve/{shortId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/search",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/search.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/search/content",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "binary",
+      "source": "routes/search_content/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/skill-package-entries/{entry_id}/favorite",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skill-package-entries/{entry_id}/favorite",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skill-package-versions/{version_id}/install",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skill-packages",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skill-packages/{package_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/skill-packages/{package_id}/favorite",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skill-packages/{package_id}/favorite",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skill-packages/categories",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skill-packages/installed",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/{action}/toggle",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/{id}/install",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/skills/{id}/uninstall",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/{slug}/prompt",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/custom",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/skills/custom/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/skills/custom/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/custom/{id}/publish",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/hub-data",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/image-edit",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/installed",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/moderation/health",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/my",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/published",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/suggestions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/skills/suggestions/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/skills/suggestions/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/suggestions/dismissed",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/skills/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/slides/decks",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/slides/decks",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/slides/decks/{deck_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/slides/decks/{deck_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/slides/decks/{deck_id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/slides/decks/{deck_id}/agent-permissions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/slides/decks/{deck_id}/agent-permissions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/slides/decks/{deck_id}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/slides/decks/{deck_id}/export",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/slides/decks/{deck_id}/export/{job_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/slides/decks/{deck_id}/export/{job_id}/download",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "binary",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/slides/decks/{deck_id}/slides",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/slides/decks/{deck_id}/slides",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/slides/decks/{deck_id}/slides/{slide_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/slides/decks/{deck_id}/slides/{slide_id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/slides/decks/{deck_id}/slides/{slide_id}/duplicate",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/slides/decks/{deck_id}/slides/reorder",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/slides/decks/{deck_id}/unarchive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/slides/decks/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/slides/decks/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/slides/decks/{id}/versions/{version_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/slides/decks/{id}/versions/{version_id}/copy",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/slides/decks/{id}/versions/{version_id}/restore",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/slides/templates",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/slides/templates/{template_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_slides/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/spaces",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/spaces/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/spaces",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/spaces/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/spaces/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/spaces/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/spaces/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/spaces/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/spaces/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/spaces/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/spaces/{id}/cover",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "routes/spaces/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/spaces/{id}/reports",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/spaces/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/spaces/{id}/storage",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/space_runtime_api.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/spaces/{id}/storage/{key}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/space_runtime_api.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/spaces/{id}/storage/{key}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/space_runtime_api.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/spaces/{id}/storage/{key}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/space_runtime_api.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/spaces/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/space_packages/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/spaces/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/space_packages/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/spaces/{id}/versions/{version_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/space_packages/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/spaces/{id}/versions/{version_id}/publish",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/space_packages/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/spaces/{id}/versions/{version_id}/rollback",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/space_packages/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/spaces/owned",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/spaces/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/themes/{themeId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/themes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/themes/{themeId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/themes/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/themes/{themeId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/themes/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/themes/{themeId}/status",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/themes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/themes/upload",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "routes/themes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/user/agents",
+      "auth": "oauth",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/api_v1/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/user/profile",
+      "auth": "oauth",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/api_v1/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/webhooks",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/platform_webhook/http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_webhook/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/webhooks/{webhook_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/platform_webhook/http_routes.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/webhooks/{webhook_id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_webhook/http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks/{webhook_id}/cancel",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_webhook/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/webhooks/{webhook_id}/fire-events",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/platform_webhook/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/webhooks/{webhook_id}/fire-events/{fire_event_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/platform_webhook/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/webhooks/{webhook_id}/fire-events/{fire_event_id}/payload",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/platform_webhook/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/webhooks/{webhook_id}/function-executions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/platform_webhook/http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks/{webhook_id}/rotate-secret",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_webhook/http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks/inbound/{webhook_id}",
+      "auth": "signed-public",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/platform_webhook/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workbooks",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workbooks",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/workbooks/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workbooks/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/workbooks/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/workbooks/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workbooks/{id}/agent-permissions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/workbooks/{id}/agent-permissions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workbooks/{id}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workbooks/{id}/export",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workbooks/{id}/export",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workbooks/{id}/export/{job_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workbooks/{id}/export/{job_id}/download",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "binary",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workbooks/{id}/import",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workbooks/{id}/unarchive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workbooks/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workbooks/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workbooks/{id}/versions/{version_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workbooks/{id}/versions/{version_id}/copy",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workbooks/{id}/versions/{version_id}/restore",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workbooks/import",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "routes/v1_workbooks/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/workflows/v1_http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/workflows/v1_http_routes.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/workflows/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/workflows/v1_http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/workflows/v1_http_routes.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/workflows/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/workflows/v1_http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/{id}/activate",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/workflows/v1_http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/{id}/pause",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/workflows/v1_http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/{id}/run",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/workflows/v1_http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/runs",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/workflows/v1_http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/runs/{runId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "routes/workflows/v1_http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/{id}/runs/{runId}/cancel",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "routes/workflows/v1_http_routes.rs"
+    }
+  ]
+}

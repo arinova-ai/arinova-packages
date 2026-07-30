@@ -1,108 +1,179 @@
 import type { Command } from "commander";
 import { getOpts, apiCall, output } from "../api.js";
+import { encodePathSegment } from "../client.js";
+import { printWarning } from "../output.js";
 
-export function registerWikiCommands(program: Command): void {
-  const wiki = program.command("wiki").description("Wiki page commands");
+interface MemoRegistration {
+  name: "memo" | "wiki";
+  deprecated: boolean;
+}
 
-  wiki.command("list")
-    .option("--conversation-id <id>", "Conversation ID (omit to list all)")
-    .option("--search <query>", "Search wiki pages")
-    .option("--limit <n>", "Max pages to return (default 20)", parseInt)
-    .option("--offset <n>", "Skip first N pages (pagination)", parseInt)
-    .description("List wiki pages (all or by conversation)")
-    .action(async (opts: { conversationId?: string; search?: string; limit?: number; offset?: number }) => {
-      const { token, apiUrl } = getOpts(wiki);
+function registerMemoSurface(program: Command, registration: MemoRegistration): void {
+  const root = program
+    .command(registration.name)
+    .description(
+      registration.deprecated
+        ? "Deprecated alias for memo page commands"
+        : "Memo page commands",
+    );
+  const warn = () => {
+    if (registration.deprecated) {
+      printWarning("'arinova wiki' is deprecated; use 'arinova memo'.");
+    }
+  };
+
+  root
+    .command("list")
+    .option("--conversation-id <id>", "Conversation ID")
+    .option("--search <query>", "Search memo pages")
+    .option("--limit <n>", "Max pages", Number.parseInt)
+    .option("--offset <n>", "Skip pages", Number.parseInt)
+    .action(async (opts) => {
+      warn();
+      const { token, apiUrl } = getOpts(root);
       const params = new URLSearchParams();
       if (opts.conversationId) params.set("conversationId", opts.conversationId);
       if (opts.search) params.set("search", opts.search);
-      if (opts.limit) params.set("limit", String(opts.limit));
-      if (opts.offset) params.set("offset", String(opts.offset));
-      output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/wiki?${params.toString()}`, token }));
+      if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+      if (opts.offset !== undefined) params.set("offset", String(opts.offset));
+      const query = params.toString();
+      output(
+        await apiCall({
+          method: "GET",
+          url: `${apiUrl}/api/v1/memo${query ? `?${query}` : ""}`,
+          token,
+        }),
+      );
     });
 
-  wiki.command("get")
-    .requiredOption("--page-id <id>", "Wiki page ID")
-    .description("Get a wiki page (includes comments)")
+  root
+    .command("get")
+    .requiredOption("--page-id <id>", "Memo page ID")
     .action(async (opts: { pageId: string }) => {
-      const { token, apiUrl } = getOpts(wiki);
-      const [page, commentsRes] = await Promise.all([
-        apiCall({ method: "GET", url: `${apiUrl}/api/v1/wiki/${opts.pageId}`, token }),
-        apiCall({ method: "GET", url: `${apiUrl}/api/v1/wiki/${opts.pageId}/comments`, token }),
+      warn();
+      const { token, apiUrl } = getOpts(root);
+      const id = encodePathSegment(opts.pageId);
+      const [page, commentsResponse] = await Promise.all([
+        apiCall({ method: "GET", url: `${apiUrl}/api/v1/memo/${id}`, token }),
+        apiCall({
+          method: "GET",
+          url: `${apiUrl}/api/v1/memo/${id}/comments`,
+          token,
+        }),
       ]);
-      const pageObj = page as Record<string, unknown>;
-      const commentsObj = commentsRes as Record<string, unknown>;
-      output({ ...pageObj, comments: commentsObj?.comments ?? [] });
+      const comments =
+        (commentsResponse as { comments?: unknown })?.comments ?? commentsResponse;
+      output({ ...(page as Record<string, unknown>), comments });
     });
 
-  wiki.command("create")
+  root
+    .command("create")
     .requiredOption("--conversation-id <id>", "Conversation ID")
     .requiredOption("--title <title>", "Page title")
     .option("--content <text>", "Page content")
     .option("--tags <tags...>", "Tags")
-    .description("Create a wiki page")
-    .action(async (opts: { conversationId: string; title: string; content?: string; tags?: string[] }) => {
-      const { token, apiUrl } = getOpts(wiki);
-      output(await apiCall({
-        method: "POST",
-        url: `${apiUrl}/api/v1/wiki`,
-        token,
-        body: { conversationId: opts.conversationId, title: opts.title, content: opts.content || "", tags: opts.tags || [] },
-      }));
+    .action(async (opts) => {
+      warn();
+      const { token, apiUrl } = getOpts(root);
+      output(
+        await apiCall({
+          method: "POST",
+          url: `${apiUrl}/api/v1/memo`,
+          token,
+          body: {
+            conversationId: opts.conversationId,
+            title: opts.title,
+            content: opts.content ?? "",
+            tags: opts.tags ?? [],
+          },
+        }),
+      );
     });
 
-  wiki.command("update")
-    .requiredOption("--page-id <id>", "Wiki page ID")
+  root
+    .command("update")
+    .requiredOption("--page-id <id>", "Memo page ID")
     .option("--title <text>", "New title")
     .option("--content <text>", "New content")
-    .description("Update a wiki page")
-    .action(async (opts: { pageId: string; title?: string; content?: string }) => {
-      const { token, apiUrl } = getOpts(wiki);
-      output(await apiCall({
-        method: "PATCH",
-        url: `${apiUrl}/api/v1/wiki/${opts.pageId}`,
-        token,
-        body: { title: opts.title, content: opts.content },
-      }));
+    .action(async (opts) => {
+      warn();
+      const { token, apiUrl } = getOpts(root);
+      output(
+        await apiCall({
+          method: "PATCH",
+          url: `${apiUrl}/api/v1/memo/${encodePathSegment(opts.pageId)}`,
+          token,
+          body: { title: opts.title, content: opts.content },
+        }),
+      );
     });
 
-  wiki.command("delete")
-    .requiredOption("--page-id <id>", "Wiki page ID")
-    .description("Delete a wiki page")
-    .action(async (opts: { pageId: string }) => {
-      const { token, apiUrl } = getOpts(wiki);
-      output(await apiCall({ method: "DELETE", url: `${apiUrl}/api/v1/wiki/${opts.pageId}`, token }));
+  root
+    .command("delete")
+    .requiredOption("--page-id <id>", "Memo page ID")
+    .action(async (opts) => {
+      warn();
+      const { token, apiUrl } = getOpts(root);
+      output(
+        await apiCall({
+          method: "DELETE",
+          url: `${apiUrl}/api/v1/memo/${encodePathSegment(opts.pageId)}`,
+          token,
+        }),
+      );
     });
 
-  // ── Comment subcommands ──
-  const comment = wiki.command("comment").description("Wiki comment commands");
-
-  comment.command("list")
-    .requiredOption("--page-id <id>", "Wiki page ID")
-    .description("List comments on a wiki page")
-    .action(async (opts: { pageId: string }) => {
-      const { token, apiUrl } = getOpts(wiki);
-      output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/wiki/${opts.pageId}/comments`, token }));
+  const comment = root.command("comment").description("Memo comment commands");
+  comment
+    .command("list")
+    .requiredOption("--page-id <id>", "Memo page ID")
+    .action(async (opts) => {
+      warn();
+      const { token, apiUrl } = getOpts(root);
+      output(
+        await apiCall({
+          method: "GET",
+          url: `${apiUrl}/api/v1/memo/${encodePathSegment(opts.pageId)}/comments`,
+          token,
+        }),
+      );
     });
-
-  comment.command("add")
-    .requiredOption("--page-id <id>", "Wiki page ID")
+  comment
+    .command("add")
+    .requiredOption("--page-id <id>", "Memo page ID")
     .requiredOption("--content <text>", "Comment content")
-    .description("Add a comment to a wiki page")
-    .action(async (opts: { pageId: string; content: string }) => {
-      const { token, apiUrl } = getOpts(wiki);
-      output(await apiCall({
-        method: "POST",
-        url: `${apiUrl}/api/v1/wiki/${opts.pageId}/comments`,
-        token,
-        body: { content: opts.content },
-      }));
+    .action(async (opts) => {
+      warn();
+      const { token, apiUrl } = getOpts(root);
+      output(
+        await apiCall({
+          method: "POST",
+          url: `${apiUrl}/api/v1/memo/${encodePathSegment(opts.pageId)}/comments`,
+          token,
+          body: { content: opts.content },
+        }),
+      );
     });
-
-  comment.command("delete")
+  comment
+    .command("delete")
     .requiredOption("--id <id>", "Comment ID")
-    .description("Delete a wiki comment")
-    .action(async (opts: { id: string }) => {
-      const { token, apiUrl } = getOpts(wiki);
-      output(await apiCall({ method: "DELETE", url: `${apiUrl}/api/v1/wiki/comments/${opts.id}`, token }));
+    .action(async (opts) => {
+      warn();
+      const { token, apiUrl } = getOpts(root);
+      output(
+        await apiCall({
+          method: "DELETE",
+          url: `${apiUrl}/api/v1/memo/comments/${encodePathSegment(opts.id)}`,
+          token,
+        }),
+      );
     });
+}
+
+export function registerMemoCommands(program: Command): void {
+  registerMemoSurface(program, { name: "memo", deprecated: false });
+}
+
+export function registerWikiCommands(program: Command): void {
+  registerMemoSurface(program, { name: "wiki", deprecated: true });
 }

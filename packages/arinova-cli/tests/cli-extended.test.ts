@@ -259,37 +259,9 @@ describe.skipIf(!HAS_TOKEN)("space commands", () => {
 });
 
 describe.skipIf(!HAS_TOKEN)("expert commands", () => {
-  let testExpertId: string | null = null;
-
-  afterAll(async () => {
-    if (testExpertId) {
-      try { await apiFetch("DELETE", `/api/v1/experts/${testExpertId}`); } catch {}
-    }
-  });
-
-  it("expert list executes", () => {
+  it("expert list reports unsupported", () => {
     const r = runSafe("expert list");
-    expect(typeof r.status).toBe("number");
-  });
-
-  it("expert list with category", () => {
-    const r = runSafe("expert list --category general");
-    expect(typeof r.status).toBe("number");
-  });
-
-  it("expert create + delete roundtrip", () => {
-    const r = runSafe('expert create --name "__cli_test_expert" --category general --bio "test expert"');
-    if (r.status === 0) {
-      try {
-        const data = JSON.parse(r.stdout);
-        testExpertId = data.id;
-        if (testExpertId) {
-          const del = runSafe(`expert delete ${testExpertId}`);
-          if (del.status === 0) testExpertId = null;
-        }
-      } catch {}
-    }
-    expect(typeof r.status).toBe("number");
+    expect(r.status).not.toBe(0);
   });
 
   it("expert show with invalid id", () => {
@@ -448,11 +420,11 @@ describe.skipIf(!HAS_TOKEN)("painter commands", () => {
 describe.skipIf(!HAS_TOKEN)("auto-send commands", () => {
   it("auto-send list returns response", () => {
     const r = runSafe(`auto-send list --conversation-id ${CONV_ID}`);
-    expect(typeof r.status).toBe("number");
+    expect(r.status).not.toBe(0);
   });
 
   it("auto-send history returns response", () => {
     const r = runSafe(`auto-send history --conversation-id ${CONV_ID}`);
-    expect(typeof r.status).toBe("number");
+    expect(r.status).not.toBe(0);
   });
 });

@@ -7,6 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getApiKey: vi.fn(() => "ari_cli_token"),
   getEndpoint: vi.fn(() => "https://chat.example.test"),
+  resolveApiKey: vi.fn(() => ({
+    apiKey: "ari_cli_token",
+    profileName: "test",
+    source: "test",
+  })),
   printError: vi.fn(),
   printSuccess: vi.fn(),
 }));
@@ -14,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../config.js", () => ({
   getApiKey: mocks.getApiKey,
   getEndpoint: mocks.getEndpoint,
+  resolveApiKey: mocks.resolveApiKey,
 }));
 
 vi.mock("../output.js", () => ({
@@ -142,7 +148,9 @@ describe("setup-openclaw command", () => {
   });
 
   it("reports configuration failures before calling the API", async () => {
-    mocks.getApiKey.mockReturnValueOnce("");
+    mocks.resolveApiKey.mockImplementationOnce(() => {
+      throw new Error("missing profile");
+    });
     const configPath = await writeOpenclawConfig({});
     const program = createProgram();
 

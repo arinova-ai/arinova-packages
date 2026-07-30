@@ -17,6 +17,15 @@ export interface CliConfig {
   tokenType?: TokenType;
 }
 
+export class ConfigError extends Error {
+  readonly code = "CONFIG_ERROR";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigError";
+  }
+}
+
 const CONFIG_DIR = join(homedir(), ".arinova-cli");
 const CONFIG_FILE = join(CONFIG_DIR, "config");
 
@@ -98,9 +107,9 @@ export function listProfiles(): { name: string; profile: Profile }[] {
  */
 export function resolveProfileName(flagValue?: string): string {
   if (flagValue) return flagValue;
-  console.error("Error: --profile <name> is required.");
-  console.error("       Run 'arinova profile list' to see available profiles.");
-  process.exit(1);
+  throw new ConfigError(
+    "--profile <name> is required. Run 'arinova profile list' to see available profiles.",
+  );
 }
 
 /**
@@ -116,8 +125,9 @@ export function resolveApiKey(opts: { token?: string; profile?: string }): { api
   const name = resolveProfileName(opts.profile);
   const profile = getProfile(name);
   if (!profile) {
-    console.error(`Error: Profile '${name}' not found. Run 'arinova profile list' to see available profiles.`);
-    process.exit(1);
+    throw new ConfigError(
+      `Profile '${name}' not found. Run 'arinova profile list' to see available profiles.`,
+    );
   }
   return { apiKey: profile.apiKey, profileName: name, source: "profile" };
 }
@@ -144,7 +154,7 @@ export function getEndpoint(): string {
     return process.env.ARINOVA_ENDPOINT.replace(/\/+$/, "");
   }
   const cfg = loadConfig();
-  if (cfg.endpoint) return cfg.endpoint;
+  if (cfg.endpoint) return cfg.endpoint.replace(/\/+$/, "");
   return isStaging() ? STAGING_ENDPOINT : PRODUCTION_ENDPOINT;
 }
 

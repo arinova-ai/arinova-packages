@@ -52,13 +52,10 @@ describe("CLI config", () => {
 
   it("requires an explicit profile name when no --token override is provided", async () => {
     const config = await loadConfigModule();
-    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
-      throw new Error("exit");
-    }) as never);
-    vi.spyOn(console, "error").mockImplementation(() => {});
 
-    expect(() => config.resolveProfileName()).toThrow("exit");
-    expect(exit).toHaveBeenCalledWith(1);
+    expect(() => config.resolveProfileName()).toThrow(
+      "--profile <name> is required",
+    );
   });
 
   it("uses env endpoint first and trims trailing slashes", async () => {

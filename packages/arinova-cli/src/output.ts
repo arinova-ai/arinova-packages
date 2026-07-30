@@ -8,6 +8,16 @@ export function isJsonMode(): boolean {
   return jsonMode;
 }
 
+export class ReportedCliError extends Error {
+  readonly reported = true;
+
+  constructor(error: unknown) {
+    super(error instanceof Error ? error.message : String(error));
+    this.name = "ReportedCliError";
+    this.cause = error;
+  }
+}
+
 export function printResult(data: unknown): void {
   if (jsonMode) {
     console.log(JSON.stringify(data, null, 2));
@@ -18,10 +28,20 @@ export function printResult(data: unknown): void {
 
 export function printError(err: unknown): void {
   if (jsonMode) {
-    const obj =
-      err instanceof Error
-        ? { error: err.message }
-        : { error: String(err) };
+    const value = err as {
+      status?: number;
+      code?: string;
+      message?: string;
+      details?: unknown;
+    };
+    const obj = {
+      error: {
+        status: value?.status,
+        code: value?.code,
+        message: value?.message ?? String(err),
+        details: value?.details,
+      },
+    };
     console.error(JSON.stringify(obj, null, 2));
   } else {
     if (err instanceof Error) {
@@ -30,7 +50,11 @@ export function printError(err: unknown): void {
       console.error(`Error: ${String(err)}`);
     }
   }
-  process.exit(1);
+  throw new ReportedCliError(err);
+}
+
+export function printWarning(message: string): void {
+  console.error(`Warning: ${message}`);
 }
 
 export function printSuccess(msg: string): void {

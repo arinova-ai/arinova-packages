@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { apiCall, getOpts, output } from "../api.js";
+import { encodePathSegment } from "../client.js";
 
 export function registerConversation(program: Command): void {
   const conv = program.command("conversation").description("Conversation commands");
@@ -8,13 +9,19 @@ export function registerConversation(program: Command): void {
     .command("create")
     .description("Create a conversation with an agent")
     .requiredOption("--agent-id <id>", "Agent ID")
-    .option("--title <title>", "Conversation title")
+    .requiredOption(
+      "--type <type>",
+      "Conversation type: onboarding, task_report, or alert",
+      "onboarding",
+    )
     .action(async function (this: Command) {
       const { token, apiUrl } = getOpts(this);
       const opts = this.opts();
       const data = await apiCall({
-        method: "POST", url: `${apiUrl}/api/conversations`, token,
-        body: { agentId: opts.agentId, title: opts.title },
+        method: "POST",
+        url: `${apiUrl}/api/v1/agents/${encodePathSegment(opts.agentId)}/conversations`,
+        token,
+        body: { type: opts.type },
       });
       output(data);
     });

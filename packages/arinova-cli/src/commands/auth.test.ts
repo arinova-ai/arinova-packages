@@ -87,9 +87,14 @@ describe("auth command", () => {
 
     await program.parseAsync(["node", "arinova", "auth", "whoami"]);
 
-    expect(fetchMock).toHaveBeenCalledWith("https://api.example.test/api/agent/me", {
-      headers: { Authorization: "Bearer ari_user_123" },
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/api/agent/me",
+      expect.objectContaining({
+        method: "GET",
+        headers: { Authorization: "Bearer ari_user_123" },
+        signal: expect.any(AbortSignal),
+      }),
+    );
     expect(mocks.printResult).toHaveBeenCalledWith(expect.objectContaining({
       identityType: "bot",
       agentId: "agent-1",

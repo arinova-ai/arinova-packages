@@ -96,7 +96,12 @@ describe("help commands", () => {
 
   it("arinova wiki --help exits 0", () => {
     const out = execSync(`node ${CLI} wiki --help`, { encoding: "utf-8" });
-    expect(out).toContain("Wiki page commands");
+    expect(out).toContain("Deprecated alias for memo");
+  });
+
+  it("arinova memo --help exits 0", () => {
+    const out = execSync(`node ${CLI} memo --help`, { encoding: "utf-8" });
+    expect(out).toContain("Memo page commands");
   });
 
   it("arinova search --help exits 0", () => {
@@ -237,15 +242,15 @@ describe.skipIf(!HAS_TOKEN)("notebook commands", () => {
 // Wiki CRUD — require TEST_BOT_TOKEN + TEST_CONVERSATION_ID
 // ---------------------------------------------------------------------------
 
-/** Remove all __cli_test wiki pages via API. */
+/** Remove all __cli_test memo pages via API. */
 async function cleanupTestWikiPages() {
   if (!HAS_CONV) return;
-  const pages = await apiFetch("GET", `/api/v1/wiki?conversationId=${CONV_ID}`);
+  const pages = await apiFetch("GET", `/api/v1/memo?conversationId=${CONV_ID}`);
   if (Array.isArray(pages)) {
     for (const p of pages) {
       if (typeof p.title === "string" && p.title.startsWith("__cli_test")) {
-        const res = await apiFetch("DELETE", `/api/v1/wiki/${p.id}`);
-        if (!res && res !== "") console.error(`[wiki cleanup] DELETE /api/v1/wiki/${p.id} failed`);
+        const res = await apiFetch("DELETE", `/api/v1/memo/${p.id}`);
+        if (!res && res !== "") console.error(`[memo cleanup] DELETE /api/v1/memo/${p.id} failed`);
       }
     }
   }
@@ -564,81 +569,13 @@ describe.skipIf(!HAS_TOKEN)("file commands", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Auto-Send — require TEST_BOT_TOKEN + TEST_CONVERSATION_ID
+// Auto-Send — retired v1 surface must fail before making a request
 // ---------------------------------------------------------------------------
 describe.skipIf(!HAS_CONV)("auto-send commands", () => {
-  const scheduleIds: string[] = [];
-
-  // Cancel orphaned __cli_test_* schedules from previous crashed runs
-  beforeAll(async () => {
-    try {
-      const data = await apiFetch("GET", `/api/v1/auto-send?conversationId=${CONV_ID}`);
-      const schedules = data?.schedules ?? [];
-      for (const s of schedules) {
-        if (typeof s.content === "string" && s.content.startsWith("__cli_test_")) {
-          try { await apiFetch("DELETE", `/api/v1/auto-send/${s.id}`); } catch {}
-        }
-      }
-    } catch {}
-  });
-
-  afterAll(async () => {
-    // Cleanup: cancel any test schedules created in this run
-    for (const id of scheduleIds) {
-      try { await apiFetch("DELETE", `/api/v1/auto-send/${id}`); } catch {}
-    }
-  });
-
-  it("auto-send list exits 0 and outputs JSON", () => {
-    const out = run(`auto-send list --conversation-id ${CONV_ID}`);
-    const json = JSON.parse(out);
-    expect(json).toHaveProperty("schedules");
-  });
-
-  it("auto-send create once schedule", () => {
-    const out = run(
-      `auto-send create --conversation-id ${CONV_ID} --mode once --content "__cli_test_auto_send__" --minutes 1440`,
-    );
-    const json = JSON.parse(out);
-    expect(json).toHaveProperty("id");
-    scheduleIds.push(json.id);
-  });
-
-  it("auto-send create recurring schedule", () => {
-    const out = run(
-      `auto-send create --conversation-id ${CONV_ID} --mode recurring --content "__cli_test_auto_send_recurring__" --interval 86400`,
-    );
-    const json = JSON.parse(out);
-    expect(json).toHaveProperty("id");
-    scheduleIds.push(json.id);
-  });
-
-  it("auto-send get returns schedule details", () => {
-    if (scheduleIds.length === 0) return;
-    const out = run(`auto-send get --id ${scheduleIds[0]}`);
-    const json = JSON.parse(out);
-    expect(json).toHaveProperty("id");
-    expect(json.id).toBe(scheduleIds[0]);
-  });
-
-  it("auto-send update modifies content", () => {
-    if (scheduleIds.length === 0) return;
-    const out = run(`auto-send update --id ${scheduleIds[0]} --content "__cli_test_auto_send_updated__"`);
-    const json = JSON.parse(out);
-    expect(json).toBeDefined();
-  });
-
-  it("auto-send cancel removes schedule", () => {
-    if (scheduleIds.length === 0) return;
-    const id = scheduleIds.pop()!;
-    const result = runSafe(`auto-send cancel --id ${id}`);
-    expect(result.status).toBe(0);
-  });
-
-  it("auto-send history exits 0", () => {
-    const out = run(`auto-send history --conversation-id ${CONV_ID}`);
-    const json = JSON.parse(out);
-    expect(json).toHaveProperty("logs");
+  it("auto-send list reports the retired contract", () => {
+    const result = runSafe(`auto-send list --conversation-id ${CONV_ID}`);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("UNSUPPORTED_COMMAND");
   });
 });
 
@@ -797,9 +734,10 @@ describe("expert help commands", () => {
 });
 
 describe.skipIf(!HAS_TOKEN)("expert API commands", () => {
-  it("expert list does not crash", () => {
+  it("expert list reports the removed public contract", () => {
     const result = runSafe("expert list");
-    expect(typeof result.status).toBe("number");
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("UNSUPPORTED_COMMAND");
   });
 });
 

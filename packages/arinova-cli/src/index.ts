@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { setJsonMode } from "./output.js";
 import { migrateConfigIfNeeded } from "./config.js";
+import { configureClientDefaults } from "./client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, "../package.json"), "utf-8"));
@@ -28,11 +29,12 @@ import { registerSetupOpenclaw } from "./commands/setup-openclaw.js";
 import { registerConversation } from "./commands/conversation.js";
 import { registerSkill } from "./commands/skill.js";
 import { registerSearchCommands } from "./commands/search.js";
-import { registerWikiCommands } from "./commands/wiki.js";
+import { registerMemoCommands, registerWikiCommands } from "./commands/wiki.js";
 import { registerAutoSendCommands } from "./commands/auto-send.js";
 import { registerPainterCommands } from "./commands/painter.js";
 import { registerAgentCommands } from "./commands/agent.js";
 import { registerProfile } from "./commands/profile.js";
+import { registerUserCommands } from "./commands/user.js";
 
 const program = new Command();
 
@@ -51,6 +53,11 @@ program
     }
     // Auto-migrate legacy config on first run
     migrateConfigIfNeeded();
+    configureClientDefaults({
+      endpoint: opts.apiUrl as string | undefined,
+      token: opts.token as string | undefined,
+      profileName: opts.profile as string | undefined,
+    });
   });
 
 // Existing agent commands (bot token based)
@@ -63,6 +70,7 @@ registerKanbanCommands(program);
 registerConversation(program);
 registerSkill(program);
 registerSearchCommands(program);
+registerMemoCommands(program);
 registerWikiCommands(program);
 registerAutoSendCommands(program);
 registerPainterCommands(program);
@@ -70,6 +78,7 @@ registerAgentCommands(program);
 
 // Profile management
 registerProfile(program);
+registerUserCommands(program);
 
 // Creator commands (config-based auth)
 registerAuth(program);
@@ -89,7 +98,13 @@ program.parseAsync().then(
     process.stdout.write("", () => process.exit(0));
   },
   (err) => {
-    if (err instanceof Error) console.error(err.message);
+    if (
+      err instanceof Error &&
+      !(err as Error & { reported?: boolean }).reported
+    ) {
+      const value = err as Error & { code?: string };
+      console.error(value.code ? `${value.code}: ${value.message}` : value.message);
+    }
     process.exit(1);
   },
 );

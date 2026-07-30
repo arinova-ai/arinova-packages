@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { getOpts, apiCall, output } from "../api.js";
+import { encodePathSegment } from "../client.js";
 
 export function registerAgentCommands(program: Command): void {
   const agent = program.command("agent").description("Agent management");
@@ -17,5 +18,17 @@ export function registerAgentCommands(program: Command): void {
     .action(async (opts: { id: string }) => {
       const { token, apiUrl } = getOpts(agent);
       output(await apiCall({ method: "GET", url: `${apiUrl}/api/agents/${opts.id}/profile`, token }));
+    });
+
+  agent.command("onboarding-knowledge")
+    .description("Get an agent's onboarding knowledge")
+    .requiredOption("--id <id>", "Agent ID")
+    .action(async (opts: { id: string }) => {
+      const { token, apiUrl } = getOpts(agent);
+      output(await apiCall({
+        method: "GET",
+        url: `${apiUrl}/api/v1/agents/${encodePathSegment(opts.id)}/onboarding-knowledge`,
+        token,
+      }));
     });
 }

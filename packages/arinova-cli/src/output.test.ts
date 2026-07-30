@@ -1,15 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { printResult, printSuccess, setJsonMode, table } from "./output.js";
+import { ApiError } from "./client.js";
+import {
+  printError,
+  printResult,
+  printSuccess,
+  setJsonMode,
+  table,
+} from "./output.js";
 
 describe("CLI output formatting", () => {
   beforeEach(() => {
     setJsonMode(false);
     vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    process.exitCode = undefined;
   });
 
   afterEach(() => {
     setJsonMode(false);
     vi.restoreAllMocks();
+    process.exitCode = undefined;
   });
 
   it("prints pretty object output while skipping null fields", () => {
@@ -50,5 +60,34 @@ describe("CLI output formatting", () => {
     expect(console.log).toHaveBeenCalledWith("---  -----");
     expect(console.log).toHaveBeenCalledWith("1    Alpha");
     expect(console.log).toHaveBeenCalledWith("200  B    ");
+  });
+
+  it("prints a stable JSON error envelope to stderr", () => {
+    setJsonMode(true);
+    expect(() =>
+      printError(
+        new ApiError(409, {
+          code: "CONFLICT",
+          message: "Already exists",
+          details: { id: "item-1" },
+        }),
+      ),
+    ).toThrow();
+
+    expect(console.error).toHaveBeenCalledWith(
+      JSON.stringify(
+        {
+          error: {
+            status: 409,
+            code: "CONFLICT",
+            message:
+              'API error 409: {"code":"CONFLICT","message":"Already exists","details":{"id":"item-1"}}',
+            details: { id: "item-1" },
+          },
+        },
+        null,
+        2,
+      ),
+    );
   });
 });

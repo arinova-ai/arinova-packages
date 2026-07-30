@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { get, post, patch, del, upload } from "../client.js";
+import { get, post, patch, del, upload, encodePathSegment } from "../client.js";
 import { printResult, printError, printSuccess, table } from "../output.js";
 
 export function registerSticker(program: Command): void {
@@ -58,7 +58,7 @@ export function registerSticker(program: Command): void {
         if (opts.name) body.name = opts.name;
         if (opts.description) body.description = opts.description;
         if (opts.price) body.price = parseInt(opts.price, 10);
-        const data = await patch(`/api/creator/stickers/${id}`, body);
+        const data = await patch(`/api/v1/creator/stickers/${encodePathSegment(id)}`, body);
         printResult(data);
       } catch (err) {
         printError(err);
@@ -70,7 +70,7 @@ export function registerSticker(program: Command): void {
     .description("Delete a sticker pack")
     .action(async (id: string) => {
       try {
-        await del(`/api/creator/stickers/${id}`);
+        await del(`/api/v1/creator/stickers/${encodePathSegment(id)}`);
         printSuccess(`Sticker pack ${id} deleted.`);
       } catch (err) {
         printError(err);
@@ -82,7 +82,7 @@ export function registerSticker(program: Command): void {
     .description("Upload an image to a sticker pack")
     .action(async (packId: string, file: string) => {
       try {
-        const data = await upload(`/api/creator/stickers/${packId}/stickers`, file, "sticker");
+        const data = await upload(`/api/v1/creator/stickers/${encodePathSegment(packId)}/stickers`, file, "sticker");
         printResult(data);
       } catch (err) {
         printError(err);
@@ -94,7 +94,7 @@ export function registerSticker(program: Command): void {
     .description("Remove a sticker from a pack")
     .action(async (packId: string, stickerId: string) => {
       try {
-        await del(`/api/creator/stickers/${packId}/stickers/${stickerId}`);
+        await del(`/api/v1/creator/stickers/${encodePathSegment(packId)}/stickers/${encodePathSegment(stickerId)}`);
         printSuccess(`Sticker ${stickerId} removed from pack ${packId}.`);
       } catch (err) {
         printError(err);
@@ -106,7 +106,7 @@ export function registerSticker(program: Command): void {
     .description("Submit a sticker pack for review")
     .action(async (id: string) => {
       try {
-        const data = await post(`/api/creator/stickers/${id}/submit-review`);
+        const data = await post(`/api/v1/creator/stickers/${encodePathSegment(id)}/submit-review`);
         printResult(data);
       } catch (err) {
         printError(err);
@@ -118,7 +118,7 @@ export function registerSticker(program: Command): void {
     .description("Publish a sticker pack")
     .action(async (id: string) => {
       try {
-        const data = await patch(`/api/creator/stickers/${id}`, { status: "published" });
+        const data = await patch(`/api/v1/creator/stickers/${encodePathSegment(id)}`, { status: "active" });
         printResult(data);
       } catch (err) {
         printError(err);
@@ -130,8 +130,26 @@ export function registerSticker(program: Command): void {
     .description("Unpublish a sticker pack")
     .action(async (id: string) => {
       try {
-        const data = await patch(`/api/creator/stickers/${id}`, { status: "draft" });
+        const data = await patch(`/api/v1/creator/stickers/${encodePathSegment(id)}`, { status: "draft" });
         printResult(data);
+      } catch (err) {
+        printError(err);
+      }
+    });
+
+  sticker
+    .command("cover <id>")
+    .description("Upload a sticker pack cover")
+    .requiredOption("--file <path>", "Cover image path")
+    .action(async (id: string, opts: { file: string }) => {
+      try {
+        printResult(
+          await upload(
+            `/api/v1/creator/stickers/${encodePathSegment(id)}/cover`,
+            opts.file,
+            "cover",
+          ),
+        );
       } catch (err) {
         printError(err);
       }
