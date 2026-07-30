@@ -18,6 +18,24 @@ name: Release
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package directory under packages/
+        required: true
+        type: choice
+        options:
+          - agent-sdk
+          - spaces-sdk
+          - theme-sdk
+      tag:
+        description: npm dist-tag
+        required: true
+        default: latest
+        type: choice
+        options:
+          - latest
+          - staging
 
 permissions:
   contents: write
@@ -34,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Never run on forks: they lack permissions and must not attempt releases.
-    if: github.repository == 'arinova-ai/arinova-packages'
+    if: github.repository == 'arinova-ai/arinova-packages' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -62,3 +80,32 @@ jobs:
           publish: ${{ vars.NPM_PUBLISH_ENABLED == 'true' && 'pnpm changeset publish' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-package:
+    name: Publish selected package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >-
+      github.repository == 'arinova-ai/arinova-packages' &&
+      github.event_name == 'workflow_dispatch' &&
+      vars.NPM_PUBLISH_ENABLED == 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm install -g npm@11 pnpm@10.28.2
+          pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm --filter "./packages/${{ inputs.package }}" build --if-present
+
+      - name: Publish
+        working-directory: packages/${{ inputs.package }}
+        run: npm publish --access public --tag "${{ inputs.tag }}"
