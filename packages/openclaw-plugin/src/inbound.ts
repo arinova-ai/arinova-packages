@@ -1,8 +1,6 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
-
-// Inline: createReplyPrefixOptions removed from new SDK
-function createReplyPrefixOptions(_opts?: unknown): { onModelSelected?: undefined } { return {}; }
+import { createReplyPrefixOptions } from "openclaw/plugin-sdk/channel-outbound";
 import type { ResolvedArinovaChatAccount } from "./accounts.js";
 import type { ArinovaChatInboundMessage, CoreConfig } from "./types.js";
 import { getArinovaChatRuntime } from "./runtime.js";
@@ -226,6 +224,8 @@ export async function handleArinovaChatInbound(params: {
   let lastAccumulatedText = "";
   let lastSentLength = 0;
   let aborted = false;
+  let deliverySuppressed = false;
+  let silentReplySkipped = false;
   // Guard: ensure we only send completion once.  The abort handler sends
   // completion immediately so the agent is freed; any later natural
   // completion from the LLM is silently discarded.
@@ -276,6 +276,14 @@ export async function handleArinovaChatInbound(params: {
       onError: (err, info) => {
         runtime.error?.(`openclaw-arinova-ai ${info.kind} reply failed: ${String(err)}`);
       },
+      onSkip: (_payload, info) => {
+        if (info.reason === "silent") {
+          silentReplySkipped = true;
+        }
+      },
+      onBeforeDeliverCancelled: () => {
+        deliverySuppressed = true;
+      },
     },
     replyOptions: {
       onModelSelected,
@@ -285,19 +293,24 @@ export async function handleArinovaChatInbound(params: {
         if (aborted) return;
         // onPartialReply gives accumulated text for the CURRENT block only —
         // deltaBuffer resets in handleMessageEnd between tool calls.
-        const text = (payload as { text?: string }).text ?? "";
+        const partial = payload as { text?: string; delta?: string; replace?: true };
+        const text = partial.text ?? "";
         if (text) {
           lastAccumulatedText = text;
           // Strip MEDIA: lines so raw tokens don't flash during streaming
           const cleaned = stripMediaLines(text);
           if (!cleaned.trim()) return;
           const collapsed = collapseToolBlocks(cleaned);
-          // Detect new block: text shortened means core reset deltaBuffer
-          if (collapsed.length < lastSentLength) {
+          // A replacement starts a new accumulated stream even when it is
+          // longer than the previous text. A shorter payload also indicates
+          // that core reset its per-message delta buffer.
+          if (partial.replace || collapsed.length < lastSentLength) {
             lastSentLength = 0;
           }
-          if (collapsed.length > lastSentLength) {
-            const delta = collapsed.slice(lastSentLength);
+          const delta = partial.delta !== undefined && !partial.replace
+            ? stripMediaLines(partial.delta)
+            : collapsed.slice(lastSentLength);
+          if (delta) {
             lastSentLength = collapsed.length;
             sendChunk(delta.replace(/\r\n?/g, "\n"));
           }
@@ -308,6 +321,15 @@ export async function handleArinovaChatInbound(params: {
 
   // If abort already sent completion, skip post-processing entirely
   if (completionSent) return;
+
+  // Upstream can intentionally suppress a stale foreground delivery, or skip
+  // an exact NO_REPLY final under the silent-reply policy. Both are successful
+  // quiet outcomes, not generation failures.
+  if (deliverySuppressed || silentReplySkipped) {
+    completionSent = true;
+    sendComplete("");
+    return;
+  }
 
   // Post-process completed text: upload local images → R2, resolve @mentions
   // Use finalText (all blocks via deliver callback) as primary — lastAccumulatedText

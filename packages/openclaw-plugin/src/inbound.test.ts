@@ -42,7 +42,10 @@ function createMessage(overrides: Partial<ArinovaChatInboundMessage> = {}): Arin
 function createRuntime(options: {
   deliverText?: string;
   partialText?: string;
+  partialPayloads?: Array<{ text?: string; delta?: string; replace?: true }>;
   skipDelivery?: boolean;
+  skipReason?: "empty" | "silent" | "heartbeat";
+  cancelDelivery?: boolean;
   deliverError?: unknown;
 } = {}) {
   const runtimeLog = vi.fn();
@@ -52,17 +55,35 @@ function createRuntime(options: {
     dispatcherOptions: {
       deliver: (payload: { text?: string; mediaUrls?: string[] }) => Promise<void>;
       onError: (err: unknown, info: { kind: string }) => void;
+      onSkip?: (
+        payload: { text?: string },
+        info: { kind: string; reason: "empty" | "silent" | "heartbeat" },
+      ) => void;
+      onBeforeDeliverCancelled?: () => void;
     };
     replyOptions: {
-      onPartialReply?: (payload: { text?: string }) => void;
+      onPartialReply?: (payload: { text?: string; delta?: string; replace?: true }) => void;
     };
   }) => {
     if (options.deliverError) {
       request.dispatcherOptions.onError(options.deliverError, { kind: "test" });
       return;
     }
+    for (const payload of options.partialPayloads ?? []) {
+      request.replyOptions.onPartialReply?.(payload);
+    }
     if (options.partialText) {
       request.replyOptions.onPartialReply?.({ text: options.partialText });
+    }
+    if (options.skipReason) {
+      request.dispatcherOptions.onSkip?.(
+        { text: "NO_REPLY" },
+        { kind: "final", reason: options.skipReason },
+      );
+    }
+    if (options.cancelDelivery) {
+      request.dispatcherOptions.onBeforeDeliverCancelled?.();
+      return;
     }
     if (!options.skipDelivery) {
       await request.dispatcherOptions.deliver({ text: options.deliverText ?? "reply" });
@@ -250,6 +271,93 @@ describe("handleArinovaChatInbound", () => {
 
     expect(sendError).toHaveBeenCalledWith("Unable to generate a response. Please try again.");
     expect(sendComplete).not.toHaveBeenCalled();
+  });
+
+  it("quietly completes an exact silent reply skipped by upstream policy", async () => {
+    const { runtime } = createRuntime({ skipDelivery: true, skipReason: "silent" });
+    const sendComplete = vi.fn();
+    const sendError = vi.fn();
+
+    await handleArinovaChatInbound({
+      message: createMessage({ conversationType: "group" }),
+      sendChunk: vi.fn(),
+      sendComplete,
+      sendError,
+      account: createAccount(),
+      config,
+      runtime,
+    });
+
+    expect(sendComplete).toHaveBeenCalledWith("");
+    expect(sendError).not.toHaveBeenCalled();
+  });
+
+  it("quietly completes a stale foreground delivery cancelled by upstream", async () => {
+    const { runtime } = createRuntime({ cancelDelivery: true });
+    const sendComplete = vi.fn();
+    const sendError = vi.fn();
+
+    await handleArinovaChatInbound({
+      message: createMessage(),
+      sendChunk: vi.fn(),
+      sendComplete,
+      sendError,
+      account: createAccount(),
+      config,
+      runtime,
+    });
+
+    expect(sendComplete).toHaveBeenCalledWith("");
+    expect(sendError).not.toHaveBeenCalled();
+  });
+
+  it("resets streaming accumulation for replacement partials", async () => {
+    const { runtime } = createRuntime({
+      partialPayloads: [
+        { text: "first answer" },
+        { text: "replacement answer", replace: true },
+      ],
+      deliverText: "replacement answer",
+    });
+    const sendChunk = vi.fn();
+
+    await handleArinovaChatInbound({
+      message: createMessage(),
+      sendChunk,
+      sendComplete: vi.fn(),
+      sendError: vi.fn(),
+      account: createAccount(),
+      config,
+      runtime,
+    });
+
+    expect(sendChunk.mock.calls).toEqual([
+      ["first answer"],
+      ["replacement answer"],
+    ]);
+  });
+
+  it("uses the explicit partial delta when upstream provides one", async () => {
+    const { runtime } = createRuntime({
+      partialPayloads: [
+        { text: "hello" },
+        { text: "hello world", delta: " world" },
+      ],
+      deliverText: "hello world",
+    });
+    const sendChunk = vi.fn();
+
+    await handleArinovaChatInbound({
+      message: createMessage(),
+      sendChunk,
+      sendComplete: vi.fn(),
+      sendError: vi.fn(),
+      account: createAccount(),
+      config,
+      runtime,
+    });
+
+    expect(sendChunk.mock.calls).toEqual([["hello"], [" world"]]);
   });
 
   it("streams partial text, completes delivered text, and resolves mentions", async () => {

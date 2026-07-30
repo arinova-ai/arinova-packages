@@ -1,49 +1,13 @@
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk/account-id";
-import { buildChannelConfigSchema } from "openclaw/plugin-sdk/core";
+import {
+  applyAccountNameToChannelSection,
+  buildChannelConfigSchema,
+} from "openclaw/plugin-sdk/core";
 import type { ChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk/core";
+import { formatPairingApproveHint } from "openclaw/plugin-sdk/channel-plugin-common";
 import type { ChannelSetupInput } from "openclaw/plugin-sdk/setup";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 
-// Inline stubs for functions removed from new SDK.
-function applyAccountNameToChannelSection(params: {
-  cfg: OpenClawConfig;
-  channelKey: string;
-  accountId: string;
-  name?: string;
-}): OpenClawConfig {
-  const { cfg, channelKey, accountId, name } = params;
-  if (!name) return cfg;
-  if (accountId === DEFAULT_ACCOUNT_ID) {
-    return {
-      ...cfg,
-      channels: {
-        ...cfg.channels,
-        [channelKey]: {
-          ...cfg.channels?.[channelKey],
-          name,
-        },
-      },
-    };
-  }
-  return {
-    ...cfg,
-    channels: {
-      ...cfg.channels,
-      [channelKey]: {
-        ...cfg.channels?.[channelKey],
-        accounts: {
-          ...cfg.channels?.[channelKey]?.accounts,
-          [accountId]: {
-            ...cfg.channels?.[channelKey]?.accounts?.[accountId],
-            name,
-          },
-        },
-      },
-    },
-  };
-}
-const formatPairingApproveHint = (opts: { channel: string; userId?: string }): string =>
-  `Approve pairing for ${opts.userId ?? opts.channel}`;
 import type { CoreConfig } from "./types.js";
 import {
   listArinovaChatAccountIds,
@@ -85,12 +49,12 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
     },
   },
   capabilities: {
-    chatTypes: ["direct"],
+    chatTypes: ["direct", "group"],
     reactions: false,
     threads: false,
     media: true,
     nativeCommands: false,
-    blockStreaming: false,
+    blockStreaming: true,
   },
   reload: { configPrefixes: ["channels.openclaw-arinova-ai"] },
   configSchema: buildChannelConfigSchema(ArinovaChatConfigSchema),
@@ -134,7 +98,7 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
         allowFrom: account.config.allowFrom ?? [],
         policyPath: `${basePath}dmPolicy`,
         allowFromPath: basePath,
-        approveHint: formatPairingApproveHint({ channel: "openclaw-arinova-ai" }),
+        approveHint: formatPairingApproveHint("openclaw-arinova-ai"),
         normalizeEntry: (raw) => raw.replace(/^(openclaw-arinova-ai|arinova):/i, "").toLowerCase(),
       };
     },

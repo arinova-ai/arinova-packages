@@ -1,12 +1,8 @@
-import { DmPolicySchema } from "openclaw/plugin-sdk/channel-config-schema";
-import { z as _z } from "openclaw/plugin-sdk/zod";
-
-// Inline: requireOpenAllowFrom removed from new SDK
-function requireOpenAllowFrom(params: { policy?: string; allowFrom?: string[]; ctx: _z.RefinementCtx; path: string[]; message: string }) {
-  if (params.policy === "open" && (!params.allowFrom || !params.allowFrom.includes("*"))) {
-    params.ctx.addIssue({ code: _z.ZodIssueCode.custom, message: params.message, path: params.path });
-  }
-}
+import {
+  DmPolicySchema,
+  requireAllowlistAllowFrom,
+  requireOpenAllowFrom,
+} from "openclaw/plugin-sdk/channel-config-schema";
 import { z } from "openclaw/plugin-sdk/zod";
 
 export const ArinovaChatAccountSchemaBase = z
@@ -34,6 +30,14 @@ export const ArinovaChatAccountSchema = ArinovaChatAccountSchemaBase.superRefine
     message:
       'channels.openclaw-arinova-ai.dmPolicy="open" requires channels.openclaw-arinova-ai.allowFrom to include "*"',
   });
+  requireAllowlistAllowFrom({
+    policy: value.dmPolicy,
+    allowFrom: value.allowFrom,
+    ctx,
+    path: ["allowFrom"],
+    message:
+      'channels.openclaw-arinova-ai.dmPolicy="allowlist" requires channels.openclaw-arinova-ai.allowFrom to contain at least one sender',
+  });
 });
 
 export const ArinovaChatConfigSchema = ArinovaChatAccountSchemaBase.extend({
@@ -46,5 +50,13 @@ export const ArinovaChatConfigSchema = ArinovaChatAccountSchemaBase.extend({
     path: ["allowFrom"],
     message:
       'channels.openclaw-arinova-ai.dmPolicy="open" requires channels.openclaw-arinova-ai.allowFrom to include "*"',
+  });
+  requireAllowlistAllowFrom({
+    policy: value.dmPolicy,
+    allowFrom: value.allowFrom,
+    ctx,
+    path: ["allowFrom"],
+    message:
+      'channels.openclaw-arinova-ai.dmPolicy="allowlist" requires channels.openclaw-arinova-ai.allowFrom to contain at least one sender',
   });
 });

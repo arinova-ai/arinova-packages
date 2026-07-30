@@ -24,6 +24,7 @@ vi.mock("@arinova-ai/agent-sdk", () => ({
 }));
 
 import { arinovaChatPlugin } from "./channel.js";
+import { ArinovaChatConfigSchema } from "./config-schema.js";
 
 const plugin = arinovaChatPlugin as any;
 
@@ -62,6 +63,37 @@ describe("arinovaChatPlugin channel contract", () => {
       cfg,
       allowFrom: [" openclaw-arinova-ai:UserA ", "arinova:UserB", ""],
     })).toEqual(["usera", "userb"]);
+  });
+
+  it("declares direct and group chat with block streaming display support", () => {
+    expect(plugin.capabilities.chatTypes).toEqual(["direct", "group"]);
+    expect(plugin.capabilities.blockStreaming).toBe(true);
+  });
+
+  it("returns actionable pairing approval commands", () => {
+    const policy = plugin.security.resolveDmPolicy({
+      cfg,
+      accountId: "default",
+      account: {
+        accountId: "default",
+        config: { dmPolicy: "pairing" },
+      },
+    });
+
+    expect(policy.approveHint).toContain("openclaw pairing list openclaw-arinova-ai");
+    expect(policy.approveHint).toContain("openclaw pairing approve openclaw-arinova-ai <code>");
+  });
+
+  it("rejects allowlist policy without any allowed senders", () => {
+    const result = ArinovaChatConfigSchema.safeParse({
+      dmPolicy: "allowlist",
+      allowFrom: [],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toContain("requires");
+    }
   });
 
   it("describes configured and missing account secrets without leaking values", () => {
