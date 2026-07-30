@@ -95,7 +95,7 @@ function createRuntime(options: {
   };
 
   setArinovaChatRuntime(core as never);
-  return { core, runtime: { log: runtimeLog, error: runtimeError } };
+  return { core, runtime: { log: runtimeLog, error: runtimeError, exit: vi.fn() } };
 }
 
 describe("inbound payload helpers", () => {

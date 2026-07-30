@@ -68,7 +68,7 @@ describe("replaceImagePaths", () => {
     const result = await replaceImagePaths("images/broken.jpg", workDir, upload, log);
 
     expect(result).toBe("images/broken.jpg");
-    expect(log.mock.calls.some(([msg]: [unknown]) => String(msg).includes("failed"))).toBe(true);
+    expect(log.mock.calls.some(([msg]: unknown[]) => String(msg).includes("failed"))).toBe(true);
   });
 
   it("returns text unchanged when no image paths are present", async () => {

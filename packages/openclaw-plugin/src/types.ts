@@ -1,5 +1,5 @@
 // DmPolicy inlined (removed from root plugin-sdk export in new SDK)
-export type DmPolicy = "open" | "allowlist" | "paired";
+export type DmPolicy = "open" | "disabled" | "allowlist" | "pairing";
 
 export type ArinovaChatAccountConfig = {
   name?: string;

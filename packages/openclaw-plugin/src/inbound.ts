@@ -1,7 +1,7 @@
 import type { OpenClawConfig, RuntimeEnv } from "openclaw/plugin-sdk";
 
 // Inline: createReplyPrefixOptions removed from new SDK
-function createReplyPrefixOptions(_opts?: unknown) { return {}; }
+function createReplyPrefixOptions(_opts?: unknown): { onModelSelected?: undefined } { return {}; }
 import type { ResolvedArinovaChatAccount } from "./accounts.js";
 import type { ArinovaChatInboundMessage, CoreConfig } from "./types.js";
 import { getArinovaChatRuntime } from "./runtime.js";
