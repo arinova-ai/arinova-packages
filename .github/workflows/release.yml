@@ -1,0 +1,48 @@
+name: Release
+
+# Changesets release flow, version-PR-only for now:
+# merging feature PRs with pending changesets keeps a "Version Packages"
+# PR up to date; merging THAT PR is the human sign-off that bumps
+# versions and changelogs. Actual `changeset publish` to npm is not
+# wired up yet — it lands together with npm Trusted Publishing (OIDC)
+# so no npm token ever lives in this public repo.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version-pr:
+    name: Maintain Version Packages PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Never run on forks: they lack permissions and must not attempt releases.
+    if: github.repository == 'arinova-ai/arinova-packages'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm install -g pnpm@10.28.2
+          pnpm install --frozen-lockfile
+
+      - name: Create or update Version Packages PR
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        with:
+          title: "chore: version packages"
+          commit: "chore: version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
