@@ -104,7 +104,7 @@ jobs:
           pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm --filter "./packages/${{ inputs.package }}" build --if-present
+        run: pnpm --filter "./packages/${{ inputs.package }}" run --if-present build
 
       - name: Publish
         working-directory: packages/${{ inputs.package }}
