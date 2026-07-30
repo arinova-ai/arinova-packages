@@ -57,6 +57,7 @@ Creates a new agent instance.
 | `botToken` | `string` | Yes | -- | Bot token from the Arinova dashboard |
 | `reconnectInterval` | `number` | No | `5000` | Milliseconds to wait before reconnecting after a disconnect |
 | `pingInterval` | `number` | No | `30000` | Milliseconds between keep-alive pings |
+| `logger` | `Pick<Console, "warn" \| "info" \| "error">` | No | `console` | Injectable diagnostics logger; use no-op methods to silence output |
 
 ### `agent.onTask(handler)`
 
@@ -77,6 +78,7 @@ Subscribes to lifecycle events.
 | `"connected"` | `() => void` | Fired after successful authentication |
 | `"disconnected"` | `() => void` | Fired when the WebSocket connection closes |
 | `"error"` | `(error: Error) => void` | Fired on authentication failure, connection errors, or message parse errors |
+| `"auth_failed"` | `() => void` | Fired after five non-retryable authentication failures |
 
 ### `agent.connect()`
 
@@ -90,7 +92,9 @@ try {
 }
 ```
 
-The agent automatically reconnects on unexpected disconnects. It does **not** reconnect on authentication errors.
+The agent automatically reconnects on unexpected disconnects and retryable
+server/auth availability errors. Five non-retryable authentication failures
+reject the pending `connect()` promise, emit `auth_failed`, and stop retries.
 
 ### `agent.disconnect()`
 
@@ -106,9 +110,11 @@ The object passed to your `onTask` handler.
 
 | Property | Type | Description |
 |---|---|---|
+| `raw` | `Readonly<Record<string, unknown>>` | Complete server task payload, including forward-compatible metadata |
 | `taskId` | `string` | Unique task ID assigned by the server |
-| `conversationId` | `string` | ID of the conversation this task belongs to |
+| `conversationId` | `string \| undefined` | Conversation ID; absent for platform wakeups |
 | `content` | `string` | The user's message text |
+| `availableSkills` | `InstalledSkill[] \| undefined` | Installed skills supplied with this task |
 | `sendChunk(chunk)` | `(chunk: string) => void` | Send a streaming text chunk to the user |
 | `sendComplete(content)` | `(content: string) => void` | Mark the task as complete with the full response |
 | `sendError(error)` | `(error: string) => void` | Mark the task as failed with an error message |
@@ -122,6 +128,14 @@ Send a proactive message to a conversation. Uses WebSocket if connected, otherwi
 ```ts
 await agent.sendMessage("conv-id", "Hello from the agent!");
 ```
+
+All HTTP methods reject with `ArinovaApiError`, which exposes the numeric
+`status` and parsed JSON or text `body` without requiring message regexes.
+
+Action calls are rejected immediately if the socket disconnects. Long-running
+actions can call
+`agent.reportActionProgress(callId, action, progress, { taskId?, conversationId? })`;
+tool telemetry uses synchronous `agent.reportToolCall(report)`.
 
 ### `agent.uploadFile(conversationId, file, fileName, fileType?)`
 
@@ -147,37 +161,29 @@ Fetch conversation message history with pagination.
 
 ### Notes API
 
-#### `agent.listNotes(conversationId, options?)`
+#### `agent.listNotes(options?)`
 
-List notes in a conversation. Supports pagination, tag filtering, and archived notes.
+List notes in the authenticated owner's notebook. Supports pagination, tag filtering, and archived notes.
 
 ```ts
-const { notes, hasMore } = await agent.listNotes("conv-id", { tags: ["sprint-1"], limit: 10 });
+const { notes, hasMore } = await agent.listNotes({ tags: ["sprint-1"], limit: 10 });
 ```
 
-#### `agent.createNote(conversationId, body)`
+#### `agent.createNote(body)`
 
 Create a note. Body: `{ title: string, content?: string, tags?: string[] }`.
 
 ```ts
-const note = await agent.createNote("conv-id", { title: "Meeting Notes", content: "...", tags: ["meeting"] });
+const note = await agent.createNote({ title: "Meeting Notes", content: "...", tags: ["meeting"] });
 ```
 
-#### `agent.updateNote(conversationId, noteId, body)`
+#### `agent.updateNote(noteId, body)`
 
 Update a note. Body: `{ title?: string, content?: string, tags?: string[] }`.
 
-#### `agent.deleteNote(conversationId, noteId)`
+#### `agent.deleteNote(noteId)`
 
 Delete a note.
-
-#### `agent.shareNote(conversationId, noteId)`
-
-Share a note as a rich preview card in a conversation.
-
-```ts
-const result = await agent.shareNote("conv-id", "note-id");
-```
 
 ---
 

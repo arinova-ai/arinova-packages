@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "requiredKeys": [
+    "type",
+    "taskId",
+    "conversationId",
+    "content",
+    "conversationType",
+    "senderUserId",
+    "senderUsername",
+    "userMessageId",
+    "surface",
+    "billingOwnerUserId",
+    "eventOrigin",
+    "ownerAuthored"
+  ],
+  "optionalKeys": [
+    "senderAgentId",
+    "senderAgentName",
+    "externalSender",
+    "members",
+    "replyTo",
+    "history",
+    "attachments",
+    "agentMemories",
+    "shortIdResolutions",
+    "availableSkills",
+    "messageMetadata",
+    "stickerMetadata"
+  ],
+  "typedSdkKeys": [
+    "taskId",
+    "conversationId",
+    "content",
+    "conversationType",
+    "senderUserId",
+    "senderUsername",
+    "userMessageId",
+    "senderAgentId",
+    "senderAgentName",
+    "members",
+    "replyTo",
+    "history",
+    "attachments",
+    "availableSkills"
+  ]
+}

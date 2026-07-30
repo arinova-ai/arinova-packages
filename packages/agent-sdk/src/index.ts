@@ -1,4 +1,4 @@
-export { ArinovaAgent } from "./client.js";
+export { ArinovaAgent, ArinovaApiError } from "./client.js";
 export type {
   ArinovaAgentOptions,
   AgentSkill,
@@ -27,12 +27,12 @@ export type {
   QueryMemoryOptions,
   MemoryEntry,
   MemoryOrigin,
-  ShareNoteResult,
   SkillPrompt,
   ToolCallReport,
   TaskUpdateData,
   ActionCallOptions,
   ActionCallResult,
+  ActionProgressOptions,
   ActionErrorBody,
   ActionConfirmationPayload,
   TokenClaimedData,

@@ -7,8 +7,8 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "files": [
@@ -30,6 +30,15 @@
     "ai"
   ],
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arinova-ai/arinova-packages.git",
+    "directory": "packages/agent-sdk"
+  },
+  "homepage": "https://github.com/arinova-ai/arinova-packages/tree/main/packages/agent-sdk",
   "devDependencies": {
     "@types/node": "^25.6.0",
     "typescript": "^5",

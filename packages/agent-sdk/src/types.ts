@@ -41,6 +41,8 @@ export interface ArinovaAgentOptions {
    * with a non-empty queue. Default: 2. Ignored in other modes.
    */
   maxConsecutivePerConversation?: number;
+  /** Logger for connection diagnostics. Pass no-op methods to silence the SDK. */
+  logger?: Pick<Console, "warn" | "info" | "error">;
 }
 
 /** Runtime capability block sent during agent_auth. */
@@ -93,8 +95,15 @@ export interface ActionCallResult {
   dryRun?: boolean;
 }
 
+export interface ActionProgressOptions {
+  taskId?: string;
+  conversationId?: string;
+}
+
 /** Context passed to the task handler. */
 export interface TaskContext {
+  /** Complete server task payload for forward-compatible access to new fields. */
+  readonly raw: Readonly<Record<string, unknown>>;
   /** Unique task ID assigned by the server. */
   taskId: string;
   /**
@@ -450,17 +459,6 @@ export interface MemoryEntry {
   category: string;
   score: number;
   origin?: MemoryOrigin;
-}
-
-// ── Note share types ──────────────────────────────────────────
-
-/** Result from shareNote(). */
-export interface ShareNoteResult {
-  messageId: string;
-  noteId: string;
-  title: string;
-  preview: string;
-  tags: string[];
 }
 
 /** Skill prompt content returned by fetchSkillPrompt(). */

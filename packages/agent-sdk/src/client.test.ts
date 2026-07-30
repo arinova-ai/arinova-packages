@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { ArinovaAgent } from "./client.js";
+import { ArinovaAgent, ArinovaApiError } from "./client.js";
 
 // Derive the expected version from package.json — the same single source of
 // truth the SDK reads at runtime — so this assertion never drifts from the
@@ -8,108 +10,41 @@ import { ArinovaAgent } from "./client.js";
 const PKG_VERSION = (
   createRequire(import.meta.url)("../package.json") as { version: string }
 ).version;
+const TASK_CONTRACT_SOURCE = readFileSync(
+  new URL("../../../contract-fixtures/agent-task-payload.json", import.meta.url),
+  "utf8",
+);
+const TASK_CONTRACT = JSON.parse(TASK_CONTRACT_SOURCE) as {
+  requiredKeys: string[];
+  optionalKeys: string[];
+  typedSdkKeys: string[];
+};
+const TASK_CONTRACT_SHA256 = "69825ac4ca4147f382ba7a4d21b54a2a738cc3861a00cae26f0ed5dd6d2f656e";
 
-// Test API client configuration
-describe("API client configuration", () => {
-  it("constructs base URL from options", () => {
-    const baseUrl = "https://api.chat-staging.arinova.ai";
-    expect(baseUrl).toMatch(/^https?:\/\//);
+it("pins and preserves the shared server task-payload contract", () => {
+  expect(createHash("sha256").update(TASK_CONTRACT_SOURCE).digest("hex")).toBe(TASK_CONTRACT_SHA256);
+  const agent = new ArinovaAgent({ serverUrl: "ws://localhost:9999", botToken: "ari_test" });
+  const a = agent as unknown as {
+    handleTask: (data: Record<string, unknown>) => void;
+  };
+  let captured: Record<string, unknown> | undefined;
+  agent.onTask((ctx) => { captured = ctx as unknown as Record<string, unknown>; });
+  const payload = Object.fromEntries(
+    [...TASK_CONTRACT.requiredKeys, ...TASK_CONTRACT.optionalKeys].map((key) => [key, null]),
+  );
+  Object.assign(payload, {
+    type: "task",
+    taskId: "task-1",
+    conversationId: "conv-1",
+    content: "hello",
+    availableSkills: [],
   });
-
-  it("bearer token format is correct", () => {
-    const token = "ari_abc123def456";
-    const header = `Bearer ${token}`;
-    expect(header).toBe("Bearer ari_abc123def456");
-    expect(header.startsWith("Bearer ari_")).toBe(true);
-  });
-
-  it("CLI API key format differs from bot token", () => {
-    const botToken = "ari_abc123";
-    const cliKey = "ari_cli_abc123";
-    expect(botToken.startsWith("ari_")).toBe(true);
-    expect(botToken.startsWith("ari_cli_")).toBe(false);
-    expect(cliKey.startsWith("ari_cli_")).toBe(true);
-  });
-});
-
-// Test auth token handling
-describe("auth token handling", () => {
-  it("token is included in Authorization header", () => {
-    const token = "ari_test_token";
-    const headers = { Authorization: `Bearer ${token}` };
-    expect(headers.Authorization).toContain(token);
-  });
-
-  it("empty token produces valid header", () => {
-    const token = "";
-    const headers = { Authorization: `Bearer ${token}` };
-    expect(headers.Authorization).toBe("Bearer ");
-  });
-
-  it("session token from cookie is extracted correctly", () => {
-    const cookie = "better-auth.session_token=abc123; Path=/; HttpOnly";
-    const match = cookie.match(/better-auth\.session_token=([^;]+)/);
-    expect(match).toBeTruthy();
-    expect(match![1]).toBe("abc123");
-  });
-});
-
-// Test error handling patterns
-describe("error handling", () => {
-  it("parses JSON error response", () => {
-    const errorBody = { error: "Not found", code: "NOT_FOUND" };
-    expect(errorBody.error).toBe("Not found");
-    expect(errorBody.code).toBe("NOT_FOUND");
-  });
-
-  it("handles 401 unauthorized", () => {
-    const status = 401;
-    const isUnauthorized = status === 401;
-    expect(isUnauthorized).toBe(true);
-  });
-
-  it("handles 403 forbidden (banned)", () => {
-    const response = { error: "Your account has been banned", code: "ACCOUNT_BANNED" };
-    expect(response.code).toBe("ACCOUNT_BANNED");
-  });
-
-  it("handles 429 rate limit", () => {
-    const status = 429;
-    const isRateLimited = status === 429;
-    expect(isRateLimited).toBe(true);
-  });
-
-  it("handles network error gracefully", () => {
-    const err = new Error("fetch failed");
-    expect(err.message).toBe("fetch failed");
-  });
-});
-
-// Test API method signatures
-describe("API method signatures", () => {
-  it("send message requires conversationId and content", () => {
-    const body = { conversationId: "conv-123", content: "Hello" };
-    expect(body.conversationId).toBeTruthy();
-    expect(body.content).toBeTruthy();
-  });
-
-  it("create note requires title", () => {
-    const body = { title: "Test Note", content: "Body text", tags: ["test"] };
-    expect(body.title).toBeTruthy();
-  });
-
-  it("kanban card requires title", () => {
-    const body = { title: "Test Card", priority: "medium" };
-    expect(body.title).toBeTruthy();
-  });
-
-  it("file upload uses multipart form data", () => {
-    const formData = new FormData();
-    formData.append("file", new Blob(["test"]), "test.txt");
-    formData.append("conversationId", "conv-123");
-    expect(formData.has("file")).toBe(true);
-    expect(formData.has("conversationId")).toBe(true);
-  });
+  a.handleTask(payload);
+  expect(Object.keys(captured!.raw as Record<string, unknown>).sort())
+    .toEqual([...TASK_CONTRACT.requiredKeys, ...TASK_CONTRACT.optionalKeys].sort());
+  for (const key of TASK_CONTRACT.typedSdkKeys) {
+    expect(captured).toHaveProperty(key);
+  }
 });
 
 describe("API client request builders", () => {
@@ -139,6 +74,17 @@ describe("API client request builders", () => {
         body: JSON.stringify({ conversationId: "conv-1", content: "Hello" }),
       },
     );
+  });
+
+  it("uses the injected logger and can be silenced", () => {
+    const logger = { warn: vi.fn(), info: vi.fn(), error: vi.fn() };
+    const agent = new ArinovaAgent({
+      serverUrl: "wss://chat.example.test",
+      botToken: "ari_bot_token",
+      logger,
+    });
+    agent.disconnect();
+    expect(logger.warn).toHaveBeenCalledWith("[arinova-agent-sdk] stopped: disconnect() called");
   });
 
   it("sendMessage includes backend error text in failures", async () => {
@@ -260,6 +206,80 @@ describe("API client request builders", () => {
       agent.fetchHistory("conv-1", { before: "bad-cursor" }),
     ).rejects.toThrow("fetchHistory failed (400): cursor expired");
   });
+
+  it("throws ArinovaApiError with status and parsed body", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { code: "FORBIDDEN", message: "No access" } }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const agent = new ArinovaAgent({
+      serverUrl: "wss://chat.example.test",
+      botToken: "ari_bot_token",
+    });
+    const promise = agent.listBoards();
+    await expect(promise).rejects.toBeInstanceOf(ArinovaApiError);
+    await expect(promise).rejects.toMatchObject({
+      status: 403,
+      body: { error: { code: "FORBIDDEN", message: "No access" } },
+    });
+  });
+
+  it("maps queryMemory results and normalizes reported origins", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify([
+        {
+          id: "m1",
+          category: "preference",
+          summary: "Uses dark mode",
+          detail: "Always",
+          score: 0.9,
+          source: "shared-from-4A04A28F",
+        },
+        {
+          id: "m2",
+          category: "system",
+          summary: "Seed",
+          detail: null,
+          score: 0.5,
+          source: "system",
+        },
+      ]), { status: 200 }),
+    );
+    const agent = new ArinovaAgent({
+      serverUrl: "wss://chat.example.test",
+      botToken: "ari_bot_token",
+    });
+    await expect(agent.queryMemory({ query: "theme", limit: 2 })).resolves.toEqual([
+      {
+        content: "Uses dark mode\nAlways",
+        category: "preference",
+        score: 0.9,
+        origin: "shared-from-4a04a28f",
+      },
+      { content: "Seed", category: "system", score: 0.5, origin: "system" },
+    ]);
+  });
+
+  it("uses notebook-scoped note APIs without a fake conversation id", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ notes: [], hasMore: false }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "n1", title: "Note" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const agent = new ArinovaAgent({
+      serverUrl: "wss://chat.example.test",
+      botToken: "ari_bot_token",
+    });
+    await agent.listNotes({ limit: 10 });
+    await agent.createNote({ title: "Note" });
+    await agent.deleteNote("n1");
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://chat.example.test/api/v1/notes?limit=10",
+      "https://chat.example.test/api/v1/notes",
+      "https://chat.example.test/api/v1/notes/n1",
+    ]);
+  });
 });
 
 // ── Per-conversation queue tests (real ArinovaAgent) ─────────
@@ -278,6 +298,7 @@ describe("per-conversation task queue", () => {
       cleanupForReconnect: () => void;
       flushPendingChunkEvents: () => void;
       flushPendingTerminalEvents: () => void;
+      sendChunkEvent: (event: Record<string, unknown>) => void;
       activeConversationTasks: Map<string, string>;
       conversationQueues: Map<string, Array<Record<string, unknown>>>;
       taskAbortControllers: Map<string, AbortController>;
@@ -285,6 +306,7 @@ describe("per-conversation task queue", () => {
       pendingTerminalEvents: Array<Record<string, unknown>>;
       ws: { readyState: number; send: ReturnType<typeof vi.fn> } | null;
       send: (event: Record<string, unknown>) => void;
+      pendingActionCalls: Map<string, unknown>;
     };
     // Stub send() — no real WS
     a.send = vi.fn();
@@ -325,6 +347,9 @@ describe("per-conversation task queue", () => {
       senderUsername: "ripple0129",
       senderAgentId: "agent-linda",
       senderAgentName: "Linda",
+      availableSkills: [{ slug: "draw", name: "Draw", slashCommand: "/draw", description: "Draw an image" }],
+      agentMemories: [{ summary: "raw memory" }],
+      metadata: { chainDepth: 2 },
     });
 
     expect(captured).not.toBeNull();
@@ -333,6 +358,13 @@ describe("per-conversation task queue", () => {
     expect(captured!.senderAgentName).toBe("Linda");
     // Human fields still pass through unchanged
     expect(captured!.senderUsername).toBe("ripple0129");
+    expect(captured!.availableSkills).toEqual([
+      { slug: "draw", name: "Draw", slashCommand: "/draw", description: "Draw an image" },
+    ]);
+    expect(captured!.raw).toMatchObject({
+      agentMemories: [{ summary: "raw memory" }],
+      metadata: { chainDepth: 2 },
+    });
   });
 
   it("different conversations run in parallel", () => {
@@ -547,6 +579,78 @@ describe("per-conversation task queue", () => {
     expect(a.pendingTerminalEvents).toEqual([]);
   });
 
+  it("caps offline chunks and discards chunks older than reconnect grace", () => {
+    const { a } = createAgent();
+    const now = vi.spyOn(Date, "now").mockReturnValue(0);
+    for (let i = 0; i < 1_005; i++) {
+      a.sendChunkEvent({ type: "agent_chunk", taskId: "t1", chunk: String(i) });
+    }
+    expect(a.pendingChunkEvents).toHaveLength(1_000);
+    expect(a.pendingChunkEvents[0]?.chunk).toBe("5");
+
+    now.mockReturnValue(60_001);
+    const send = vi.fn();
+    a.ws = { readyState: 1, send };
+    a.flushPendingChunkEvents();
+    expect(send).not.toHaveBeenCalled();
+    expect(a.pendingChunkEvents).toEqual([]);
+  });
+
+  it("reports action progress and tool calls synchronously", () => {
+    const { agent, a } = createAgent();
+    expect(agent.reportToolCall({
+      sessionId: "s1",
+      turnId: "turn-1",
+      seqOrder: 0,
+      toolName: "search",
+      input: {},
+      success: true,
+    })).toBeUndefined();
+    agent.reportActionProgress("call-1", "arinova.search", { percent: 50 }, {
+      taskId: "t1",
+      conversationId: "conv-A",
+    });
+    expect(a.send).toHaveBeenNthCalledWith(1, expect.objectContaining({ type: "tool_call_report" }));
+    expect(a.send).toHaveBeenNthCalledWith(2, {
+      type: "action_progress",
+      id: "call-1",
+      action: "arinova.search",
+      progress: { percent: 50 },
+      taskId: "t1",
+      conversationId: "conv-A",
+    });
+  });
+
+  it("rolls back action calls on send errors, timeout, and disconnect", async () => {
+    vi.useFakeTimers();
+    const first = createAgent();
+    first.a.ws = { readyState: 1, send: vi.fn() };
+    first.a.send = vi.fn(() => { throw new Error("send failed"); });
+    await expect(first.agent.callAction("bad.send", {}, { callId: "c1" })).rejects.toThrow("send failed");
+    expect(first.a.pendingActionCalls.size).toBe(0);
+
+    const second = createAgent();
+    second.a.ws = { readyState: 1, send: vi.fn() };
+    const timedOut = second.agent.callAction("slow", {}, { callId: "c2", timeoutMs: 10 });
+    const timedOutExpectation = expect(timedOut).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(10);
+    await timedOutExpectation;
+    expect(second.a.pendingActionCalls.size).toBe(0);
+
+    const third = createAgent();
+    third.a.ws = { readyState: 1, send: vi.fn() };
+    const reconnecting = third.agent.callAction("waiting", {}, { callId: "c3" });
+    third.a.cleanupForReconnect();
+    await expect(reconnecting).rejects.toThrow(/cancelled by connection lost/);
+
+    const fourth = createAgent();
+    fourth.a.ws = { readyState: 1, send: vi.fn() };
+    const disconnected = fourth.agent.callAction("waiting", {}, { callId: "c4" });
+    fourth.a.cleanup();
+    await expect(disconnected).rejects.toThrow(/cancelled by disconnect/);
+    vi.useRealTimers();
+  });
+
   it("abort emits agent_error with reason:cancelled so rust-server can broadcast stream_end", () => {
     const { a } = createAgent();
     a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
@@ -625,7 +729,7 @@ describe("agent-wide task queue", () => {
     a.handleTask({ taskId: "a1", conversationId: "conv-A", content: "first" });
     a.handleTask({ taskId: "b1", conversationId: "conv-B", content: "second" });
 
-    // Under hasLiveTask() guard, b1 on a different conv still queues
+    // Under the agent-wide lock, b1 on a different conv still queues
     // instead of starting in parallel — the Gina-regression fix.
     expect(a.taskAbortControllers.has("a1")).toBe(true);
     expect(a.taskAbortControllers.has("b1")).toBe(false);
@@ -704,6 +808,68 @@ describe("agent-wide task queue", () => {
   });
 });
 
+describe("task execution modes", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("runs unbounded tasks concurrently", () => {
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:9999",
+      botToken: "ari_test",
+      concurrencyMode: "unbounded",
+    });
+    const a = agent as unknown as {
+      handleTask: (data: Record<string, unknown>) => void;
+      taskAbortControllers: Map<string, AbortController>;
+      send: ReturnType<typeof vi.fn>;
+    };
+    a.send = vi.fn();
+    agent.onTask(async () => await new Promise(() => {}));
+    a.handleTask({ taskId: "t1", conversationId: "conv-1", content: "one" });
+    a.handleTask({ taskId: "t2", conversationId: "conv-1", content: "two" });
+    expect([...a.taskAbortControllers.keys()]).toEqual(["t1", "t2"]);
+  });
+
+  it("turns handler exceptions into agent_error", async () => {
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:9999",
+      botToken: "ari_test",
+    });
+    const a = agent as unknown as {
+      handleTask: (data: Record<string, unknown>) => void;
+      pendingTerminalEvents: Array<Record<string, unknown>>;
+    };
+    agent.onTask(() => { throw new Error("handler exploded"); });
+    a.handleTask({ taskId: "t1", conversationId: "conv-1", content: "one" });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(a.pendingTerminalEvents).toContainEqual({
+      type: "agent_error",
+      taskId: "t1",
+      error: "handler exploded",
+    });
+  });
+
+  it("emits a per-task heartbeat every 60 seconds", () => {
+    vi.useFakeTimers();
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:9999",
+      botToken: "ari_test",
+    });
+    const a = agent as unknown as {
+      handleTask: (data: Record<string, unknown>) => void;
+      send: ReturnType<typeof vi.fn>;
+    };
+    a.send = vi.fn();
+    agent.onTask(async () => await new Promise(() => {}));
+    a.handleTask({ taskId: "t1", conversationId: "conv-1", content: "one" });
+    vi.advanceTimersByTime(60_000);
+    expect(a.send).toHaveBeenCalledWith({ type: "agent_heartbeat", taskId: "t1" });
+  });
+});
+
 // ── Auth retry state machine tests ───────────────────────────
 
 describe("auth retry state machine", () => {
@@ -719,6 +885,7 @@ describe("auth retry state machine", () => {
       authErrorCount: number;
       authRetryAttempt: number;
       authRetryTimer: ReturnType<typeof setTimeout> | null;
+      connectReject: ((error: Error) => void) | null;
     };
     a.doConnect = vi.fn();
     return { agent, a };
@@ -749,19 +916,24 @@ describe("auth retry state machine", () => {
     expect(a.authRetryTimer).not.toBeNull();
   });
 
-  it("keeps retrying after 5 real auth errors instead of permanently stopping", () => {
-    const { a } = createAgent();
+  it("rejects connect and emits auth_failed after 5 real auth errors", () => {
+    const { agent, a } = createAgent();
+    const reject = vi.fn();
+    const authFailed = vi.fn();
+    a.connectReject = reject;
+    agent.on("auth_failed", authFailed);
 
     for (let i = 0; i < 5; i++) {
       a.handleAuthError("Invalid bot token");
     }
 
     expect(a.authErrorCount).toBe(5);
-    expect(a.stopped).toBe(false);
-    expect(a.authRetryTimer).not.toBeNull();
-
+    expect(a.stopped).toBe(true);
+    expect(a.authRetryTimer).toBeNull();
+    expect(reject).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("Invalid bot token") }));
+    expect(authFailed).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(60_000);
-    expect(a.doConnect).toHaveBeenCalledTimes(1);
+    expect(a.doConnect).not.toHaveBeenCalled();
   });
 
   it("counts only real auth errors when retryable server errors are mixed in", () => {
@@ -791,6 +963,8 @@ describe("pong watchdog", () => {
     readyState = MockWebSocket.OPEN;
     onopen: (() => void) | null = null;
     onmessage: ((event: { data: string }) => void) | null = null;
+    onerror: (() => void) | null = null;
+    onclose: (() => void) | null = null;
     send = vi.fn();
     close = vi.fn(() => {
       this.readyState = MockWebSocket.CLOSED;
@@ -811,6 +985,8 @@ describe("pong watchdog", () => {
     const a = agent as unknown as {
       cleanup: () => void;
       doConnect: () => void;
+      ws: MockWebSocket | null;
+      reconnectTimer: ReturnType<typeof setTimeout> | null;
     };
     return { agent, a };
   }
@@ -872,6 +1048,75 @@ describe("pong watchdog", () => {
     });
 
     a.cleanup();
+  });
+
+  it("auth_ok registers skill commands and starts their heartbeat", () => {
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:9999",
+      botToken: "ari_test",
+      skills: [{ id: "draw", name: "Draw", description: "Draw an image" }],
+    });
+    const a = agent as unknown as { doConnect: () => void; cleanup: () => void };
+    a.doConnect();
+    const ws = MockWebSocket.instances[0]!;
+    ws.onopen?.();
+    ws.onmessage?.({ data: JSON.stringify({ type: "auth_ok", agentId: "agent-1" }) });
+    expect(ws.send.mock.calls.map(([frame]) => JSON.parse(frame))).toContainEqual({
+      type: "register_commands",
+      agentId: "agent-1",
+      commands: [{ name: "draw", description: "Draw an image" }],
+    });
+    vi.advanceTimersByTime(60_000);
+    expect(ws.send.mock.calls.map(([frame]) => JSON.parse(frame))).toContainEqual({
+      type: "heartbeat_commands",
+      agentId: "agent-1",
+    });
+    a.cleanup();
+  });
+
+  it("deduplicates error-plus-close and schedules one reconnect", () => {
+    const { a } = createAgent();
+    a.doConnect();
+    const ws = MockWebSocket.instances[0]!;
+    ws.onerror?.();
+    ws.onclose?.();
+    expect(a.reconnectTimer).not.toBeNull();
+    vi.advanceTimersByTime(5_000);
+    expect(MockWebSocket.instances).toHaveLength(2);
+  });
+
+  it("ignores a queued terminal callback from an old socket", () => {
+    const { a } = createAgent();
+    a.doConnect();
+    const old = MockWebSocket.instances[0]!;
+    const lateClose = old.onclose;
+    a.doConnect();
+    const current = MockWebSocket.instances[1]!;
+    lateClose?.();
+    expect(a.ws).toBe(current);
+  });
+
+  it("handles cancel_task through the real websocket branch", () => {
+    const { agent, a } = createAgent();
+    let signal: AbortSignal | undefined;
+    agent.onTask(async (ctx) => {
+      signal = ctx.signal;
+      await new Promise(() => {});
+    });
+    a.doConnect();
+    const ws = MockWebSocket.instances[0]!;
+    ws.onmessage?.({ data: JSON.stringify({
+      type: "task",
+      taskId: "task-1",
+      conversationId: "conv-1",
+      content: "work",
+    }) });
+    expect(signal?.aborted).toBe(false);
+    ws.onmessage?.({ data: JSON.stringify({ type: "cancel_task", taskId: "task-1" }) });
+    expect(signal?.aborted).toBe(true);
+    expect(ws.send.mock.calls.map(([frame]) => JSON.parse(frame)).some(
+      (frame) => frame.type === "agent_error" && frame.reason === "cancelled",
+    )).toBe(true);
   });
 
   it("server stops pong and next watchdog check closes websocket", () => {
