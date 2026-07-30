@@ -1,6 +1,7 @@
 {
   "name": "@arinova-ai/moderation-baseline",
   "version": "0.1.0-seed",
+  "private": true,
   "description": "Self-built moderation baseline denylists/allowlists (Skills Hub Phase 1)",
   "type": "module",
   "files": [
