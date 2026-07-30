@@ -19,7 +19,7 @@ export async function sendMessageArinovaChat(
   text: string,
   opts: ArinovaChatSendOpts = {},
 ): Promise<ArinovaChatSendResult> {
-  const cfg = getArinovaChatRuntime().config.loadConfig() as CoreConfig;
+  const cfg = getArinovaChatRuntime().config.current() as CoreConfig;
   const account = resolveArinovaChatAccount({
     cfg,
     accountId: opts.accountId,

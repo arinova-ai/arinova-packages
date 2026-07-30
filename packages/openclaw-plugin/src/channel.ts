@@ -1,9 +1,8 @@
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk/account-id";
 import { buildChannelConfigSchema } from "openclaw/plugin-sdk/core";
-import type { ChannelPlugin } from "openclaw/plugin-sdk/core";
+import type { ChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { ChannelSetupInput } from "openclaw/plugin-sdk/setup";
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import type { RuntimeEnv } from "openclaw/plugin-sdk";
+import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 
 // Inline stubs for functions removed from new SDK.
 function applyAccountNameToChannelSection(params: {

@@ -1,4 +1,4 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { registerHooks as registerOfficeHooks, setForwardTarget } from "./hooks.js";
 import { officeState } from "./state.js";
 

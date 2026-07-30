@@ -5,7 +5,7 @@ import { getArinovaChatRuntime } from "./runtime.js";
 // ── Helpers ──
 
 export function resolveAccount(accountId?: string) {
-  const cfg = getArinovaChatRuntime().config.loadConfig() as CoreConfig;
+  const cfg = getArinovaChatRuntime().config.current() as CoreConfig;
   return resolveArinovaChatAccount({ cfg, accountId });
 }
 

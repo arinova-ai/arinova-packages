@@ -1,4 +1,4 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { InternalEvent } from "./types.js";
 import { officeState } from "./state.js";
 import { getAgentInstance } from "../runtime.js";

@@ -1,5 +1,8 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
+import {
+  emptyPluginConfigSchema,
+  type OpenClawConfig,
+  type OpenClawPluginApi,
+} from "openclaw/plugin-sdk/core";
 import { arinovaChatPlugin } from "./channel.js";
 import { setArinovaChatRuntime } from "./runtime.js";
 import { exchangeBotToken } from "./auth.js";
@@ -182,7 +185,10 @@ Note: The conversation owner can disable agent note access. If disabled, all not
                 },
               };
 
-              await api.runtime.config.writeConfigFile(updatedCfg);
+              await api.runtime.config.replaceConfigFile({
+                nextConfig: updatedCfg as OpenClawConfig,
+                afterWrite: { mode: "auto" },
+              });
               console.log("Config saved to openclaw.json");
               console.log("\nRestart the gateway to connect: openclaw gateway start");
             } catch (err) {
