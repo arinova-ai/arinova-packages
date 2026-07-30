@@ -43,6 +43,7 @@ import { registerMindmapCommands } from "./commands/mindmap.js";
 import { registerSlideCommands } from "./commands/slide.js";
 import { registerWorkbookCommands } from "./commands/workbook.js";
 import { registerImageCommands } from "./commands/image.js";
+import { registerAutomationCommands } from "./commands/automation.js";
 
 const program = new Command();
 
@@ -95,6 +96,7 @@ registerMindmapCommands(program);
 registerSlideCommands(program);
 registerWorkbookCommands(program);
 registerImageCommands(program);
+registerAutomationCommands(program);
 
 // Creator commands (config-based auth)
 registerAuth(program);

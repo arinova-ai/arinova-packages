@@ -131,6 +131,7 @@ const { registerMindmapCommands } = await import("./mindmap.js");
 const { registerSlideCommands } = await import("./slide.js");
 const { registerWorkbookCommands } = await import("./workbook.js");
 const { registerImageCommands } = await import("./image.js");
+const { registerAutomationCommands } = await import("./automation.js");
 
 const tempDirs: string[] = [];
 
@@ -927,5 +928,95 @@ describe("CLI command API request shapes", () => {
       "/tmp/external.png",
       undefined,
     );
+  });
+
+  it("actions keep confirmation explicit and support both cancellation identities", async () => {
+    const program = createProgram(registerAutomationCommands);
+    await program.parseAsync([
+      "node", "arinova", "action", "call", "--body",
+      '{"id":"call-1","action":"arinova.test","arguments":{},"dryRun":true}',
+    ]);
+    await program.parseAsync(["node", "arinova", "action", "confirmation", "approve", "confirm/a"]);
+    await program.parseAsync(["node", "arinova", "action", "cancel", "--row-id", "row/a"]);
+    expect(mocks.post).toHaveBeenNthCalledWith(1, "/api/v1/actions/call", {
+      id: "call-1", action: "arinova.test", arguments: {}, dryRun: true,
+    });
+    expect(mocks.post).toHaveBeenNthCalledWith(2, "/api/v1/actions/confirm/confirm%2Fa");
+    expect(mocks.post).toHaveBeenNthCalledWith(3, "/api/v1/actions/by-id/row%2Fa/cancel");
+  });
+
+  it("workflow, cron, and trigger commands preserve bodies and lifecycle routes", async () => {
+    const program = createProgram(registerAutomationCommands);
+    await program.parseAsync([
+      "node", "arinova", "workflow", "create", "--name", "Deploy",
+      "--graph", '{"nodes":[],"edges":[]}', "--max-concurrent-runs", "2",
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "cron", "job", "create",
+      "--body", '{"agentId":"agent-1","message":"hello","schedule":{"kind":"once","timezone":"UTC","runAt":"2026-08-01T00:00:00Z"}}',
+      "--dry-run",
+    ]);
+    await program.parseAsync(["node", "arinova", "trigger", "disable", "trigger/a"]);
+    expect(mocks.post).toHaveBeenNthCalledWith(1, "/api/v1/workflows", {
+      name: "Deploy",
+      description: undefined,
+      graph: { nodes: [], edges: [] },
+      variables: undefined,
+      maxConcurrentRuns: 2,
+      maxDurationSeconds: undefined,
+    });
+    expect(mocks.post).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/platform-cron/jobs?dryRun=true",
+      expect.objectContaining({ agentId: "agent-1", message: "hello" }),
+    );
+    expect(mocks.patch).toHaveBeenCalledWith(
+      "/api/v1/platform-triggers/triggers/trigger%2Fa/enabled",
+      { enabled: false },
+    );
+  });
+
+  it("webhook management excludes inbound and delivery ack carries idempotency", async () => {
+    const program = createProgram(registerAutomationCommands);
+    await program.parseAsync([
+      "node", "arinova", "webhook", "create",
+      "--body", '{"name":"Deploy hook","events":["deploy.completed"]}',
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "webhook", "fire-event", "payload", "hook/a", "event/a",
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "delivery", "ack", "delivery/a",
+      "--idempotency-key", "ack-1",
+    ]);
+    expect(mocks.post).toHaveBeenCalledWith("/api/v1/webhooks", {
+      name: "Deploy hook", events: ["deploy.completed"],
+    });
+    expect(mocks.get).toHaveBeenCalledWith(
+      "/api/v1/webhooks/hook%2Fa/fire-events/event%2Fa/payload",
+    );
+    expect(mocks.clientPost).toHaveBeenCalledWith(
+      "/api/v1/deliveries/delivery%2Fa/ack",
+      undefined,
+      { "Idempotency-Key": "ack-1" },
+    );
+  });
+
+  it("autopilot settings/evaluate keep agent and conversation identity explicit", async () => {
+    const program = createProgram(registerAutomationCommands);
+    await program.parseAsync([
+      "node", "arinova", "autopilot", "settings", "get",
+      "--agent-id", "agent-1", "--conversation-id", "conv-1",
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "autopilot", "evaluate",
+      "--agent-id", "agent-1", "--conversation-id", "conv-1", "--dry-run",
+    ]);
+    expect(mocks.get).toHaveBeenCalledWith(
+      "/api/v1/autopilot/settings?agentId=agent-1&conversationId=conv-1",
+    );
+    expect(mocks.post).toHaveBeenCalledWith("/api/v1/autopilot/evaluate", {
+      agentId: "agent-1", conversationId: "conv-1", dryRun: true,
+    });
   });
 });
