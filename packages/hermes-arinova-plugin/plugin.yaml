@@ -18,7 +18,6 @@ provides_tools:
   - arinova_send_hud
   - arinova_send_task_update
   - arinova_report_tool_call
-  - arinova_call_action
   - arinova_upload_file
   - arinova_fetch_history
   - arinova_list_notes

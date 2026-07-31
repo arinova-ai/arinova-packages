@@ -33,7 +33,7 @@ def expected_tool_schemas(module) -> dict[str, dict]:
         "arinova_sdk_call": tools["_generic_agent_schema"](),
         "arinova_task_call": tools["_generic_task_schema"](),
     }
-    for method in tools["AGENT_METHODS"]:
+    for method in tools["MODEL_AGENT_METHODS"]:
         tool_name = f"arinova_{tools['_snake'](method)}"
         expected[tool_name] = tools["_method_schema"](tool_name, method)
     for method in tools["TASK_METHODS"]:
@@ -558,4 +558,3 @@ class LimitedAttachmentResponse:
 
     def read(self, _size):
         return self._chunks.pop(0)
-

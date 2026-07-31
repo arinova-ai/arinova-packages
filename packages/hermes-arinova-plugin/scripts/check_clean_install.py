@@ -289,7 +289,7 @@ def expected_tool_schemas(module) -> dict[str, dict]:
         "arinova_sdk_call": tools["_generic_agent_schema"](),
         "arinova_task_call": tools["_generic_task_schema"](),
     }
-    for method in tools["AGENT_METHODS"]:
+    for method in tools["MODEL_AGENT_METHODS"]:
         tool_name = f"arinova_{tools['_snake'](method)}"
         expected[tool_name] = tools["_method_schema"](tool_name, method)
     for method in tools["TASK_METHODS"]:
@@ -348,7 +348,7 @@ def assert_registry_schemas(registry, module, expected_tools: set[str]) -> None:
             if not isinstance(method_schema, dict) or not method_schema.get("enum"):
                 raise RuntimeError(f"copied plugin generic schema has no method enum: {name}")
             expected_method_enum = list(
-                tools["TASK_METHODS"] if name == "arinova_task_call" else tools["AGENT_METHODS"]
+                tools["TASK_METHODS"] if name == "arinova_task_call" else tools["MODEL_AGENT_METHODS"]
             )
             if method_schema.get("enum") != expected_method_enum:
                 raise RuntimeError(f"copied plugin generic schema method enum drifted: {name}")
@@ -359,6 +359,10 @@ def assert_registry_schemas(registry, module, expected_tools: set[str]) -> None:
                 raise RuntimeError(f"copied plugin task schema missing task id aliases: {name}")
     for method, specs in tools["ARG_SPECS"].items():
         tool_name = f"arinova_{tools['_snake'](method)}"
+        if method not in tools["MODEL_AGENT_METHODS"]:
+            if tool_name in by_name:
+                raise RuntimeError(f"copied plugin exposed internal SDK method to the model: {tool_name}")
+            continue
         properties = by_name[tool_name]["function"]["parameters"]["properties"]
         expected_aliases = {
             alias
@@ -393,8 +397,10 @@ def assert_registry_schemas(registry, module, expected_tools: set[str]) -> None:
     if not {"task_id", "taskId", "file", "file_name", "fileName", "file_type", "fileType", "args"}.issubset(task_upload_props):
         raise RuntimeError(f"copied plugin task uploadFile schema fields missing: {task_upload_props}")
     generic_props = by_name["arinova_sdk_call"]["function"]["parameters"]["properties"]
-    if not {"method", "args", "conversation_id", "conversationId", "file", "file_name", "fileName", "file_type", "fileType", "actionArgs"}.issubset(generic_props):
+    if not {"method", "args", "conversation_id", "conversationId", "file", "file_name", "fileName", "file_type", "fileType"}.issubset(generic_props):
         raise RuntimeError(f"copied plugin generic SDK schema fields missing: {generic_props}")
+    if {"action", "action_args", "actionArgs", "task_id", "taskId", "message_id", "messageId"} & set(generic_props):
+        raise RuntimeError(f"copied plugin generic SDK schema exposed global action attribution: {generic_props}")
     generic_task_props = by_name["arinova_task_call"]["function"]["parameters"]["properties"]
     if not {"method", "task_id", "taskId", "args", "file", "file_name", "fileName", "file_type", "fileType", "actionArgs"}.issubset(generic_task_props):
         raise RuntimeError(f"copied plugin generic task schema fields missing: {generic_task_props}")

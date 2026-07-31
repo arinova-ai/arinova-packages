@@ -83,13 +83,16 @@ async def main() -> int:
             "shareNote": ["conv-all", "note-all"],
         }
         assert set(sample_agent_args) == set(arinova_tools.AGENT_METHODS)
+        assert set(arinova_tools.MODEL_AGENT_METHODS) == set(arinova_tools.AGENT_METHODS) - {"callAction"}
         assert VOID_AGENT_METHODS.issubset(set(arinova_tools.AGENT_METHODS))
         assert VOID_AGENT_METHODS == set(arinova_tools.VOID_AGENT_METHODS)
 
         tool_ctx = FakeToolContext()
         arinova_tools.register_tools(tool_ctx)
         expected_registered_tools = ["arinova_sdk_call", "arinova_task_call"]
-        expected_registered_tools.extend(f"arinova_{arinova_tools._snake(method)}" for method in arinova_tools.AGENT_METHODS)
+        expected_registered_tools.extend(
+            f"arinova_{arinova_tools._snake(method)}" for method in arinova_tools.MODEL_AGENT_METHODS
+        )
         expected_registered_tools.extend(
             f"arinova_task_{arinova_tools._snake(method)}" for method in arinova_tools.TASK_METHODS
         )
@@ -103,7 +106,7 @@ async def main() -> int:
                     f"arinova_{arinova_tools._snake(method)}",
                     method,
                 )
-                for method in arinova_tools.AGENT_METHODS
+                for method in arinova_tools.MODEL_AGENT_METHODS
             }
         )
         expected_registered_schemas.update(
@@ -129,7 +132,8 @@ async def main() -> int:
             assert tool["schema"] == expected_registered_schemas[name], name
             assert callable(tool["handler"]), name
 
-        for method in arinova_tools.AGENT_METHODS:
+        assert "arinova_call_action" not in registered_by_name
+        for method in arinova_tools.MODEL_AGENT_METHODS:
             sample_args = sample_agent_args[method]
             fake.return_void_agent_results = method in VOID_AGENT_METHODS
             try:
@@ -157,6 +161,18 @@ async def main() -> int:
             else:
                 assert named_result["result"]["args"] == sample_args, method
                 assert generic_result["result"]["args"] == sample_args, method
+
+        model_call_count = len(fake.calls)
+        global_action_result = json.loads(
+            await arinova_tools._handle_sdk_call(
+                {"method": "callAction", "action": "arinova.all", "action_args": {}}
+            )
+        )
+        assert global_action_result == {
+            "success": False,
+            "error": "Unsupported Arinova SDK method: callAction",
+        }
+        assert len(fake.calls) == model_call_count
 
         direct_agent_call_count = len(fake.calls)
         direct_bad_agent_args = await arinova_tools.call_agent_method("sendMessage", ["conv-direct-only"])
@@ -216,15 +232,16 @@ async def main() -> int:
                     continue
                 sample_args = list(sample_agent_args[method])
                 sample_args[index] = with_unknown_field(sample_args[index])
-                strict_positional_unknown = json.loads(
-                    await arinova_tools._handle_sdk_call({"method": method, "args": sample_args})
-                )
-                assert strict_positional_unknown["success"] is False, (method, name, strict_positional_unknown)
-                assert "has unsupported field(s): __unknown_field__" in strict_positional_unknown["error"], (
-                    method,
-                    name,
-                    strict_positional_unknown,
-                )
+                if method in arinova_tools.MODEL_AGENT_METHODS:
+                    strict_positional_unknown = json.loads(
+                        await arinova_tools._handle_sdk_call({"method": method, "args": sample_args})
+                    )
+                    assert strict_positional_unknown["success"] is False, (method, name, strict_positional_unknown)
+                    assert "has unsupported field(s): __unknown_field__" in strict_positional_unknown["error"], (
+                        method,
+                        name,
+                        strict_positional_unknown,
+                    )
                 named_payload = named_payload_for(
                     specs,
                     sample_agent_args[method],
@@ -442,11 +459,13 @@ async def main() -> int:
 
         generic_agent_props = arinova_tools._generic_agent_schema()["parameters"]["properties"]
         assert arinova_tools._generic_agent_schema()["parameters"]["additionalProperties"] is False
-        assert generic_agent_props["method"]["enum"] == list(arinova_tools.AGENT_METHODS)
+        assert generic_agent_props["method"]["enum"] == list(arinova_tools.MODEL_AGENT_METHODS)
+        assert {"task_id", "taskId", "message_id", "messageId"}.isdisjoint(generic_agent_props)
         assert {"conversation_id", "content", "options", "file", "file_name", "file_type"}.issubset(
             generic_agent_props
         )
-        assert {"conversationId", "fileName", "fileType", "actionArgs"}.issubset(generic_agent_props)
+        assert {"conversationId", "fileName", "fileType"}.issubset(generic_agent_props)
+        assert {"action", "action_args", "actionArgs"}.isdisjoint(generic_agent_props)
         expected_upload_schema = arinova_tools.UPLOAD_FILE_SCHEMA
         assert generic_agent_props["file"] == expected_upload_schema
         assert generic_agent_props["data"] == {

@@ -59,6 +59,12 @@ AGENT_METHODS: tuple[str, ...] = (
     "shareNote",
 )
 
+# The bridge keeps the full SDK surface for trusted integration code, but model
+# tools must not expose global callAction: its attribution identifiers are
+# security-sensitive and must come from an active task context.
+MODEL_AGENT_METHODS: tuple[str, ...] = tuple(
+    method for method in AGENT_METHODS if method != "callAction"
+)
 TASK_METHODS: tuple[str, ...] = ("uploadFile", "fetchHistory", "callAction")
 CONVERSATION_SCOPED_TASK_METHODS: frozenset[str] = frozenset(("uploadFile", "fetchHistory"))
 VOID_AGENT_METHODS: frozenset[str] = frozenset(
@@ -1006,7 +1012,7 @@ async def _handle_sdk_call(args: dict[str, Any], **_: Any) -> str:
     try:
         args = _require_payload_object(args)
         method = _required_string(args, "method")
-        if method not in AGENT_METHODS:
+        if method not in MODEL_AGENT_METHODS:
             return _json_result({"success": False, "error": f"Unsupported Arinova SDK method: {method}"})
         _reject_unknown_payload_keys(args, ARG_SPECS.get(method, ()), task_scoped=False, generic=True)
         method_args = _method_args_from_payload(method, args, task_scoped=False)
@@ -1164,10 +1170,14 @@ def _generic_schema_properties_with_aliases(
 
 def _generic_agent_schema() -> dict[str, Any]:
     properties = {
-        "method": {"type": "string", "enum": list(AGENT_METHODS)},
+        "method": {"type": "string", "enum": list(MODEL_AGENT_METHODS)},
         "args": _args_property("selected method"),
     }
-    properties.update(_generic_schema_properties_with_aliases(ARG_SPECS.values()))
+    properties.update(
+        _generic_schema_properties_with_aliases(
+            ARG_SPECS.get(method, ()) for method in MODEL_AGENT_METHODS
+        )
+    )
     return {
         "name": "arinova_sdk_call",
         "description": (
@@ -1264,7 +1274,7 @@ def register_tools(ctx: Any) -> None:
         emoji="A",
     )
 
-    for method in AGENT_METHODS:
+    for method in MODEL_AGENT_METHODS:
         tool_name = f"arinova_{_snake(method)}"
         ctx.register_tool(
             name=tool_name,

@@ -163,7 +163,9 @@ for every supported `agent-sdk` method:
 - `arinova_send_hud`
 - `arinova_send_task_update`
 - `arinova_report_tool_call`
-- `arinova_call_action`
+- Action execution is exposed only through task-scoped `arinova_task_call_action`
+  and `arinova_task_call`, so task, conversation, and message attribution comes
+  from the active task rather than model-supplied identifiers.
 - `arinova_upload_file`
 - `arinova_list_notes`
 - `arinova_create_note`
