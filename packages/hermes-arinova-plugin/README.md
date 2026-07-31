@@ -68,6 +68,9 @@ ARINOVA_CONTROL_MAX_BODY_BYTES=134217728
 ARINOVA_SIDECAR_POST_TIMEOUT_MS=10000
 ARINOVA_DOWNLOAD_ATTACHMENTS=true
 ARINOVA_ATTACHMENT_MAX_BYTES=52428800
+ARINOVA_ATTACHMENT_MAX_COUNT=8
+ARINOVA_ATTACHMENT_TOTAL_MAX_BYTES=67108864
+ARINOVA_ATTACHMENT_TOTAL_TIMEOUT_MS=30000
 ```
 
 You can put these in `~/.hermes/.env` if your Hermes install loads that file.
@@ -119,6 +122,9 @@ arinova:
   sidecar_post_timeout_ms: 10000
   download_attachments: true
   attachment_max_bytes: 52428800
+  attachment_max_count: 8
+  attachment_total_max_bytes: 67108864
+  attachment_total_timeout_ms: 30000
 ```
 
 ## Architecture

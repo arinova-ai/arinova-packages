@@ -2504,15 +2504,30 @@ def main() -> int:
         captured_events.append(event)
 
     adapter.handle_message = fake_handle_message
+    class AttachmentAuthorization:
+        def __init__(self):
+            self.allowed = {"user-1"}
+            self.checked = []
+
+        def _is_user_authorized(self, source):
+            self.checked.append(source.user_id)
+            return source.user_id in self.allowed
+
+        async def handle(self, _event):
+            return None
+
+    attachment_authorization = AttachmentAuthorization()
+    adapter._message_handler = attachment_authorization.handle
     original_download_attachment_media = adapter._download_attachment_media
     attachment_downloads: list[dict] = []
 
-    def fake_download_attachment_media(attachment):
+    def fake_download_attachment_media(attachment, *, max_bytes, timeout_seconds):
         attachment_downloads.append(dict(attachment))
         return (
             "/tmp/arinova-attachment.txt",
             "text/plain",
             "[document 'a.txt' saved at: /tmp/arinova-attachment.txt]",
+            3,
         )
 
     adapter._download_attachment_media = fake_download_attachment_media
@@ -2538,6 +2553,32 @@ def main() -> int:
             "task without taskId should not download attachments or dispatch events: "
             f"downloads={attachment_downloads} events={captured_events}"
         )
+    asyncio.run(
+        adapter._handle_arinova_task(
+            {
+                "taskId": "task-media-unauthorized",
+                "conversationId": "conv-media-unauthorized",
+                "conversationType": "direct",
+                "content": "unauthorized attachment",
+                "senderUserId": "intruder",
+                "attachments": [
+                    {
+                        "id": "att-unauthorized",
+                        "fileName": "unauthorized.txt",
+                        "fileType": "text/plain",
+                        "fileSize": 3,
+                        "url": "https://files.example/unauthorized.txt",
+                    }
+                ],
+            }
+        )
+    )
+    if attachment_downloads:
+        raise RuntimeError(
+            f"unauthorized sender triggered attachment network work: {attachment_downloads}"
+        )
+    if captured_events[-1].media_urls or captured_events[-1].media_types:
+        raise RuntimeError("unauthorized sender received downloaded attachment media")
     asyncio.run(
         adapter._handle_arinova_task(
             {
@@ -2646,6 +2687,33 @@ def main() -> int:
     ]:
         if expected not in media_event.text:
             raise RuntimeError(f"nested task context {expected!r} missing from event text: {media_event.text}")
+
+    downloads_before_excess = len(attachment_downloads)
+    asyncio.run(
+        adapter._handle_arinova_task(
+            {
+                "taskId": "task-media-excess-count",
+                "conversationId": "conv-media-excess-count",
+                "conversationType": "direct",
+                "content": "too many files",
+                "senderUserId": "user-1",
+                "attachments": [
+                    {
+                        "id": f"att-excess-{index}",
+                        "fileName": f"excess-{index}.txt",
+                        "fileType": "text/plain",
+                        "fileSize": 3,
+                        "url": f"https://files.example/excess-{index}.txt",
+                    }
+                    for index in range(adapter.attachment_max_count + 1)
+                ],
+            }
+        )
+    )
+    if len(attachment_downloads) != downloads_before_excess:
+        raise RuntimeError("excessive attachment count triggered network work")
+    if captured_events[-1].media_urls or captured_events[-1].media_types:
+        raise RuntimeError("excessive attachment count produced downloaded media")
 
     asyncio.run(
         adapter._handle_arinova_task(
@@ -2828,14 +2896,19 @@ def main() -> int:
     adapter.handle_message = fake_handle_message
 
 
-    original_urlopen = loaded.module.adapter.urllib.request.urlopen
+    original_attachment_urlopen = adapter._attachment_urlopen
+    original_getaddrinfo = loaded.module.adapter.socket.getaddrinfo
     attachment_requests: list[tuple] = []
 
-    def fake_attachment_urlopen(req, timeout=0):
+    def fake_public_getaddrinfo(host, port, **_kwargs):
+        return [(loaded.module.adapter.socket.AF_INET, loaded.module.adapter.socket.SOCK_STREAM, 6, "", ("203.0.113.10", port))]
+
+    def fake_attachment_urlopen(req, *, timeout=0):
         attachment_requests.append((req, timeout))
         return LimitedAttachmentResponse()
 
-    loaded.module.adapter.urllib.request.urlopen = fake_attachment_urlopen
+    loaded.module.adapter.socket.getaddrinfo = fake_public_getaddrinfo
+    adapter._attachment_urlopen = fake_attachment_urlopen
     data, content_type = adapter._download_attachment_bytes("https://files.example/ok.txt")
     if data != b"abcd" or content_type != "text/plain":
         raise RuntimeError(f"attachment download response normalization failed: data={data!r} type={content_type!r}")
@@ -2859,10 +2932,43 @@ def main() -> int:
             raise RuntimeError("oversized attachment did not enforce byte cap")
     finally:
         adapter.attachment_max_bytes = old_attachment_max
-        loaded.module.adapter.urllib.request.urlopen = original_urlopen
+        adapter._attachment_urlopen = original_attachment_urlopen
+        loaded.module.adapter.socket.getaddrinfo = original_getaddrinfo
+
+    for unsafe_url in (
+        "http://127.0.0.1/private",
+        "http://10.0.0.1/private",
+        "http://169.254.169.254/latest/meta-data",
+        "http://[::1]/private",
+    ):
+        try:
+            adapter._download_attachment_bytes(unsafe_url)
+        except ValueError as exc:
+            if "non-public address" not in str(exc):
+                raise RuntimeError(f"unsafe attachment URL failed unexpectedly: {unsafe_url}: {exc}") from exc
+        else:
+            raise RuntimeError(f"unsafe attachment URL was accepted: {unsafe_url}")
+
+    redirect_handler = loaded.module.adapter._AttachmentRedirectHandler()
+    try:
+        redirect_handler.redirect_request(
+            urllib.request.Request("https://files.example/start"),
+            None,
+            302,
+            "Found",
+            {},
+            "http://127.0.0.1/private",
+        )
+    except ValueError as exc:
+        if "non-public address" not in str(exc):
+            raise RuntimeError(f"private redirect failed unexpectedly: {exc}") from exc
+    else:
+        raise RuntimeError("redirect to private address was accepted")
+
+    loaded.module.adapter.socket.getaddrinfo = fake_public_getaddrinfo
 
     def assert_attachment_download_error(fake_urlopen_fn, expected_error: str, failure_label: str) -> None:
-        loaded.module.adapter.urllib.request.urlopen = fake_urlopen_fn
+        adapter._attachment_urlopen = fake_urlopen_fn
         try:
             try:
                 adapter._download_attachment_bytes("https://files.example/fail.txt")
@@ -2872,9 +2978,9 @@ def main() -> int:
             else:
                 raise RuntimeError(failure_label)
         finally:
-            loaded.module.adapter.urllib.request.urlopen = original_urlopen
+            adapter._attachment_urlopen = original_attachment_urlopen
 
-    def fake_attachment_http_failure(req, timeout=0):
+    def fake_attachment_http_failure(req, *, timeout=0):
         raise urllib.error.HTTPError(
             req.full_url,
             404,
@@ -2889,7 +2995,7 @@ def main() -> int:
         "attachment download accepted HTTP failure",
     )
 
-    def fake_attachment_transport_failure(req, timeout=0):
+    def fake_attachment_transport_failure(req, *, timeout=0):
         raise urllib.error.URLError("connection refused")
 
     assert_attachment_download_error(
@@ -2898,7 +3004,7 @@ def main() -> int:
         "attachment download accepted transport failure",
     )
 
-    def fake_attachment_timeout(req, timeout=0):
+    def fake_attachment_timeout(req, *, timeout=0):
         raise TimeoutError()
 
     assert_attachment_download_error(
@@ -2906,6 +3012,7 @@ def main() -> int:
         "attachment download timed out",
         "attachment download accepted timeout",
     )
+    loaded.module.adapter.socket.getaddrinfo = original_getaddrinfo
 
     asyncio.run(adapter.on_processing_start(media_event))
     if posted[-1][0] != "/agent-sdk" or posted[-1][1] != {

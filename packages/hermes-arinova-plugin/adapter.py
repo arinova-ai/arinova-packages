@@ -9,16 +9,19 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import ipaddress
 import json
 import logging
 import math
 import os
 import secrets
 import shutil
+import socket
 import subprocess
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -41,6 +44,9 @@ DEFAULT_SIDECAR_PORT = 8793
 DEFAULT_ADAPTER_PORT = 8794
 DEFAULT_BIND = "127.0.0.1"
 DEFAULT_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024
+DEFAULT_ATTACHMENT_MAX_COUNT = 8
+DEFAULT_ATTACHMENT_TOTAL_MAX_BYTES = 64 * 1024 * 1024
+DEFAULT_ATTACHMENT_TOTAL_TIMEOUT_MS = 30_000
 DEFAULT_CONNECT_TIMEOUT_MS = 30_000
 DEFAULT_SIDECAR_POST_TIMEOUT_MS = 10_000
 SIDECAR_DIR = Path(__file__).parent / "sidecar"
@@ -174,8 +180,51 @@ NONNEGATIVE_INT_SETTINGS = (
     ("ARINOVA_ADAPTER_POST_TIMEOUT_MS", "adapter_post_timeout_ms"),
     ("ARINOVA_SIDECAR_POST_TIMEOUT_MS", "sidecar_post_timeout_ms"),
     ("ARINOVA_ATTACHMENT_MAX_BYTES", "attachment_max_bytes"),
+    ("ARINOVA_ATTACHMENT_MAX_COUNT", "attachment_max_count"),
+    ("ARINOVA_ATTACHMENT_TOTAL_MAX_BYTES", "attachment_total_max_bytes"),
+    ("ARINOVA_ATTACHMENT_TOTAL_TIMEOUT_MS", "attachment_total_timeout_ms"),
     ("ARINOVA_CONTROL_MAX_BODY_BYTES", "control_max_body_bytes"),
 )
+
+
+def _validate_public_http_url(url: str) -> None:
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("attachment URL must be an absolute http(s) URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("attachment URL credentials are not allowed")
+
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError as exc:
+        raise ValueError("attachment URL port is invalid") from exc
+
+    try:
+        addresses = socket.getaddrinfo(
+            parsed.hostname,
+            port,
+            type=socket.SOCK_STREAM,
+        )
+    except socket.gaierror as exc:
+        raise ValueError("attachment URL host could not be resolved") from exc
+    if not addresses:
+        raise ValueError("attachment URL host could not be resolved")
+
+    for address in addresses:
+        raw_ip = address[4][0]
+        try:
+            ip = ipaddress.ip_address(raw_ip)
+        except ValueError as exc:
+            raise ValueError("attachment URL resolved to an invalid address") from exc
+        if not ip.is_global:
+            raise ValueError("attachment URL resolves to a non-public address")
+
+
+class _AttachmentRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        target = urllib.parse.urljoin(req.full_url, newurl)
+        _validate_public_http_url(target)
+        return super().redirect_request(req, fp, code, msg, headers, target)
 
 
 def _truthy(value: str | None, default: bool = False) -> bool:
@@ -1020,6 +1069,21 @@ class ArinovaAdapter(BasePlatformAdapter):
             extra.get("attachment_max_bytes"),
             DEFAULT_ATTACHMENT_MAX_BYTES,
         )
+        self.attachment_max_count = _int_setting(
+            "ARINOVA_ATTACHMENT_MAX_COUNT",
+            extra.get("attachment_max_count"),
+            DEFAULT_ATTACHMENT_MAX_COUNT,
+        )
+        self.attachment_total_max_bytes = _int_setting(
+            "ARINOVA_ATTACHMENT_TOTAL_MAX_BYTES",
+            extra.get("attachment_total_max_bytes"),
+            DEFAULT_ATTACHMENT_TOTAL_MAX_BYTES,
+        )
+        self.attachment_total_timeout_ms = _int_setting(
+            "ARINOVA_ATTACHMENT_TOTAL_TIMEOUT_MS",
+            extra.get("attachment_total_timeout_ms"),
+            DEFAULT_ATTACHMENT_TOTAL_TIMEOUT_MS,
+        )
         self.autostart_sidecar = _truthy_setting(
             "ARINOVA_SIDECAR_AUTOSTART",
             extra.get("sidecar_autostart"),
@@ -1807,6 +1871,39 @@ class ArinovaAdapter(BasePlatformAdapter):
         name = task.get("conversationName")
         return name if isinstance(name, str) else "Arinova Chat"
 
+    def _source_authorized_for_attachment_fetch(self, source: Any) -> bool:
+        """Use the gateway's real authorization boundary before any network I/O."""
+        handler_owner = getattr(self._message_handler, "__self__", None)
+        checker = getattr(handler_owner, "_is_user_authorized", None)
+        if callable(checker):
+            try:
+                return bool(checker(source))
+            except Exception as exc:
+                logger.warning("Arinova: attachment pre-authorization failed closed: %s", exc)
+                return False
+
+        # Standalone/test fallback has no pairing store. Preserve explicit
+        # allow-all/allowlist behavior, but never infer authorization.
+        if source.role_authorized is True:
+            return True
+        if _truthy(os.getenv("ARINOVA_ALLOW_ALL_USERS")) or _truthy(
+            os.getenv("GATEWAY_ALLOW_ALL_USERS")
+        ):
+            return True
+        user_id = str(source.user_id or "").strip()
+        if not user_id:
+            return False
+        allowed = {
+            entry.strip()
+            for raw in (
+                os.getenv("ARINOVA_ALLOWED_USERS", ""),
+                os.getenv("GATEWAY_ALLOWED_USERS", ""),
+            )
+            for entry in raw.split(",")
+            if entry.strip()
+        }
+        return "*" in allowed or user_id in allowed
+
     async def _handle_arinova_task(self, task: dict) -> None:
         task_id = self._task_id_value(task.get("taskId"))
         if not task_id:
@@ -1814,8 +1911,6 @@ class ArinovaAdapter(BasePlatformAdapter):
             return
         conversation_id = str(task.get("conversationId") or task_id)
         conversation_name = self._task_conversation_name(task)
-        media_urls, media_types, media_notes = await self._collect_attachment_media(task)
-        content = self._task_text(task, media_notes=media_notes)
 
         source = self.build_source(
             chat_id=conversation_id,
@@ -1832,6 +1927,12 @@ class ArinovaAdapter(BasePlatformAdapter):
             is_bot=bool(task.get("senderAgentId")),
             role_authorized=bool(task.get("senderAgentId")) and self._allow_agent_sender(),
         )
+        attachment_fetch_authorized = self._source_authorized_for_attachment_fetch(source)
+        media_urls, media_types, media_notes = await self._collect_attachment_media(
+            task,
+            authorized=attachment_fetch_authorized,
+        )
+        content = self._task_text(task, media_notes=media_notes)
         self._conversation_info_by_id[conversation_id] = {
             "name": conversation_name,
             "type": source.chat_type,
@@ -1911,7 +2012,12 @@ class ArinovaAdapter(BasePlatformAdapter):
             return MessageType.DOCUMENT
         return MessageType.TEXT
 
-    async def _collect_attachment_media(self, task: dict) -> tuple[list[str], list[str], list[str]]:
+    async def _collect_attachment_media(
+        self,
+        task: dict,
+        *,
+        authorized: bool,
+    ) -> tuple[list[str], list[str], list[str]]:
         media_urls: list[str] = []
         media_types: list[str] = []
         media_notes: list[str] = []
@@ -1921,11 +2027,39 @@ class ArinovaAdapter(BasePlatformAdapter):
         attachments = task.get("attachments")
         if not isinstance(attachments, list):
             return media_urls, media_types, media_notes
-        for attachment in attachments:
-            if not isinstance(attachment, dict) or not attachment.get("url"):
-                continue
+        candidates = [
+            attachment
+            for attachment in attachments
+            if isinstance(attachment, dict) and attachment.get("url")
+        ]
+        if not candidates:
+            return media_urls, media_types, media_notes
+        if not authorized:
+            logger.warning("Arinova: skipped attachment downloads for unauthorized sender")
+            return media_urls, media_types, media_notes
+        if len(candidates) > self.attachment_max_count:
+            logger.warning(
+                "Arinova: rejected %s attachments (maximum %s)",
+                len(candidates),
+                self.attachment_max_count,
+            )
+            return media_urls, media_types, media_notes
+
+        deadline = time.monotonic() + (self.attachment_total_timeout_ms / 1000)
+        total_bytes = 0
+        for attachment in candidates:
+            remaining_bytes = self.attachment_total_max_bytes - total_bytes
+            remaining_seconds = deadline - time.monotonic()
+            if remaining_bytes <= 0 or remaining_seconds <= 0:
+                logger.warning("Arinova: attachment aggregate budget exhausted")
+                break
             try:
-                result = await asyncio.to_thread(self._download_attachment_media, attachment)
+                result = await asyncio.to_thread(
+                    self._download_attachment_media,
+                    attachment,
+                    max_bytes=min(self.attachment_max_bytes, remaining_bytes),
+                    timeout_seconds=min(30.0, remaining_seconds),
+                )
             except Exception as exc:
                 logger.warning(
                     "Arinova: failed to download attachment %s: %s",
@@ -1935,41 +2069,67 @@ class ArinovaAdapter(BasePlatformAdapter):
                 continue
             if not result:
                 continue
-            path, media_type, note = result
+            path, media_type, note, downloaded_bytes = result
+            total_bytes += downloaded_bytes
             media_urls.append(path)
             media_types.append(media_type)
             media_notes.append(note)
         return media_urls, media_types, media_notes
 
-    def _download_attachment_media(self, attachment: dict) -> tuple[str, str, str] | None:
+    def _download_attachment_media(
+        self,
+        attachment: dict,
+        *,
+        max_bytes: int,
+        timeout_seconds: float,
+    ) -> tuple[str, str, str, int] | None:
         url = str(attachment.get("url") or "")
-        if not url.startswith(("http://", "https://")):
-            raise ValueError("attachment URL must be http(s)")
-        data, response_type = self._download_attachment_bytes(url)
+        data, response_type = self._download_attachment_bytes(
+            url,
+            max_bytes=max_bytes,
+            timeout_seconds=timeout_seconds,
+        )
         filename = str(attachment.get("fileName") or attachment.get("id") or "attachment")
         mime_type = str(attachment.get("fileType") or response_type or "application/octet-stream")
         cached = cache_media_bytes(data, filename=filename, mime_type=mime_type)
         if cached is None:
             return None
-        return cached.path, cached.media_type, cached.context_note()
+        return cached.path, cached.media_type, cached.context_note(), len(data)
 
-    def _download_attachment_bytes(self, url: str) -> tuple[bytes, str]:
+    def _attachment_urlopen(self, req: urllib.request.Request, *, timeout: float):
+        opener = urllib.request.build_opener(_AttachmentRedirectHandler())
+        return opener.open(req, timeout=timeout)
+
+    def _download_attachment_bytes(
+        self,
+        url: str,
+        *,
+        max_bytes: int | None = None,
+        timeout_seconds: float = 30.0,
+    ) -> tuple[bytes, str]:
+        _validate_public_http_url(url)
+        byte_limit = self.attachment_max_bytes if max_bytes is None else max_bytes
+        if byte_limit <= 0 or timeout_seconds <= 0:
+            raise ValueError("attachment download budget exhausted")
         req = urllib.request.Request(
             url,
             headers={"User-Agent": "Hermes-Arinova-Plugin/0.1"},
             method="GET",
         )
         try:
-            with urllib.request.urlopen(req, timeout=30) as res:
+            with self._attachment_urlopen(req, timeout=timeout_seconds) as res:
                 chunks = []
                 total = 0
+                deadline = time.monotonic() + timeout_seconds
                 while True:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError()
                     chunk = res.read(1024 * 1024)
                     if not chunk:
                         break
                     total += len(chunk)
-                    if total > self.attachment_max_bytes:
-                        raise ValueError(f"attachment exceeds {self.attachment_max_bytes} bytes")
+                    if total > byte_limit:
+                        raise ValueError(f"attachment exceeds {byte_limit} bytes")
                     chunks.append(chunk)
                 content_type = res.headers.get("Content-Type", "").split(";", 1)[0].strip()
         except urllib.error.HTTPError as exc:

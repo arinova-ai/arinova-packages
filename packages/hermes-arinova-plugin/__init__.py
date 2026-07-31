@@ -66,6 +66,9 @@ def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
         "max_consecutive_per_conversation": "max_consecutive_per_conversation",
         "download_attachments": "download_attachments",
         "attachment_max_bytes": "attachment_max_bytes",
+        "attachment_max_count": "attachment_max_count",
+        "attachment_total_max_bytes": "attachment_total_max_bytes",
+        "attachment_total_timeout_ms": "attachment_total_timeout_ms",
         "allow_bots": "allow_bots",
     }
     for yaml_key, extra_key in key_map.items():
