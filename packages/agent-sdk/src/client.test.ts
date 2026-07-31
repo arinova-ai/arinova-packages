@@ -1038,7 +1038,7 @@ describe("pong watchdog", () => {
 
     readyState = MockWebSocket.OPEN;
     onopen: (() => void) | null = null;
-    onmessage: ((event: { data: string }) => void) | null = null;
+    onmessage: ((event: { data: string | ArrayBuffer | Blob }) => void | Promise<void>) | null = null;
     onerror: (() => void) | null = null;
     onclose: (() => void) | null = null;
     send = vi.fn();
@@ -1051,12 +1051,13 @@ describe("pong watchdog", () => {
     }
   }
 
-  function createAgent() {
+  function createAgent(maxInboundFrameBytes?: number) {
     const agent = new ArinovaAgent({
       serverUrl: "ws://localhost:9999",
       botToken: "ari_test",
       pingInterval: 1_000,
       pingTimeout: 2_500,
+      maxInboundFrameBytes,
     });
     const a = agent as unknown as {
       cleanup: () => void;
@@ -1095,6 +1096,29 @@ describe("pong watchdog", () => {
     expect(ws.close).not.toHaveBeenCalled();
 
     a.cleanup();
+  });
+
+  it("closes oversized inbound frames before JSON parsing", async () => {
+    const { agent, a } = createAgent(32);
+    const errors: Error[] = [];
+    agent.on("error", (error) => errors.push(error));
+    a.doConnect();
+    const ws = MockWebSocket.instances[0];
+
+    await ws.onmessage?.({ data: `{"type":"pong","padding":"${"x".repeat(64)}"}` });
+
+    expect(ws.close).toHaveBeenCalledOnce();
+    expect(errors[0]?.message).toContain("exceeds configured limit");
+  });
+
+  it("accepts a legitimate ArrayBuffer frame below the limit", async () => {
+    const { a } = createAgent(128);
+    a.doConnect();
+    const ws = MockWebSocket.instances[0];
+
+    await ws.onmessage?.({ data: new TextEncoder().encode('{"type":"pong"}').buffer });
+
+    expect(ws.close).not.toHaveBeenCalled();
   });
 
   it("agent_auth declares action_call runtime capability", () => {

@@ -22,6 +22,8 @@ export interface ArinovaAgentOptions {
   pingInterval?: number;
   /** Pong timeout in ms before forcing reconnect (default: 2 * pingInterval). */
   pingTimeout?: number;
+  /** Maximum accepted inbound WebSocket frame size in bytes. Default: 1 MiB. */
+  maxInboundFrameBytes?: number;
   /**
    * Controls how the SDK serialises tasks when multiple arrive for the same agent.
    *

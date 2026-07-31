@@ -56,6 +56,7 @@ const DEFAULT_ACTION_TIMEOUT = 60_000;
 const WS_OPEN = 1;
 const MAX_QUEUE_SIZE = 10;
 const DEFAULT_MAX_QUEUED_TASKS = 100;
+const DEFAULT_MAX_INBOUND_FRAME_BYTES = 1024 * 1024;
 const MAX_PENDING_CHUNK_EVENTS = 1_000;
 const MAX_PENDING_TERMINAL_EVENTS = 1_000;
 const MAX_PENDING_CHUNK_AGE_MS = 60_000;
@@ -134,6 +135,7 @@ export class ArinovaAgent {
   private readonly concurrencyMode: "per-conversation" | "agent-wide" | "unbounded";
   private readonly maxConsecutive: number;
   private readonly maxQueuedTasks: number;
+  private readonly maxInboundFrameBytes: number;
   private readonly logger: Pick<Console, "warn" | "info" | "error">;
 
   private ws: WebSocket | null = null;
@@ -200,6 +202,10 @@ export class ArinovaAgent {
       Number.isSafeInteger(options.maxQueuedTasks) && (options.maxQueuedTasks ?? -1) >= 0
         ? options.maxQueuedTasks!
         : DEFAULT_MAX_QUEUED_TASKS;
+    this.maxInboundFrameBytes =
+      Number.isSafeInteger(options.maxInboundFrameBytes) && (options.maxInboundFrameBytes ?? 0) > 0
+        ? options.maxInboundFrameBytes!
+        : DEFAULT_MAX_INBOUND_FRAME_BYTES;
     this.logger = options.logger ?? console;
   }
 
@@ -637,9 +643,29 @@ export class ArinovaAgent {
       }, this.pingInterval);
     };
 
-    this.ws.onmessage = (event) => {
+    this.ws.onmessage = async (event) => {
       try {
-        const data = JSON.parse(String(event.data));
+        let raw: string;
+        let byteLength: number;
+        if (typeof event.data === "string") {
+          raw = event.data;
+          byteLength = new TextEncoder().encode(raw).byteLength;
+        } else if (event.data instanceof ArrayBuffer) {
+          byteLength = event.data.byteLength;
+          raw = new TextDecoder().decode(event.data);
+        } else if (typeof Blob !== "undefined" && event.data instanceof Blob) {
+          byteLength = event.data.size;
+          if (byteLength > this.maxInboundFrameBytes) {
+            throw new RangeError("inbound WebSocket frame exceeds configured limit");
+          }
+          raw = await event.data.text();
+        } else {
+          throw new TypeError("unsupported inbound WebSocket frame type");
+        }
+        if (byteLength > this.maxInboundFrameBytes) {
+          throw new RangeError("inbound WebSocket frame exceeds configured limit");
+        }
+        const data = JSON.parse(raw);
 
         if (data.type === "auth_ok") {
           this.agentId = data.agentId ?? null;
@@ -760,7 +786,11 @@ export class ArinovaAgent {
           return;
         }
       } catch (err) {
-        this.emit("error", err instanceof Error ? err : new Error(String(err)));
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.emit("error", error);
+        if (error instanceof RangeError || error instanceof TypeError) {
+          socket.close();
+        }
       }
     };
 
