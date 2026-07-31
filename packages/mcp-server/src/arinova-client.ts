@@ -29,6 +29,7 @@ export class ArinovaClient {
   private manifest: ActionManifest | null = null;
   private manifestEtag: string | undefined;
   private toolMapping: ToolMapping | null = null;
+  private manifestLoadPromise: Promise<ToolMapping> | null = null;
   private lastError: string | null = null;
   private semaphore: number;
   private queue: Array<{
@@ -60,6 +61,29 @@ export class ArinovaClient {
   }
 
   async loadManifest(): Promise<ToolMapping> {
+    if (this.manifestLoadPromise) return this.manifestLoadPromise;
+    const loadPromise = this.loadManifestLimited();
+    this.manifestLoadPromise = loadPromise;
+    this.inFlightTracker.add(loadPromise);
+    const cleanup = () => {
+      this.inFlightTracker.delete(loadPromise);
+      if (this.manifestLoadPromise === loadPromise) {
+        this.manifestLoadPromise = null;
+      }
+    };
+    loadPromise.then(cleanup, cleanup);
+    return loadPromise;
+  }
+
+  private async loadManifestLimited(): Promise<ToolMapping> {
+    if (this.shuttingDown) {
+      throw new ActionExecutionError("SHUTDOWN", "Server is shutting down");
+    }
+    await this.acquireSemaphore();
+    if (this.shuttingDown) {
+      this.releaseSemaphore();
+      throw new ActionExecutionError("SHUTDOWN", "Server is shutting down");
+    }
     this.manifestState = "loading";
     try {
       const result = await fetchManifest(
@@ -87,6 +111,8 @@ export class ArinovaClient {
       this.manifestState = "error";
       this.lastError = err instanceof Error ? err.message : String(err);
       throw err;
+    } finally {
+      this.releaseSemaphore();
     }
   }
 

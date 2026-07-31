@@ -6,12 +6,39 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerConfig } from "./config.js";
 import type { ArinovaClient } from "./arinova-client.js";
-import type { McpToolDefinition } from "./tool-mapping.js";
+import type { McpToolDefinition, ToolMapping } from "./tool-mapping.js";
 import { normalizeResult, shouldReportAsError } from "./result.js";
 import { ActionExecutionError } from "./errors.js";
 import { logger } from "./logger.js";
 
 const PACKAGE_VERSION = "0.0.19-staging.4";
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, stableValue(item)]),
+    );
+  }
+  return value;
+}
+
+export function toolMappingFingerprint(tools: McpToolDefinition[]): string {
+  return JSON.stringify(
+    [...tools]
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .map((tool) => stableValue({
+        name: tool.name,
+        actionName: tool.actionName,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        maxExecutionMs: tool.maxExecutionMs,
+        maxArgumentsBytes: tool.maxArgumentsBytes,
+      })),
+  );
+}
 
 function textResult(data: unknown, isError = false) {
   return {
@@ -71,7 +98,7 @@ export class ArinovaMcpServer {
       {
         name: "arinova_refresh_manifest",
         description:
-          "Refreshes the Arinova action manifest and reports the current version and action count. If tools changed, a restart may be required for MCP clients to see the updated tool list.",
+          "Refreshes the Arinova action manifest and reports the current version and action count. Clients are notified when exposed tools or their action bindings change.",
         inputSchema: { type: "object" as const, properties: {} },
       },
     ];
@@ -104,14 +131,7 @@ export class ArinovaMcpServer {
   private async handleRefreshManifest() {
     try {
       const mapping = await this.client.loadManifest();
-      const previousCount = this.dynamicTools.length;
-      this.dynamicTools = mapping.tools;
-      this.toolsLoaded = true;
-
-      const changed = previousCount !== mapping.tools.length;
-      if (changed) {
-        this.server.sendToolListChanged().catch(() => {});
-      }
+      const changed = this.applyToolMapping(mapping);
 
       return textResult({
         ...this.client.getManifestInfo(),
@@ -127,6 +147,18 @@ export class ArinovaMcpServer {
         true,
       );
     }
+  }
+
+  private applyToolMapping(mapping: ToolMapping, notify = true): boolean {
+    const changed =
+      toolMappingFingerprint(this.dynamicTools)
+      !== toolMappingFingerprint(mapping.tools);
+    this.dynamicTools = mapping.tools;
+    this.toolsLoaded = true;
+    if (changed && notify) {
+      this.server.sendToolListChanged().catch(() => {});
+    }
+    return changed;
   }
 
   private async handleActionCall(
@@ -212,8 +244,7 @@ export class ArinovaMcpServer {
         await this.client.connect();
         const mapping =
           this.client.getToolMapping() ?? (await this.client.loadManifest());
-        this.dynamicTools = mapping.tools;
-        this.toolsLoaded = true;
+        this.applyToolMapping(mapping, false);
       } catch (err) {
         logger.warn(
           `MCP tool list requested before manifest was available: ${err instanceof Error ? err.message : String(err)}`,
@@ -244,9 +275,7 @@ export class ArinovaMcpServer {
     logger.info("Strict startup: connecting and loading manifest");
     await this.client.connect();
     const mapping = await this.client.loadManifest();
-    this.dynamicTools = mapping.tools;
-    this.toolsLoaded = true;
-    this.server.sendToolListChanged().catch(() => {});
+    this.applyToolMapping(mapping);
   }
 
   private initializeLazy(): void {
@@ -259,9 +288,7 @@ export class ArinovaMcpServer {
       try {
         await this.client.connect();
         const mapping = await this.client.loadManifest();
-        this.dynamicTools = mapping.tools;
-        this.toolsLoaded = true;
-        this.server.sendToolListChanged().catch(() => {});
+        this.applyToolMapping(mapping);
       } catch (err) {
         logger.warn(
           `Background initialization failed: ${err instanceof Error ? err.message : String(err)}. Tools will be available after successful arinova_refresh_manifest.`,

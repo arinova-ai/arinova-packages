@@ -123,6 +123,80 @@ describe("ArinovaClient", () => {
 
       await Promise.all([call1, call2]);
     });
+
+    it("coalesces concurrent manifest refreshes into one limited operation", async () => {
+      let releaseManifest!: (response: Response) => void;
+      const manifestResponse = new Promise<Response>((resolve) => {
+        releaseManifest = resolve;
+      });
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).endsWith("/api/v1/actions/agent-manifest")) {
+          return manifestResponse;
+        }
+        return new Response("not found", { status: 404 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const c = new ArinovaClient(makeConfig({ maxConcurrentActions: 1 }));
+
+      const first = c.loadManifest();
+      const second = c.loadManifest();
+      const third = c.loadManifest();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      releaseManifest(jsonResponse({
+        manifestVersion: EXPECTED_ACTION_PROTOCOL_VERSION,
+        actions: [],
+      }));
+      const mappings = await Promise.all([first, second, third]);
+      expect(mappings[0]).toBe(mappings[1]);
+      expect(mappings[1]).toBe(mappings[2]);
+      expect(c.inFlightCount).toBe(0);
+    });
+
+    it("queues manifest refresh behind an in-flight action", async () => {
+      const c = new ArinovaClient(makeConfig({
+        maxConcurrentActions: 1,
+        actionQueueLimit: 2,
+      }));
+      let manifestCalls = 0;
+      let releaseAction!: () => void;
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/v1/actions/agent-manifest")) {
+          manifestCalls++;
+          return jsonResponse({
+            manifestVersion: EXPECTED_ACTION_PROTOCOL_VERSION,
+            actions: [],
+          });
+        }
+        if (url.endsWith("/api/v1/actions/call")) {
+          await new Promise<void>((resolve) => {
+            releaseAction = resolve;
+          });
+          return jsonResponse({
+            id: "c1",
+            action: "test",
+            status: "success",
+          });
+        }
+        return new Response("not found", { status: 404 });
+      }));
+      await c.connect();
+
+      const action = c.callAction("test", {});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const refresh = c.loadManifest();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(manifestCalls).toBe(1);
+      expect(c.inFlightCount).toBe(1);
+
+      releaseAction();
+      await action;
+      await refresh;
+      expect(manifestCalls).toBe(2);
+      expect(c.inFlightCount).toBe(0);
+    });
   });
 
   describe("drain", () => {
@@ -599,5 +673,69 @@ describe("ArinovaMcpServer", () => {
       isError: true,
     });
     expect(fakeClient.callAction).not.toHaveBeenCalled();
+  });
+
+  it("detects and announces same-count tool-to-action rebindings", async () => {
+    const oldTool = {
+      name: "arinova_same_tool",
+      description: "Old action",
+      inputSchema: { type: "object", properties: {} },
+      actionName: "arinova.same.tool",
+    };
+    const newTool = {
+      ...oldTool,
+      description: "New action",
+      actionName: "arinova_same_tool",
+    };
+    const mapping = {
+      tools: [newTool],
+      toolToAction: new Map([[newTool.name, newTool.actionName]]),
+      skippedActions: [],
+    };
+    const fakeClient = {
+      loadManifest: vi.fn(async () => mapping),
+      getManifestInfo: vi.fn(() => ({ state: "loaded" })),
+      getHealthData: vi.fn(() => ({})),
+      callAction: vi.fn(async (action: string) => ({
+        callId: "call-rebound",
+        action,
+        status: "success",
+        result: {},
+      })),
+      drain: vi.fn(),
+      disconnect: vi.fn(),
+    };
+    const server = new ArinovaMcpServer(
+      makeConfig(),
+      fakeClient as unknown as ArinovaClient,
+    );
+    (server as unknown as { dynamicTools: unknown[] }).dynamicTools = [oldTool];
+    const sendToolListChanged = vi.fn(async () => {});
+    (
+      server as unknown as {
+        server: { sendToolListChanged: () => Promise<void> };
+      }
+    ).server = { sendToolListChanged };
+
+    const refresh = await (server as unknown as {
+      handleToolCall: (
+        name: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
+    }).handleToolCall("arinova_refresh_manifest", {});
+    await (server as unknown as {
+      handleToolCall: (
+        name: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
+    }).handleToolCall("arinova_same_tool", {});
+
+    expect(parseTextResult(refresh).body.toolListChanged).toBe(true);
+    expect(sendToolListChanged).toHaveBeenCalledTimes(1);
+    expect(fakeClient.callAction).toHaveBeenCalledWith(
+      "arinova_same_tool",
+      {},
+      { timeoutMs: undefined },
+    );
   });
 });
