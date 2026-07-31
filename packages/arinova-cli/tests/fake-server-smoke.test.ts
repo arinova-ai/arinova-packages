@@ -104,14 +104,14 @@ describe("CLI fake-server smoke", () => {
       { id: "agent-1", name: "Smoke Agent" },
     ]);
     expect(JSON.parse((await run([
-      "calendar", "create", "--name", "Smoke",
+      "--yes", "calendar", "create", "--name", "Smoke",
     ])).stdout)).toMatchObject({ id: "calendar-1" });
   });
 
   it("downloads binary bytes without writing them to stdout", async () => {
     const output = join(temporaryDirectory, "asset.bin");
     const result = await run([
-      "image", "asset", "download", "file-1", "--output", output,
+      "--yes", "image", "asset", "download", "file-1", "--output", output,
     ]);
     expect(result.stdout).toBe("");
     expect(readFileSync(output)).toEqual(Buffer.from([0, 127, 255, 10]));
@@ -119,7 +119,7 @@ describe("CLI fake-server smoke", () => {
 
   it("streams NDJSON through a real subprocess", async () => {
     const result = await run([
-      "chat", "stream", "--agent-id", "agent-1", "--prompt", "hello",
+      "--yes", "chat", "stream", "--agent-id", "agent-1", "--prompt", "hello",
     ]);
     expect(result.stdout.trim().split("\n").map(JSON.parse)).toEqual([
       { type: "chunk", content: "hel" },

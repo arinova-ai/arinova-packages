@@ -635,7 +635,7 @@ describe("theme help commands", () => {
   it("theme init creates project scaffold", () => {
     const tmpDir = `/tmp/__cli_test_theme_${Date.now()}`;
     try {
-      const out = execSync(`node ${CLI} theme init ${tmpDir}`, { encoding: "utf-8" });
+      const out = execSync(`node ${CLI} --yes theme init ${tmpDir}`, { encoding: "utf-8" });
       expect(out.toLowerCase()).toContain("scaffolded");
       // Verify files exist
       const fs = require("node:fs");

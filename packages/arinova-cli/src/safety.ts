@@ -38,6 +38,7 @@ const READ_ONLY_COMMANDS = new Set([
   "usage",
   "url",
   "versions",
+  "whoami",
 ]);
 
 export class ConfirmationRequiredError extends Error {
