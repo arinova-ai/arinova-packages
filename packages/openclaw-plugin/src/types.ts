@@ -20,6 +20,8 @@ export type ArinovaChatAccountConfig = {
   dmPolicy?: DmPolicy;
   /** Optional allowlist of user IDs. */
   allowFrom?: string[];
+  /** Explicit allowlist of agent IDs whose A2A messages may trigger this agent. Default: none. */
+  allowAgentMessagesFrom?: string[];
   /** Outbound text chunk limit. Default: 32000. */
   textChunkLimit?: number;
 };
@@ -51,6 +53,9 @@ export type ArinovaChatInboundMessage = {
   senderUserId?: string;
   /** Username of the human who sent the message. */
   senderUsername?: string;
+  /** Agent identity for an agent-authored A2A message. */
+  senderAgentId?: string;
+  senderAgentName?: string;
   /** Other agents in the conversation (for group chats). */
   members?: { agentId: string; agentName: string }[];
   /** The message being replied to, if this is a reply. */

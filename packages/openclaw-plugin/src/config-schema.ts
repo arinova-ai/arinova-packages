@@ -17,6 +17,7 @@ export const ArinovaChatAccountSchemaBase = z
     agentId: z.string().uuid().optional(),
     dmPolicy: DmPolicySchema.optional().default("open"),
     allowFrom: z.array(z.string()).optional(),
+    allowAgentMessagesFrom: z.array(z.string()).optional(),
     textChunkLimit: z.number().int().positive().optional(),
   })
   .strict();

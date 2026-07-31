@@ -15,6 +15,11 @@ If your `openclaw.json` contains any of those keys under
 `channels.openclaw-arinova-ai`, move them into the nested `streaming.block`
 configuration before upgrading. Flat keys are ignored by OpenClaw 2026.7.
 
+Agent-authored A2A messages are denied by default to prevent automatic reply
+loops. To intentionally accept them, add the exact peer agent IDs to
+`allowAgentMessagesFrom` for that account. A2A senders never receive command
+authorization.
+
 ## MCP Tools
 
 All tools are automatically available to connected bots via the MCP protocol.

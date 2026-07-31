@@ -422,6 +422,67 @@ describe("handleArinovaChatInbound", () => {
     });
   });
 
+  it("drops agent-authored messages by default to prevent A2A reply loops", async () => {
+    const { core, runtime } = createRuntime();
+    const sendComplete = vi.fn();
+
+    await handleArinovaChatInbound({
+      message: createMessage({
+        conversationType: "group",
+        senderAgentId: "agent-peer",
+        senderAgentName: "Peer Agent",
+      }),
+      sendChunk: vi.fn(),
+      sendComplete,
+      sendError: vi.fn(),
+      account: createAccount(),
+      config,
+      runtime,
+    });
+
+    expect(sendComplete).toHaveBeenCalledWith("");
+    expect(core.channel.inbound.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("preserves an explicitly allowlisted A2A sender without command authority", async () => {
+    const { core, runtime } = createRuntime();
+
+    await handleArinovaChatInbound({
+      message: createMessage({
+        conversationType: "group",
+        senderAgentId: "agent-peer",
+        senderAgentName: "Peer Agent",
+      }),
+      sendChunk: vi.fn(),
+      sendComplete: vi.fn(),
+      sendError: vi.fn(),
+      account: createAccount({
+        config: {
+          dmPolicy: "open",
+          allowFrom: ["*"],
+          allowAgentMessagesFrom: ["arinova:agent-peer"],
+        },
+      }),
+      config,
+      runtime,
+    });
+
+    const request = core.channel.inbound.dispatch.mock.calls[0]?.[0] as unknown as {
+      ctxPayload: {
+        From: string;
+        SenderId: string;
+        CommandAuthorized: boolean;
+        ArinovaSenderAgentId: string;
+      };
+    };
+    expect(request.ctxPayload).toMatchObject({
+      From: "openclaw-arinova-ai:agent-peer",
+      SenderId: "agent-peer",
+      CommandAuthorized: false,
+      ArinovaSenderAgentId: "agent-peer",
+    });
+  });
+
   it("keeps group routing conversation-scoped without authorizing an unlisted sender", async () => {
     const { core, runtime } = createRuntime();
 

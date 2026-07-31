@@ -280,6 +280,8 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
             conversationType: task.conversationType,
             senderUserId: task.senderUserId,
             senderUsername: task.senderUsername,
+            senderAgentId: task.senderAgentId,
+            senderAgentName: task.senderAgentName,
             members: task.members,
             replyTo: task.replyTo,
             history: task.history,

@@ -181,15 +181,19 @@ export async function handleArinovaChatInbound(params: {
 
   statusSink?.({ lastInboundAt: message.timestamp });
 
-  // Sender identity is an authorization input. Never substitute a shared
-  // fallback identity when the backend omitted it.
-  const senderId = message.senderUserId?.trim();
+  // Sender identity is an authorization input. Agent-authored A2A messages
+  // use a separate deny-by-default allowlist so a group of bots cannot form
+  // an automatic reply loop merely because the original human was allowed.
+  const senderAgentId = message.senderAgentId?.trim();
+  const senderId = senderAgentId || message.senderUserId?.trim();
   if (!senderId) {
     runtime.log?.("openclaw-arinova-ai: drop inbound message without sender identity");
     sendComplete("");
     return;
   }
-  const senderDisplayName = message.senderUsername ?? "Arinova User";
+  const senderDisplayName =
+    (senderAgentId ? message.senderAgentName : message.senderUsername)
+    ?? (senderAgentId ? "Arinova Agent" : "Arinova User");
   // SenderName carries JSON with conversationId + agentName for bridge routing
   const senderNameJson = JSON.stringify({
     name: senderDisplayName,
@@ -197,15 +201,25 @@ export async function handleArinovaChatInbound(params: {
     agentName: account.name || account.accountId || "",
   });
   const chatType = message.conversationType === "group" ? "group" : "direct";
-  const access = await resolveSenderAuthorization({
-    account,
-    senderId,
-    chatType,
-    runtime,
-  });
+  const allowedAgentSenders = (account.config.allowAgentMessagesFrom ?? [])
+    .map((entry) => normalizeAllowEntry(String(entry)))
+    .filter(Boolean);
+  const agentSenderAllowed =
+    Boolean(senderAgentId)
+    && allowedAgentSenders.includes(normalizeAllowEntry(senderId));
+  const access = senderAgentId
+    ? { inboundAllowed: agentSenderAllowed, commandsAuthorized: false }
+    : await resolveSenderAuthorization({
+      account,
+      senderId,
+      chatType,
+      runtime,
+    });
   if (!access.inboundAllowed) {
     runtime.log?.(
-      `openclaw-arinova-ai: drop unauthorized ${chatType} sender (dmPolicy=${account.config.dmPolicy ?? "open"})`,
+      senderAgentId
+        ? "openclaw-arinova-ai: drop unlisted agent-authored message"
+        : `openclaw-arinova-ai: drop unauthorized ${chatType} sender (dmPolicy=${account.config.dmPolicy ?? "open"})`,
     );
     sendComplete("");
     return;
@@ -273,6 +287,7 @@ export async function handleArinovaChatInbound(params: {
       ReceiverId: account.accountId,
       ReceiverName: account.accountId,
       ArinovaConversationId: message.conversationId || peerId,
+      ...(senderAgentId ? { ArinovaSenderAgentId: senderAgentId } : {}),
     },
   });
 
