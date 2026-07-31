@@ -9,6 +9,12 @@ const BLOCKED_LINGER = 120_000;
 /** How long (ms) after session_end before removing the agent from the map */
 const OFFLINE_REMOVE_DELAY = 300_000;
 
+/** Hard retention bounds for long-running gateway processes. */
+const DEFAULT_MAX_AGENTS = 512;
+const DEFAULT_MAX_AGENT_AGE_MS = 24 * 60 * 60 * 1_000;
+const DEFAULT_MAX_SESSIONS = 2_048;
+const DEFAULT_MAX_SUBAGENT_LINKS = 1_024;
+
 type StatusListener = (event: OfficeStatusEvent) => void;
 
 /** Track parent↔child relationships for collaboration detection */
@@ -16,6 +22,13 @@ interface SubagentLink {
   parentAgentId: string;
   childAgentId: string;
   childSessionKey: string;
+}
+
+export interface OfficeStateStoreOptions {
+  maxAgents?: number;
+  maxAgentAgeMs?: number;
+  maxSessions?: number;
+  maxSubagentLinks?: number;
 }
 
 /**
@@ -28,12 +41,35 @@ export class OfficeStateStore {
   private subagentLinks: SubagentLink[] = [];
   /** Maps sessionKey/sessionId → agentId for reliable resolution */
   private sessionToAgent = new Map<string, string>();
+  /** Insertion order is refreshed on every event, making this an LRU index. */
+  private agentLastSeen = new Map<string, number>();
+  private readonly maxAgents: number;
+  private readonly maxAgentAgeMs: number;
+  private readonly maxSessions: number;
+  private readonly maxSubagentLinks: number;
+
+  constructor(options: OfficeStateStoreOptions = {}) {
+    this.maxAgents = positiveLimit(options.maxAgents, DEFAULT_MAX_AGENTS);
+    this.maxAgentAgeMs = positiveLimit(
+      options.maxAgentAgeMs,
+      DEFAULT_MAX_AGENT_AGE_MS,
+    );
+    this.maxSessions = positiveLimit(options.maxSessions, DEFAULT_MAX_SESSIONS);
+    this.maxSubagentLinks = positiveLimit(
+      options.maxSubagentLinks,
+      DEFAULT_MAX_SUBAGENT_LINKS,
+    );
+  }
 
   /** Process an incoming hook event and update agent state */
   ingest(event: InternalEvent): void {
+    const now = Date.now();
+    const evicted = this.evictExpired(now);
+    this.reserveAgentSlot(event.agentId);
+
     // Track session→agent mapping from every event that has both
     if (event.agentId && event.agentId !== "unknown" && event.sessionId) {
-      this.sessionToAgent.set(event.sessionId, event.agentId);
+      this.setSessionAgent(event.sessionId, event.agentId);
     }
 
     switch (event.type) {
@@ -69,6 +105,11 @@ export class OfficeStateStore {
       case "subagent_end":
         this.handleSubagentEnd(event);
         break;
+    }
+    if (this.agents.has(event.agentId)) {
+      this.touchAgent(event.agentId, now);
+    } else if (evicted) {
+      this.broadcast();
     }
   }
 
@@ -217,11 +258,20 @@ export class OfficeStateStore {
     // Resolve parent agent via session→agent mapping
     const parentAgentId = this.sessionToAgent.get(parentSessionKey) ?? parentSessionKey;
 
+    this.subagentLinks = this.subagentLinks.filter(
+      (link) => link.childSessionKey !== event.sessionId,
+    );
     this.subagentLinks.push({
       parentAgentId,
       childAgentId: event.agentId,
       childSessionKey: event.sessionId,
     });
+    if (this.subagentLinks.length > this.maxSubagentLinks) {
+      this.subagentLinks.splice(
+        0,
+        this.subagentLinks.length - this.maxSubagentLinks,
+      );
+    }
 
     // Ensure child agent exists
     this.ensureAgent(event.agentId, event.timestamp);
@@ -299,18 +349,62 @@ export class OfficeStateStore {
     return agent;
   }
 
+  private setSessionAgent(sessionId: string, agentId: string): void {
+    this.sessionToAgent.delete(sessionId);
+    this.sessionToAgent.set(sessionId, agentId);
+    while (this.sessionToAgent.size > this.maxSessions) {
+      const oldest = this.sessionToAgent.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.sessionToAgent.delete(oldest);
+    }
+  }
+
+  private touchAgent(agentId: string, now: number): void {
+    this.agentLastSeen.delete(agentId);
+    this.agentLastSeen.set(agentId, now);
+  }
+
+  private reserveAgentSlot(agentId: string): void {
+    if (this.agents.has(agentId)) return;
+    while (this.agents.size >= this.maxAgents) {
+      const oldest = this.agentLastSeen.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.removeAgent(oldest);
+    }
+  }
+
+  private removeAgent(agentId: string): void {
+    this.agents.delete(agentId);
+    this.agentLastSeen.delete(agentId);
+    this.removeSubagentLinks(agentId);
+    for (const [sessionId, mappedAgentId] of this.sessionToAgent) {
+      if (mappedAgentId === agentId) {
+        this.sessionToAgent.delete(sessionId);
+      }
+    }
+  }
+
+  private evictExpired(now: number): boolean {
+    let changed = false;
+    for (const [agentId, lastSeen] of this.agentLastSeen) {
+      if (now - lastSeen <= this.maxAgentAgeMs) continue;
+      this.removeAgent(agentId);
+      changed = true;
+    }
+    return changed;
+  }
+
   /** Run periodic checks — idle timeout, blocked linger, offline cleanup */
   tick(): void {
     const now = Date.now();
-    let changed = false;
+    let changed = this.evictExpired(now);
 
     for (const [id, agent] of this.agents) {
       const elapsed = now - agent.lastActivity;
 
       // Remove long-offline agents
       if (!agent.online && elapsed > OFFLINE_REMOVE_DELAY) {
-        this.agents.delete(id);
-        this.removeSubagentLinks(id);
+        this.removeAgent(id);
         changed = true;
         continue;
       }
@@ -362,3 +456,7 @@ export class OfficeStateStore {
 
 /** Singleton store instance */
 export const officeState = new OfficeStateStore();
+
+function positiveLimit(value: number | undefined, fallback: number): number {
+  return Number.isSafeInteger(value) && value! > 0 ? value! : fallback;
+}

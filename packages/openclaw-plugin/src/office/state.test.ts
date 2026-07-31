@@ -170,4 +170,45 @@ describe("OfficeStateStore", () => {
     expect(listener).toHaveBeenCalledTimes(3);
     expect(store.snapshot().agents).toEqual([]);
   });
+
+  it("evicts the least-recently-seen identity when the online map is full", () => {
+    store = new OfficeStateStore({ maxAgents: 2, maxAgentAgeMs: 60_000 });
+    vi.setSystemTime(1_000);
+    store.ingest({ ...baseEvent, type: "message_in", agentId: "agent-a" });
+    vi.setSystemTime(2_000);
+    store.ingest({ ...baseEvent, type: "message_in", agentId: "agent-b" });
+    vi.setSystemTime(3_000);
+    store.ingest({ ...baseEvent, type: "message_in", agentId: "agent-a" });
+    vi.setSystemTime(4_000);
+    store.ingest({ ...baseEvent, type: "message_in", agentId: "agent-c" });
+
+    expect(store.snapshot().agents.map((agent) => agent.agentId).sort()).toEqual([
+      "agent-a",
+      "agent-c",
+    ]);
+  });
+
+  it("age-evicts stale online identities and their retained relationships", () => {
+    store = new OfficeStateStore({
+      maxAgents: 4,
+      maxAgentAgeMs: 1_000,
+      maxSessions: 4,
+      maxSubagentLinks: 2,
+    });
+    vi.setSystemTime(1_000);
+    store.ingest({ ...baseEvent, type: "session_start", agentId: "agent-parent" });
+    store.ingest({
+      type: "subagent_start",
+      sessionId: "child-session",
+      agentId: "agent-child",
+      timestamp: 1_000,
+      data: { parentSessionKey: "session-1" },
+    });
+    expect(store.snapshot().agents).toHaveLength(2);
+
+    vi.setSystemTime(2_001);
+    store.tick();
+
+    expect(store.snapshot().agents).toEqual([]);
+  });
 });
