@@ -1,7 +1,8 @@
-import { readFile, access } from "node:fs/promises";
-import { basename, resolve, isAbsolute } from "node:path";
+import { lstat, readFile, realpath } from "node:fs/promises";
+import { basename, isAbsolute, relative, resolve } from "node:path";
 
 const IMAGE_EXT = /\.(?:png|jpe?g|gif|webp)$/i;
+const MAX_IMAGE_UPLOADS = 8;
 
 /**
  * Match image file paths in text.
@@ -24,12 +25,21 @@ export type UploadFn = (
   fileType?: string,
 ) => Promise<{ url: string }>;
 
-async function fileExists(p: string): Promise<boolean> {
+async function resolveContainedImage(workDir: string, rawPath: string): Promise<string | null> {
+  if (isAbsolute(rawPath)) return null;
   try {
-    await access(p);
-    return true;
+    const root = await realpath(workDir);
+    const candidate = resolve(root, rawPath);
+    const resolved = await realpath(candidate);
+    const rel = relative(root, resolved);
+    if (!rel || rel.startsWith("..") || isAbsolute(rel) || !IMAGE_EXT.test(resolved)) {
+      return null;
+    }
+    const stat = await lstat(candidate);
+    if (!stat.isFile()) return null;
+    return resolved;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -46,13 +56,15 @@ export async function replaceImagePaths(
   const matches = text.match(PATH_RE);
   if (!matches) return text;
 
-  const unique = [...new Set(matches)];
+  const unique = [...new Set(matches)].slice(0, MAX_IMAGE_UPLOADS);
 
-  const results = await Promise.all(
-    unique.map(async (rawPath) => {
-      const absPath = isAbsolute(rawPath) ? rawPath : resolve(workDir, rawPath);
-      if (!IMAGE_EXT.test(absPath) || !(await fileExists(absPath))) return null;
-
+  const results: Array<{ rawPath: string; url: string } | null> = [];
+  for (const rawPath of unique) {
+      const absPath = await resolveContainedImage(workDir, rawPath);
+      if (!absPath) {
+        results.push(null);
+        continue;
+      }
       try {
         log?.(`image-upload: uploading ${absPath}`);
         const data = await readFile(absPath);
@@ -61,13 +73,12 @@ export async function replaceImagePaths(
         const fileType = MIME_TYPES[ext] ?? "application/octet-stream";
         const result = await uploadFn(new Uint8Array(data), fileName, fileType);
         log?.(`image-upload: → ${result.url}`);
-        return { rawPath, url: result.url };
+        results.push({ rawPath, url: result.url });
       } catch (err) {
         log?.(`image-upload: failed for ${absPath}: ${err}`);
-        return null;
+        results.push(null);
       }
-    }),
-  );
+  }
 
   let out = text;
   for (const r of results) {

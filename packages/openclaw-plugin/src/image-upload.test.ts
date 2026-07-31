@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -76,5 +76,46 @@ describe("replaceImagePaths", () => {
 
     await expect(replaceImagePaths("plain text", "/tmp", upload)).resolves.toBe("plain text");
     expect(upload).not.toHaveBeenCalled();
+  });
+
+  it("rejects absolute, traversal, and escaping symlink paths", async () => {
+    const workDir = await makeTempDir();
+    const outsideDir = await makeTempDir();
+    await writeFile(join(outsideDir, "secret.png"), new Uint8Array([7]));
+    await symlink(join(outsideDir, "secret.png"), join(workDir, "linked.png"));
+    const upload = vi.fn();
+
+    const text = [
+      join(outsideDir, "secret.png"),
+      "../secret.png",
+      "linked.png",
+    ].join(" ");
+    await expect(replaceImagePaths(text, workDir, upload)).resolves.toBe(text);
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it("caps each output batch and uploads sequentially", async () => {
+    const workDir = await makeTempDir();
+    await mkdir(join(workDir, "images"));
+    for (let index = 0; index < 10; index++) {
+      await writeFile(join(workDir, "images", `image-${index}.png`), new Uint8Array([index]));
+    }
+    let active = 0;
+    let maxActive = 0;
+    const upload = vi.fn(async (_data: Uint8Array, fileName: string) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await Promise.resolve();
+      active -= 1;
+      return { url: `https://cdn.test/${fileName}` };
+    });
+    const text = Array.from({ length: 10 }, (_, index) => `images/image-${index}.png`).join(" ");
+
+    const result = await replaceImagePaths(text, workDir, upload);
+
+    expect(upload).toHaveBeenCalledTimes(8);
+    expect(maxActive).toBe(1);
+    expect(result).toContain("https://cdn.test/image-7.png");
+    expect(result).toContain("images/image-8.png");
   });
 });
