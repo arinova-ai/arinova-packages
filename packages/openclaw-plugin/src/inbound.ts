@@ -5,12 +5,76 @@ import {
   buildChannelInboundEventContext,
   resolveChannelInboundRouteEnvelope,
 } from "openclaw/plugin-sdk/channel-inbound";
+import { readChannelAllowFromStore } from "openclaw/plugin-sdk/channel-pairing";
 import type { ResolvedArinovaChatAccount } from "./accounts.js";
 import type { ArinovaChatInboundMessage, CoreConfig } from "./types.js";
 import { getArinovaChatRuntime } from "./runtime.js";
 import { replaceImagePaths, type UploadFn } from "./image-upload.js";
 
 const CHANNEL_ID = "openclaw-arinova-ai" as const;
+
+function normalizeAllowEntry(value: string): string {
+  return value
+    .trim()
+    .replace(/^(openclaw-arinova-ai|arinova):/i, "")
+    .toLowerCase();
+}
+
+async function resolveSenderAuthorization(params: {
+  account: ResolvedArinovaChatAccount;
+  senderId: string;
+  chatType: "direct" | "group";
+  runtime: RuntimeEnv;
+}): Promise<{ inboundAllowed: boolean; commandsAuthorized: boolean }> {
+  const { account, senderId, chatType, runtime } = params;
+  const policy = account.config.dmPolicy ?? "open";
+  const normalizedSender = normalizeAllowEntry(senderId);
+  const configuredAllowFrom = (account.config.allowFrom ?? [])
+    .map((entry) => normalizeAllowEntry(String(entry)))
+    .filter(Boolean);
+  const configuredMatch =
+    configuredAllowFrom.includes("*") || configuredAllowFrom.includes(normalizedSender);
+
+  let pairedMatch = false;
+  if (policy === "pairing") {
+    try {
+      const storedAllowFrom = await readChannelAllowFromStore(
+        CHANNEL_ID,
+        process.env,
+        account.accountId,
+      );
+      pairedMatch = storedAllowFrom
+        .map((entry) => normalizeAllowEntry(String(entry)))
+        .includes(normalizedSender);
+    } catch (error) {
+      runtime.error?.(
+        `openclaw-arinova-ai: unable to read pairing allowlist; denying sender: ${String(error)}`,
+      );
+    }
+  }
+
+  const commandsAuthorized = configuredMatch || pairedMatch;
+  if (chatType === "group") {
+    return { inboundAllowed: true, commandsAuthorized };
+  }
+
+  switch (policy) {
+    case "disabled":
+      return { inboundAllowed: false, commandsAuthorized: false };
+    case "open":
+      // Runtime configuration can bypass schema validation, so require the
+      // explicit wildcard that the schema mandates for open DMs.
+      return {
+        inboundAllowed: configuredAllowFrom.includes("*"),
+        commandsAuthorized: configuredAllowFrom.includes("*"),
+      };
+    case "allowlist":
+    case "pairing":
+      return { inboundAllowed: commandsAuthorized, commandsAuthorized };
+    default:
+      return { inboundAllowed: false, commandsAuthorized: false };
+  }
+}
 
 // Known tool names from Claude Code CLI bridge
 const TOOL_LINE_RE = /^\[(Bash|Read|Write|Edit|Grep|Glob|WebFetch|WebSearch|Task|Skill|NotebookEdit)\]/;
@@ -117,8 +181,14 @@ export async function handleArinovaChatInbound(params: {
 
   statusSink?.({ lastInboundAt: message.timestamp });
 
-  // Use actual sender identity from the task payload (multi-user support)
-  const senderId = message.senderUserId ?? "arinova-user";
+  // Sender identity is an authorization input. Never substitute a shared
+  // fallback identity when the backend omitted it.
+  const senderId = message.senderUserId?.trim();
+  if (!senderId) {
+    runtime.log?.("openclaw-arinova-ai: drop inbound message without sender identity");
+    sendComplete("");
+    return;
+  }
   const senderDisplayName = message.senderUsername ?? "Arinova User";
   // SenderName carries JSON with conversationId + agentName for bridge routing
   const senderNameJson = JSON.stringify({
@@ -126,12 +196,17 @@ export async function handleArinovaChatInbound(params: {
     conversationId: message.conversationId || "",
     agentName: account.name || account.accountId || "",
   });
-  const chatType = message.conversationType ?? "direct";
-
-  // DM policy check
-  const dmPolicy = account.config.dmPolicy ?? "open";
-  if (dmPolicy === "disabled") {
-    runtime.log?.(`openclaw-arinova-ai: drop DM (dmPolicy=disabled)`);
+  const chatType = message.conversationType === "group" ? "group" : "direct";
+  const access = await resolveSenderAuthorization({
+    account,
+    senderId,
+    chatType,
+    runtime,
+  });
+  if (!access.inboundAllowed) {
+    runtime.log?.(
+      `openclaw-arinova-ai: drop unauthorized ${chatType} sender (dmPolicy=${account.config.dmPolicy ?? "open"})`,
+    );
     sendComplete("");
     return;
   }
@@ -167,8 +242,8 @@ export async function handleArinovaChatInbound(params: {
     accountId: route.accountId,
     messageId: message.taskId,
     timestamp: message.timestamp,
-    from: `openclaw-arinova-ai:${peerId}`,
-    sender: { id: peerId, name: senderNameJson },
+    from: `openclaw-arinova-ai:${senderId}`,
+    sender: { id: senderId, name: senderNameJson },
     conversation: {
       kind: chatType === "group" ? "group" : "direct",
       id: peerId,
@@ -191,7 +266,7 @@ export async function handleArinovaChatInbound(params: {
       commandBody: rawBody.replace(/^!\[/, "["),
     },
     access: {
-      commands: { authorized: true },
+      commands: { authorized: access.commandsAuthorized },
     },
     extra: {
       OriginatingChannel: CHANNEL_ID,

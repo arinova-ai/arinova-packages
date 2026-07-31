@@ -9,6 +9,16 @@ import { exchangeBotToken } from "./auth.js";
 import { registerOffice, shutdown as shutdownOffice } from "./office/index.js";
 import { registerCli } from "./cli.js";
 
+export function buildArinovaPromptContext(): { prependContext: string } {
+  return {
+    prependContext: `[Arinova Chat Integration]
+You are connected to Arinova Chat through authenticated channel capabilities managed by the host.
+Reply normally; the channel streams your response automatically.
+Never request, print, or construct authentication credentials or Authorization headers.
+`,
+  };
+}
+
 const plugin: {
   id: string;
   name: string;
@@ -30,98 +40,11 @@ const plugin: {
     // CLI: openclaw arinova <subcommand>
     registerCli(api);
 
-    // Inject Arinova Chat tool docs into agent context
+    // Inject only a credential-free, allowlisted projection into model context.
     api.on("before_prompt_build", (_event, ctx) => {
       const provider = ctx.messageProvider;
       if (provider !== "openclaw-arinova-ai") return;
-
-      const accountId =
-        "accountId" in ctx && typeof ctx.accountId === "string" ? ctx.accountId : undefined;
-      const channels = (api.config as Record<string, unknown>).channels as Record<string, unknown> | undefined;
-      const arinova = (channels?.["openclaw-arinova-ai"] ?? {}) as Record<string, unknown>;
-      const apiUrl = (arinova.apiUrl as string) ?? "https://api.chat.arinova.ai";
-      const accounts = (arinova.accounts ?? {}) as Record<string, Record<string, unknown>>;
-      const account = accountId ? accounts[accountId] : undefined;
-      const botToken = account?.botToken as string | undefined;
-
-      if (!botToken) return;
-
-      return {
-        prependContext: `[Arinova Chat Integration]
-You are connected to Arinova Chat. Here are the APIs available to you:
-
-## Proactive Messaging
-To send a message to the user without waiting for their input:
-\`\`\`
-curl -s -X POST ${apiUrl}/api/v1/messages/send \\
-  -H "Authorization: Bearer ${botToken}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"conversationId": "<CONVERSATION_ID>", "content": "<MESSAGE>"}'
-\`\`\`
-The conversationId is available from the inbound message context (the From field contains openclaw-arinova-ai:<conversationId>).
-
-## File Upload
-To upload a file and get a URL:
-\`\`\`
-curl -s -X POST ${apiUrl}/api/v1/files/upload \\
-  -H "Authorization: Bearer ${botToken}" \\
-  -F "conversationId=<CONVERSATION_ID>" \\
-  -F "file=@/path/to/file;type=image/png"
-\`\`\`
-Response: {"url": "https://...", "fileName": "...", "fileType": "...", "fileSize": 1234}
-
-## Sending Images
-After uploading, use markdown image syntax in your message: ![description](url)
-
-## Conversation History
-To fetch conversation history (cursor-based pagination, newest first):
-\`\`\`
-curl -s "${apiUrl}/api/v1/messages/<CONVERSATION_ID>?limit=50" \\
-  -H "Authorization: Bearer ${botToken}"
-\`\`\`
-Query parameters (all optional):
-- \`limit\` — Number of messages (default 50, max 100)
-- \`before\` — Message ID cursor, fetch messages older than this
-- \`after\` — Message ID cursor, fetch messages newer than this
-- \`around\` — Message ID cursor, fetch messages around this one
-Response: {"messages": [...], "hasMore": true/false, "nextCursor": "<id>"}
-Use nextCursor as the \`before\` parameter to paginate backward.
-
-## Conversation Notes
-Manage shared notes within a conversation. Notes are visible to all members (humans + agents).
-
-### List notes
-\`\`\`
-curl -s "${apiUrl}/api/v1/notes?limit=20" \\
-  -H "Authorization: Bearer ${botToken}"
-\`\`\`
-Query parameters: \`limit\` (default 20, max 50), \`before\` (note ID cursor for pagination)
-Response: {"notes": [...], "hasMore": true/false, "nextCursor": "<id>"}
-
-### Create a note
-\`\`\`
-curl -s -X POST ${apiUrl}/api/v1/notes \\
-  -H "Authorization: Bearer ${botToken}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"title": "Note title", "content": "Markdown content"}'
-\`\`\`
-
-### Update a note (only notes you created)
-\`\`\`
-curl -s -X PATCH ${apiUrl}/api/v1/notes/<NOTE_ID> \\
-  -H "Authorization: Bearer ${botToken}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"title": "Updated title", "content": "Updated content"}'
-\`\`\`
-
-### Delete a note (only notes you created)
-\`\`\`
-curl -s -X DELETE ${apiUrl}/api/v1/notes/<NOTE_ID> \\
-  -H "Authorization: Bearer ${botToken}"
-\`\`\`
-Note: The conversation owner can disable agent note access. If disabled, all note endpoints return 403.
-`,
-      };
+      return buildArinovaPromptContext();
     });
 
     // Hint on gateway start if not configured

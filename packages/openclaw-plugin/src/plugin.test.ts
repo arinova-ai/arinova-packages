@@ -1,4 +1,22 @@
 import { describe, it, expect } from "vitest";
+import { buildArinovaPromptContext } from "./index.js";
+
+describe("Arinova prompt context", () => {
+  it("contains no credential-bearing API instructions", () => {
+    const context = buildArinovaPromptContext().prependContext;
+
+    expect(context).not.toContain("Authorization:");
+    expect(context).not.toContain("Bearer ");
+    expect(context).not.toContain("botToken");
+    expect(context).not.toContain("curl ");
+  });
+
+  it("preserves safe channel guidance for legitimate turns", () => {
+    expect(buildArinovaPromptContext().prependContext).toContain(
+      "the channel streams your response automatically",
+    );
+  });
+});
 
 // Test inbound message parsing utilities
 describe("inbound message parsing", () => {

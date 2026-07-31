@@ -32,9 +32,17 @@ const channelInboundMocks = vi.hoisted(() => ({
   })),
 }));
 
+const pairingMocks = vi.hoisted(() => ({
+  readAllowFromStore: vi.fn(async () => [] as string[]),
+}));
+
 vi.mock("openclaw/plugin-sdk/channel-inbound", () => ({
   buildChannelInboundEventContext: channelInboundMocks.buildContext,
   resolveChannelInboundRouteEnvelope: channelInboundMocks.resolveRouteEnvelope,
+}));
+
+vi.mock("openclaw/plugin-sdk/channel-pairing", () => ({
+  readChannelAllowFromStore: pairingMocks.readAllowFromStore,
 }));
 
 import {
@@ -58,7 +66,7 @@ function createAccount(overrides: Partial<ResolvedArinovaChatAccount> = {}): Res
     botToken: "token",
     agentId: "agent-1",
     sessionToken: "session",
-    config: {},
+    config: { dmPolicy: "open", allowFrom: ["*"] },
     ...overrides,
   };
 }
@@ -145,6 +153,7 @@ function createRuntime(options: {
 describe("inbound payload helpers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    pairingMocks.readAllowFromStore.mockResolvedValue([]);
   });
 
   it("collapses consecutive tool blocks while preserving surrounding text", () => {
@@ -275,6 +284,171 @@ describe("handleArinovaChatInbound", () => {
     expect(sendComplete).toHaveBeenCalledWith("");
     expect(channelInboundMocks.resolveRouteEnvelope).not.toHaveBeenCalled();
     expect(core.channel.inbound.dispatch).not.toHaveBeenCalled();
+  });
+
+  it.each(["open", "allowlist", "pairing"] as const)(
+    "fails closed without a sender identity in %s mode",
+    async (dmPolicy) => {
+      const { core, runtime } = createRuntime();
+      const sendComplete = vi.fn();
+
+      await handleArinovaChatInbound({
+        message: createMessage({ senderUserId: undefined }),
+        sendChunk: vi.fn(),
+        sendComplete,
+        sendError: vi.fn(),
+        account: createAccount({
+          config: {
+            dmPolicy,
+            allowFrom: dmPolicy === "open" ? ["*"] : ["user-1"],
+          },
+        }),
+        config,
+        runtime,
+      });
+
+      expect(sendComplete).toHaveBeenCalledWith("");
+      expect(core.channel.inbound.dispatch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("fails closed when open policy lacks its required wildcard", async () => {
+    const { core, runtime } = createRuntime();
+
+    await handleArinovaChatInbound({
+      message: createMessage(),
+      sendChunk: vi.fn(),
+      sendComplete: vi.fn(),
+      sendError: vi.fn(),
+      account: createAccount({ config: { dmPolicy: "open", allowFrom: [] } }),
+      config,
+      runtime,
+    });
+
+    expect(core.channel.inbound.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unlisted sender and dispatches a listed sender", async () => {
+    const denied = createRuntime();
+    await handleArinovaChatInbound({
+      message: createMessage({ senderUserId: "intruder" }),
+      sendChunk: vi.fn(),
+      sendComplete: vi.fn(),
+      sendError: vi.fn(),
+      account: createAccount({ config: { dmPolicy: "allowlist", allowFrom: ["arinova:user-1"] } }),
+      config,
+      runtime: denied.runtime,
+    });
+    expect(denied.core.channel.inbound.dispatch).not.toHaveBeenCalled();
+
+    const allowed = createRuntime();
+    await handleArinovaChatInbound({
+      message: createMessage(),
+      sendChunk: vi.fn(),
+      sendComplete: vi.fn(),
+      sendError: vi.fn(),
+      account: createAccount({ config: { dmPolicy: "allowlist", allowFrom: ["arinova:user-1"] } }),
+      config,
+      runtime: allowed.runtime,
+    });
+    expect(allowed.core.channel.inbound.dispatch).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an unpaired sender and dispatches a sender approved in the pairing store", async () => {
+    const denied = createRuntime();
+    await handleArinovaChatInbound({
+      message: createMessage(),
+      sendChunk: vi.fn(),
+      sendComplete: vi.fn(),
+      sendError: vi.fn(),
+      account: createAccount({ config: { dmPolicy: "pairing", allowFrom: [] } }),
+      config,
+      runtime: denied.runtime,
+    });
+    expect(denied.core.channel.inbound.dispatch).not.toHaveBeenCalled();
+
+    pairingMocks.readAllowFromStore.mockResolvedValue(["openclaw-arinova-ai:user-1"]);
+    const allowed = createRuntime();
+    await handleArinovaChatInbound({
+      message: createMessage(),
+      sendChunk: vi.fn(),
+      sendComplete: vi.fn(),
+      sendError: vi.fn(),
+      account: createAccount({ config: { dmPolicy: "pairing", allowFrom: [] } }),
+      config,
+      runtime: allowed.runtime,
+    });
+    expect(allowed.core.channel.inbound.dispatch).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed when the pairing store cannot be read", async () => {
+    pairingMocks.readAllowFromStore.mockRejectedValue(new Error("store unavailable"));
+    const { core, runtime } = createRuntime();
+
+    await handleArinovaChatInbound({
+      message: createMessage(),
+      sendChunk: vi.fn(),
+      sendComplete: vi.fn(),
+      sendError: vi.fn(),
+      account: createAccount({ config: { dmPolicy: "pairing", allowFrom: [] } }),
+      config,
+      runtime,
+    });
+
+    expect(core.channel.inbound.dispatch).not.toHaveBeenCalled();
+    expect(runtime.error).toHaveBeenCalledWith(expect.stringContaining("store unavailable"));
+  });
+
+  it("uses the actual sender identity and authorization in the inbound context", async () => {
+    const { core, runtime } = createRuntime();
+
+    await handleArinovaChatInbound({
+      message: createMessage({ senderUserId: "user-1", conversationId: "conv-1" }),
+      sendChunk: vi.fn(),
+      sendComplete: vi.fn(),
+      sendError: vi.fn(),
+      account: createAccount({ config: { dmPolicy: "allowlist", allowFrom: ["user-1"] } }),
+      config,
+      runtime,
+    });
+
+    const request = core.channel.inbound.dispatch.mock.calls[0]?.[0] as unknown as {
+      ctxPayload: { From: string; SenderId: string; CommandAuthorized: boolean };
+    };
+    expect(request.ctxPayload).toMatchObject({
+      From: "openclaw-arinova-ai:user-1",
+      SenderId: "user-1",
+      CommandAuthorized: true,
+    });
+  });
+
+  it("keeps group routing conversation-scoped without authorizing an unlisted sender", async () => {
+    const { core, runtime } = createRuntime();
+
+    await handleArinovaChatInbound({
+      message: createMessage({
+        senderUserId: "group-user",
+        conversationId: "group-conv",
+        conversationType: "group",
+      }),
+      sendChunk: vi.fn(),
+      sendComplete: vi.fn(),
+      sendError: vi.fn(),
+      account: createAccount({ config: { dmPolicy: "allowlist", allowFrom: ["admin-user"] } }),
+      config,
+      runtime,
+    });
+
+    const request = core.channel.inbound.dispatch.mock.calls[0]?.[0] as unknown as {
+      ctxPayload: { SenderId: string; CommandAuthorized: boolean };
+    };
+    expect(request.ctxPayload).toMatchObject({
+      SenderId: "group-user",
+      CommandAuthorized: false,
+    });
+    expect(channelInboundMocks.resolveRouteEnvelope).toHaveBeenCalledWith(
+      expect.objectContaining({ peer: { kind: "group", id: "group-conv" } }),
+    );
   });
 
   it("reports an error when dispatch finishes without generated content", async () => {
