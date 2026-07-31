@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -48,7 +49,6 @@ async def main() -> int:
             ],
             "callAction": ["arinova.all", {}, {"dryRun": True}],
             "uploadFile": ["conv-all", {"base64": "SGk="}, "all.txt", "text/plain"],
-            "fetchHistory": ["conv-all", {"limit": 1}],
             "listNotes": ["conv-all", {"limit": 1}],
             "createNote": ["conv-all", {"title": "Note"}],
             "updateNote": ["conv-all", "note-all", {"title": "Note 2"}],
@@ -342,29 +342,103 @@ async def main() -> int:
             upload_path = Path(tmpdir) / "upload.txt"
             upload_path.write_text("Hi", encoding="utf-8")
 
-            path_upload_global = assert_success(
+            disabled_path_upload = json.loads(
                 await arinova_tools._agent_handler("uploadFile")(
                     {
                         "conversation_id": "conv-path",
-                        "file": {"path": str(upload_path)},
+                        "file": {"path": "upload.txt"},
                         "file_name": "path.txt",
                     }
                 )
             )
-            assert path_upload_global["result"]["args"] == ["conv-path", "Hi", "path.txt"]
+            assert disabled_path_upload["success"] is False
+            assert disabled_path_upload["error"] == "local path uploads are disabled"
 
-            path_upload_task = assert_success(
-                await arinova_tools._handle_task_call(
-                    {
-                        "task_id": "task-path",
-                        "method": "uploadFile",
-                        "file": {"path": str(upload_path)},
-                        "file_name": "task-path.txt",
-                        "file_type": "text/plain",
-                    }
+            old_allow_uploads = os.environ.get("ARINOVA_ALLOW_LOCAL_UPLOADS")
+            old_upload_root = os.environ.get("ARINOVA_UPLOAD_ROOT")
+            os.environ["ARINOVA_ALLOW_LOCAL_UPLOADS"] = "true"
+            os.environ["ARINOVA_UPLOAD_ROOT"] = tmpdir
+            try:
+                path_upload_global = assert_success(
+                    await arinova_tools._agent_handler("uploadFile")(
+                        {
+                            "conversation_id": "conv-path",
+                            "file": {"path": "upload.txt"},
+                            "file_name": "path.txt",
+                        }
+                    )
                 )
-            )
-            assert path_upload_task["result"]["args"] == ["Hi", "task-path.txt", "text/plain"]
+                assert path_upload_global["result"]["args"] == ["conv-path", "Hi", "path.txt"]
+
+                path_upload_task = assert_success(
+                    await arinova_tools._handle_task_call(
+                        {
+                            "task_id": "task-path",
+                            "method": "uploadFile",
+                            "file": {"path": "upload.txt"},
+                            "file_name": "task-path.txt",
+                            "file_type": "text/plain",
+                        }
+                    )
+                )
+                assert path_upload_task["result"]["args"] == ["Hi", "task-path.txt", "text/plain"]
+
+                for unsafe_path in (str(upload_path), "../upload.txt"):
+                    unsafe_upload = json.loads(
+                        await arinova_tools._agent_handler("uploadFile")(
+                            {
+                                "conversation_id": "conv-path",
+                                "file": {"path": unsafe_path},
+                                "file_name": "unsafe.txt",
+                            }
+                        )
+                    )
+                    assert unsafe_upload["success"] is False, unsafe_upload
+
+                with tempfile.TemporaryDirectory() as outside_dir:
+                    outside_file = Path(outside_dir) / "secret.txt"
+                    outside_file.write_text("secret", encoding="utf-8")
+                    (Path(tmpdir) / "escape.txt").symlink_to(outside_file)
+                    symlink_upload = json.loads(
+                        await arinova_tools._agent_handler("uploadFile")(
+                            {
+                                "conversation_id": "conv-path",
+                                "file": {"path": "escape.txt"},
+                                "file_name": "escape.txt",
+                            }
+                        )
+                    )
+                    assert symlink_upload["success"] is False, symlink_upload
+                    assert "escapes ARINOVA_UPLOAD_ROOT" in symlink_upload["error"]
+
+                old_upload_max = os.environ.get("ARINOVA_UPLOAD_MAX_BYTES")
+                os.environ["ARINOVA_UPLOAD_MAX_BYTES"] = "1"
+                try:
+                    oversized_upload = json.loads(
+                        await arinova_tools._agent_handler("uploadFile")(
+                            {
+                                "conversation_id": "conv-path",
+                                "file": {"path": "upload.txt"},
+                                "file_name": "large.txt",
+                            }
+                        )
+                    )
+                    assert oversized_upload["success"] is False, oversized_upload
+                    assert "exceeds 1 bytes" in oversized_upload["error"]
+                finally:
+                    if old_upload_max is None:
+                        os.environ.pop("ARINOVA_UPLOAD_MAX_BYTES", None)
+                    else:
+                        os.environ["ARINOVA_UPLOAD_MAX_BYTES"] = old_upload_max
+            finally:
+                if old_allow_uploads is None:
+                    os.environ.pop("ARINOVA_ALLOW_LOCAL_UPLOADS", None)
+                else:
+                    os.environ["ARINOVA_ALLOW_LOCAL_UPLOADS"] = old_allow_uploads
+                if old_upload_root is None:
+                    os.environ.pop("ARINOVA_UPLOAD_ROOT", None)
+                else:
+                    os.environ["ARINOVA_UPLOAD_ROOT"] = old_upload_root
 
         generic_agent_props = arinova_tools._generic_agent_schema()["parameters"]["properties"]
         assert arinova_tools._generic_agent_schema()["parameters"]["additionalProperties"] is False
@@ -373,33 +447,7 @@ async def main() -> int:
             generic_agent_props
         )
         assert {"conversationId", "fileName", "fileType", "actionArgs"}.issubset(generic_agent_props)
-        expected_upload_schema = {
-            "type": "object",
-            "description": "File bytes as {'base64':'...'} or local file as {'path':'/abs/file'}.",
-            "oneOf": [
-                {
-                    "type": "object",
-                    "properties": {
-                        "base64": {"type": "string", "description": "Base64-encoded file bytes."},
-                    },
-                    "required": ["base64"],
-                    "additionalProperties": False,
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "path": {"type": "string", "description": "Local file path to read before upload."},
-                    },
-                    "required": ["path"],
-                    "additionalProperties": False,
-                },
-            ],
-            "properties": {
-                "base64": {"type": "string", "description": "Base64-encoded file bytes."},
-                "path": {"type": "string", "description": "Local file path to read before upload."},
-            },
-            "additionalProperties": False,
-        }
+        expected_upload_schema = arinova_tools.UPLOAD_FILE_SCHEMA
         assert generic_agent_props["file"] == expected_upload_schema
         assert generic_agent_props["data"] == {
             "type": "object",
@@ -2034,9 +2082,9 @@ async def main() -> int:
             "error": "content must be a string",
         }
         trimmed_structured_history_cursors = assert_success(
-            await arinova_tools._agent_handler("fetchHistory")(
+            await arinova_tools._task_handler("fetchHistory")(
                 {
-                    "conversation_id": "  conv-history-trim  ",
+                    "task_id": "task-1",
                     "options": {
                         "before": "  msg-before  ",
                         "after": " msg-after ",
@@ -2047,7 +2095,6 @@ async def main() -> int:
             )
         )
         assert trimmed_structured_history_cursors["result"]["args"] == [
-            "conv-history-trim",
             {"before": "msg-before", "after": "msg-after", "around": "msg-around", "limit": 3},
         ]
         trimmed_structured_card_ids = assert_success(
@@ -2466,8 +2513,7 @@ async def main() -> int:
         )
         assert named_arg_gap == {
             "success": False,
-            "method": "fetchHistory",
-            "error": "conversation_id is required when using later named arguments",
+            "error": "Unsupported Arinova SDK method: fetchHistory",
         }
         task_named_arg_gap = json.loads(
             await arinova_tools._handle_task_call({"method": "uploadFile", "taskId": "task-1", "fileName": "late.txt"})
@@ -2489,10 +2535,14 @@ async def main() -> int:
         with tempfile.NamedTemporaryFile(delete=False) as handle:
             handle.write(b"abc")
             path = Path(handle.name)
+        old_allow_uploads = os.environ.get("ARINOVA_ALLOW_LOCAL_UPLOADS")
+        old_upload_root = os.environ.get("ARINOVA_UPLOAD_ROOT")
+        os.environ["ARINOVA_ALLOW_LOCAL_UPLOADS"] = "true"
+        os.environ["ARINOVA_UPLOAD_ROOT"] = str(path.parent)
         try:
             uploaded = assert_success(
                 await arinova_tools._agent_handler("uploadFile")(
-                    {"args": ["conv-1", {"path": str(path)}, "a.txt", "text/plain"]}
+                    {"args": ["conv-1", {"path": path.name}, "a.txt", "text/plain"]}
                 )
             )
             assert uploaded["result"]["args"][1] == "abc"
@@ -2502,7 +2552,7 @@ async def main() -> int:
                 await arinova_tools._handle_sdk_call(
                     {
                         "method": "uploadFile",
-                        "args": ["conv-1", {"path": str(path)}, "generic.txt", "text/plain"],
+                        "args": ["conv-1", {"path": path.name}, "generic.txt", "text/plain"],
                     }
                 )
             )
@@ -2513,7 +2563,7 @@ async def main() -> int:
                 await arinova_tools._agent_handler("uploadFile")(
                     {
                         "conversation_id": "conv-1",
-                        "file": {"path": str(path)},
+                        "file": {"path": path.name},
                         "file_name": "named-agent.txt",
                         "file_type": "text/plain",
                     }
@@ -2527,7 +2577,7 @@ async def main() -> int:
                     {
                         "method": "uploadFile",
                         "conversation_id": "conv-1",
-                        "file": {"path": str(path)},
+                        "file": {"path": path.name},
                         "file_name": "generic-named-agent.txt",
                         "file_type": "text/plain",
                     }
@@ -2546,7 +2596,7 @@ async def main() -> int:
                     {
                         "method": "uploadFile",
                         "conversationId": "conv-camel",
-                        "file": {"path": str(path)},
+                        "file": {"path": path.name},
                         "fileName": "generic-camel-agent.txt",
                         "fileType": "text/plain",
                     }
@@ -2562,7 +2612,7 @@ async def main() -> int:
 
             task_uploaded = assert_success(
                 await arinova_tools._task_handler("uploadFile")(
-                    {"file": {"path": str(path)}, "file_name": "task.txt", "file_type": "text/plain"}
+                    {"file": {"path": path.name}, "file_name": "task.txt", "file_type": "text/plain"}
                 )
             )
             assert task_uploaded["task_id"] == "task-1"
@@ -2573,7 +2623,7 @@ async def main() -> int:
                 await arinova_tools._task_handler("uploadFile")(
                     {
                         "task_id": "task-upload-explicit",
-                        "file": {"path": str(path)},
+                        "file": {"path": path.name},
                         "file_name": "explicit-task.txt",
                         "file_type": "text/plain",
                     }
@@ -2588,7 +2638,7 @@ async def main() -> int:
                 await arinova_tools._task_handler("uploadFile")(
                     {
                         "taskId": "task-upload-camel",
-                        "file": {"path": str(path)},
+                        "file": {"path": path.name},
                         "fileName": "camel-task.txt",
                         "fileType": "text/plain",
                     }
@@ -2603,7 +2653,7 @@ async def main() -> int:
                 await arinova_tools._handle_task_call(
                     {
                         "method": "uploadFile",
-                        "args": [{"path": str(path)}, "generic-task.txt", "text/plain"],
+                        "args": [{"path": path.name}, "generic-task.txt", "text/plain"],
                     }
                 )
             )
@@ -2611,6 +2661,14 @@ async def main() -> int:
             assert fake.calls[-1][3][0] == b"abc"
         finally:
             path.unlink(missing_ok=True)
+            if old_allow_uploads is None:
+                os.environ.pop("ARINOVA_ALLOW_LOCAL_UPLOADS", None)
+            else:
+                os.environ["ARINOVA_ALLOW_LOCAL_UPLOADS"] = old_allow_uploads
+            if old_upload_root is None:
+                os.environ.pop("ARINOVA_UPLOAD_ROOT", None)
+            else:
+                os.environ["ARINOVA_UPLOAD_ROOT"] = old_upload_root
 
         agent_base64_upload = assert_success(
             await arinova_tools._agent_handler("uploadFile")(
@@ -2694,7 +2752,7 @@ async def main() -> int:
             )
         )
         assert missing_upload["success"] is False
-        assert "upload file path does not exist" in missing_upload["error"]
+        assert missing_upload["error"] == "local path uploads are disabled"
 
         bad_path_type_upload = json.loads(
             await arinova_tools._agent_handler("uploadFile")(
@@ -2723,7 +2781,7 @@ async def main() -> int:
             )
         )
         assert directory_upload["success"] is False
-        assert "upload file path is not a file" in directory_upload["error"]
+        assert directory_upload["error"] == "local path uploads are disabled"
 
         invalid_base64_upload = json.loads(
             await arinova_tools._agent_handler("uploadFile")(

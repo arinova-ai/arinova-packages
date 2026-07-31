@@ -71,7 +71,14 @@ ARINOVA_ATTACHMENT_MAX_BYTES=52428800
 ARINOVA_ATTACHMENT_MAX_COUNT=8
 ARINOVA_ATTACHMENT_TOTAL_MAX_BYTES=67108864
 ARINOVA_ATTACHMENT_TOTAL_TIMEOUT_MS=30000
+ARINOVA_ALLOW_LOCAL_UPLOADS=false
+ARINOVA_UPLOAD_ROOT=/absolute/path/to/approved/workspace
+ARINOVA_UPLOAD_MAX_BYTES=26214400
 ```
+
+Local-path tool uploads are disabled by default. Enabling them requires both
+`ARINOVA_ALLOW_LOCAL_UPLOADS=true` and an explicit `ARINOVA_UPLOAD_ROOT`;
+paths must be relative to that root. Base64 uploads use the same byte limit.
 
 You can put these in `~/.hermes/.env` if your Hermes install loads that file.
 Configured SDK skills must use unique non-empty `id` values and non-empty
@@ -154,7 +161,6 @@ for every supported `agent-sdk` method:
 - `arinova_report_tool_call`
 - `arinova_call_action`
 - `arinova_upload_file`
-- `arinova_fetch_history`
 - `arinova_list_notes`
 - `arinova_create_note`
 - `arinova_update_note`
@@ -223,15 +229,17 @@ Initial scope:
 - inbound Arinova conversation names/types cached for Hermes `get_chat_info()`
 - inbound attachment download into Hermes media/file cache with
   `MessageEvent.media_urls` / `media_types`
-- authenticated loopback bridge for the full current `ArinovaAgent` SDK method
-  surface, including messages, telemetry/HUD updates, action calls, history,
+- authenticated loopback bridge for the current global `ArinovaAgent` SDK method
+  surface, including messages, telemetry/HUD updates, action calls,
   uploads, notes, kanban, labels, memories, skill prompts, note sharing, and
   tool-call reports
 - sidecar-owned SDK lifecycle methods: `connect()`, `disconnect()`,
   `onTask()`, and `on(AgentEvent, ...)` are bound to the Hermes adapter
   process rather than exposed as callable Hermes tools
 - automatic Hermes `post_tool_call` observer reporting through SDK
-  `reportToolCall()` while an Arinova task is active, accepting both
+  `reportToolCall()` while an Arinova task is active; reports contain only
+  type/count summaries and never raw arguments, results, errors, or file
+  contents, while accepting both
   `tool_name`/`args` and `function_name`/`function_args` hook payload names
 - authenticated task-scoped bridge for current SDK task helpers:
   `uploadFile()`, `fetchHistory()`, and `callAction()`

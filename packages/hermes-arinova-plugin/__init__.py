@@ -3,7 +3,6 @@
 import asyncio
 import json
 import logging
-import math
 import os
 import threading
 from functools import wraps
@@ -187,20 +186,21 @@ def _install_send_message_compat() -> None:
         send_message_tool._send_to_platform = send_to_platform
 
 
-def _tool_report_json_value(value: Any, *, max_string: int = 20_000) -> Any:
-    if isinstance(value, str):
-        if len(value) > max_string:
-            return value[:max_string] + f"...[truncated {len(value) - max_string} chars]"
-        return value
-    if isinstance(value, float) and not math.isfinite(value):
-        return repr(value)
-    if value is None or isinstance(value, (bool, int, float)):
-        return value
+def _tool_report_value_summary(value: Any) -> dict[str, Any]:
+    """Return an allowlisted shape summary without serializing tool content."""
+    if value is None:
+        return {"type": "null"}
     if isinstance(value, dict):
-        return {str(key): _tool_report_json_value(item, max_string=max_string) for key, item in value.items()}
+        return {"type": "object", "fieldCount": len(value)}
     if isinstance(value, (list, tuple)):
-        return [_tool_report_json_value(item, max_string=max_string) for item in value]
-    return repr(value)
+        return {"type": "array", "itemCount": len(value)}
+    if isinstance(value, str):
+        return {"type": "string", "charCount": len(value)}
+    if isinstance(value, bool):
+        return {"type": "boolean"}
+    if isinstance(value, (int, float)):
+        return {"type": "number"}
+    return {"type": "other"}
 
 
 def _tool_report_duration_ms(value: Any) -> int:
@@ -284,18 +284,14 @@ def _on_post_tool_call(**kwargs: Any) -> None:
         "turnId": turn_id,
         "seqOrder": _tool_report_seq(active_session_id, turn_id),
         "toolName": tool_name,
-        "input": _tool_report_json_value(raw_args if isinstance(raw_args, dict) else {}),
+        "input": _tool_report_value_summary(raw_args if isinstance(raw_args, dict) else {}),
         "durationMs": _tool_report_duration_ms(kwargs.get("duration_ms")),
         "success": success,
     }
-    if error_message:
-        report["error"] = str(error_message)
-    elif error_type:
-        report["error"] = str(error_type)
-    elif not success and status:
-        report["error"] = status
+    if not success:
+        report["error"] = "tool_failed"
     if success:
-        report["output"] = _tool_report_json_value(kwargs.get("result"))
+        report["output"] = _tool_report_value_summary(kwargs.get("result"))
     message_by_task = getattr(adapter, "_message_by_task", {})
     if isinstance(message_by_task, dict):
         report["messageId"] = str(message_by_task.get(active_task_id) or active_task_id)

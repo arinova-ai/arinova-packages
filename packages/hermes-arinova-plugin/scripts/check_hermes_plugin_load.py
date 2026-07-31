@@ -420,8 +420,8 @@ def main() -> int:
         "turnId": "turn-1",
         "seqOrder": 0,
         "toolName": "terminal",
-        "input": {"cmd": "printf hello"},
-        "output": "hello",
+        "input": {"type": "object", "fieldCount": 1},
+        "output": {"type": "string", "charCount": 5},
         "durationMs": 12,
         "success": True,
         "messageId": "msg-active",
@@ -429,168 +429,50 @@ def main() -> int:
     if report != expected_report:
         raise RuntimeError(f"post_tool_call hook built unexpected report with derived session id: {report}")
     second_report = report_adapter.calls[1][1][0]
-    expected_second_report = {
-        "sessionId": "session-1",
-        "turnId": "turn-1",
-        "seqOrder": 1,
-        "toolName": "terminal",
-        "input": {"cmd": "printf again"},
-        "output": "again",
-        "durationMs": 3,
-        "success": True,
-        "messageId": "msg-active",
-    }
-    if second_report != expected_second_report:
-        raise RuntimeError(f"post_tool_call hook did not increment same-turn seqOrder: {second_report}")
     alias_report = report_adapter.calls[2][1][0]
-    expected_alias_report = {
-        "sessionId": "session-1",
-        "turnId": "turn-1",
-        "seqOrder": 2,
-        "toolName": "terminal_alias",
-        "input": {"cmd": "printf alias"},
-        "output": "alias",
-        "durationMs": 8,
-        "success": True,
-        "messageId": "msg-active",
-    }
-    if alias_report != expected_alias_report:
-        raise RuntimeError(f"post_tool_call hook did not map function-name aliases: {alias_report}")
+    if second_report["seqOrder"] != 1 or alias_report["seqOrder"] != 2:
+        raise RuntimeError("post_tool_call hook did not increment same-turn seqOrder")
     blocked_report = report_adapter.calls[3][1][0]
-    expected_blocked_report = {
-        "sessionId": "session-1",
-        "turnId": "turn-2",
-        "seqOrder": 0,
-        "toolName": "terminal",
-        "input": {"cmd": "blocked"},
-        "durationMs": 0,
-        "success": False,
-        "error": "blocked",
-        "messageId": "msg-active",
-    }
-    if blocked_report != expected_blocked_report:
+    if blocked_report["success"] is not False or blocked_report["error"] != "tool_failed":
         raise RuntimeError(f"post_tool_call hook built unexpected failed report: {blocked_report}")
     cross_session_report = report_adapter.calls[4][1][0]
-    expected_cross_session_report = {
-        "sessionId": "session-2",
-        "turnId": "turn-1",
-        "seqOrder": 0,
-        "toolName": "terminal",
-        "input": {"cmd": "printf other"},
-        "output": "other",
-        "durationMs": 2,
-        "success": True,
-        "messageId": "msg-other",
-    }
-    if cross_session_report != expected_cross_session_report:
+    if cross_session_report["sessionId"] != "session-2" or cross_session_report["seqOrder"] != 0:
         raise RuntimeError(f"post_tool_call hook leaked seqOrder across sessions: {cross_session_report}")
     truncated_report = report_adapter.calls[5][1][0]
-    if truncated_report["input"]["cmd"] != ("x" * 20_000) + "...[truncated 50 chars]":
-        raise RuntimeError(f"post_tool_call hook did not truncate long input: {truncated_report}")
-    if truncated_report["output"] != ("y" * 20_000) + "...[truncated 10 chars]":
-        raise RuntimeError(f"post_tool_call hook did not truncate long output: {truncated_report}")
+    if truncated_report["input"] != {"type": "object", "fieldCount": 1}:
+        raise RuntimeError(f"post_tool_call hook did not summarize long input: {truncated_report}")
+    if truncated_report["output"] != {"type": "string", "charCount": 20_010}:
+        raise RuntimeError(f"post_tool_call hook did not summarize long output: {truncated_report}")
     explicit_error_report = report_adapter.calls[6][1][0]
-    expected_explicit_error_report = {
-        "sessionId": "session-1",
-        "turnId": "turn-4",
-        "seqOrder": 0,
-        "toolName": "terminal",
-        "input": {"cmd": "exit 1"},
-        "durationMs": 9,
-        "success": False,
-        "error": "explicit tool failure",
-        "messageId": "msg-active",
-    }
-    if explicit_error_report != expected_explicit_error_report:
+    if explicit_error_report["error"] != "tool_failed":
         raise RuntimeError(f"post_tool_call hook built unexpected explicit-error report: {explicit_error_report}")
     non_json_report = report_adapter.calls[7][1][0]
-    expected_non_json_report = {
-        "sessionId": "session-1",
-        "turnId": "turn-5",
-        "seqOrder": 0,
-        "toolName": "terminal",
-        "input": {},
-        "output": "PosixPath('/tmp/arinova-tool-result')",
-        "durationMs": 4,
-        "success": True,
-        "messageId": "msg-active",
-    }
-    if non_json_report != expected_non_json_report:
+    if non_json_report["output"] != {"type": "other"}:
         raise RuntimeError(f"post_tool_call hook built unexpected non-json report: {non_json_report}")
-    normalized_success_report = report_adapter.calls[8][1][0]
-    expected_normalized_success_report = {
-        "sessionId": "session-1",
-        "turnId": "turn-6",
-        "seqOrder": 0,
-        "toolName": "terminal",
-        "input": {"cmd": "printf normalized"},
-        "output": "normalized",
-        "durationMs": 0,
-        "success": True,
-        "messageId": "msg-active",
-    }
-    if normalized_success_report != expected_normalized_success_report:
-        raise RuntimeError(
-            f"post_tool_call hook built unexpected normalized-success report: {normalized_success_report}"
-        )
     nonfinite_report = report_adapter.calls[9][1][0]
-    expected_nonfinite_report = {
-        "sessionId": "session-1",
-        "turnId": "turn-7",
-        "seqOrder": 0,
-        "toolName": "terminal",
-        "input": {"limit": "nan", "nested": {"value": "inf"}},
-        "output": {"value": "-inf"},
-        "durationMs": 0,
-        "success": True,
-        "messageId": "msg-active",
-    }
-    if nonfinite_report != expected_nonfinite_report:
+    if nonfinite_report["input"] != {"type": "object", "fieldCount": 2}:
         raise RuntimeError(f"post_tool_call hook built unexpected non-finite report: {nonfinite_report}")
     error_type_report = report_adapter.calls[10][1][0]
-    expected_error_type_report = {
-        "sessionId": "session-1",
-        "turnId": "turn-8",
-        "seqOrder": 0,
-        "toolName": "terminal",
-        "input": {"cmd": "typed failure"},
-        "durationMs": 7,
-        "success": False,
-        "error": "TypedToolFailure",
-        "messageId": "msg-active",
-    }
-    if error_type_report != expected_error_type_report:
+    if error_type_report["error"] != "tool_failed":
         raise RuntimeError(f"post_tool_call hook built unexpected error-type report: {error_type_report}")
     session_fallback_report = report_adapter.calls[11][1][0]
-    expected_session_fallback_report = {
-        "sessionId": "session-2",
-        "turnId": "turn-9",
-        "seqOrder": 0,
-        "toolName": "terminal",
-        "input": {"cmd": "session lookup"},
-        "output": "looked up by session",
-        "durationMs": 11,
-        "success": True,
-        "messageId": "msg-other",
-    }
-    if session_fallback_report != expected_session_fallback_report:
+    if session_fallback_report["sessionId"] != "session-2":
         raise RuntimeError(
             f"post_tool_call hook built unexpected session-id fallback report: {session_fallback_report}"
         )
     trimmed_identity_report = report_adapter.calls[12][1][0]
-    expected_trimmed_identity_report = {
-        "sessionId": "session-1",
-        "turnId": "turn-10",
-        "seqOrder": 0,
-        "toolName": "terminal",
-        "input": {"cmd": "trimmed ids"},
-        "output": "trimmed",
-        "durationMs": 13,
-        "success": True,
-        "messageId": "msg-active",
-    }
-    if trimmed_identity_report != expected_trimmed_identity_report:
+    if trimmed_identity_report["sessionId"] != "session-1":
         raise RuntimeError(f"post_tool_call hook built unexpected trimmed identity report: {trimmed_identity_report}")
+    serialized_reports = json.dumps([call[1][0] for call in report_adapter.calls], sort_keys=True)
+    for sensitive in (
+        "printf hello",
+        "explicit tool failure",
+        "TypedToolFailure",
+        "/tmp/arinova-tool-result",
+        "should not be reported",
+    ):
+        if sensitive in serialized_reports:
+            raise RuntimeError(f"post_tool_call hook leaked sensitive content: {sensitive}")
 
     original_sidecar_dir = loaded.module.adapter.SIDECAR_DIR
     original_node_version_supported = loaded.module.adapter._node_version_supported

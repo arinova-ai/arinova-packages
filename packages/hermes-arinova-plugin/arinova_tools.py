@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import math
+import os
 import re
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -11,6 +13,7 @@ from typing import Any, Callable, Iterable
 
 TOOLSET = "hermes-arinova"
 BASE64_PATTERN = re.compile(r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$")
+DEFAULT_UPLOAD_MAX_BYTES = 25 * 1024 * 1024
 
 AGENT_METHODS: tuple[str, ...] = (
     "getAgentId",
@@ -22,7 +25,6 @@ AGENT_METHODS: tuple[str, ...] = (
     "reportToolCall",
     "callAction",
     "uploadFile",
-    "fetchHistory",
     "listNotes",
     "createNote",
     "updateNote",
@@ -88,7 +90,6 @@ METHOD_DESCRIPTIONS: dict[str, str] = {
     "getOnboardingSeed": "Return the server-authored Arinova onboarding seed, if any.",
     "callAction": "Execute an Arinova backend action_call.",
     "uploadFile": "Upload a file to Arinova storage.",
-    "fetchHistory": "Fetch Arinova conversation history.",
     "listNotes": "List Arinova notes.",
     "createNote": "Create an Arinova note.",
     "updateNote": "Update an Arinova note.",
@@ -126,7 +127,7 @@ METHOD_DESCRIPTIONS: dict[str, str] = {
 STRING_ARRAY_SCHEMA = {"type": "array", "items": {"type": "string"}}
 UPLOAD_FILE_SCHEMA = {
     "type": "object",
-    "description": "File bytes as {'base64':'...'} or local file as {'path':'/abs/file'}.",
+    "description": "File bytes as {'base64':'...'} or an explicitly enabled workspace-relative local path.",
     "oneOf": [
         {
             "type": "object",
@@ -139,7 +140,7 @@ UPLOAD_FILE_SCHEMA = {
         {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Local file path to read before upload."},
+                "path": {"type": "string", "description": "Workspace-relative local file path (requires ARINOVA_ALLOW_LOCAL_UPLOADS and ARINOVA_UPLOAD_ROOT)."},
             },
             "required": ["path"],
             "additionalProperties": False,
@@ -147,7 +148,7 @@ UPLOAD_FILE_SCHEMA = {
     ],
     "properties": {
         "base64": {"type": "string", "description": "Base64-encoded file bytes."},
-        "path": {"type": "string", "description": "Local file path to read before upload."},
+        "path": {"type": "string", "description": "Workspace-relative local file path."},
     },
     "additionalProperties": False,
 }
@@ -396,10 +397,6 @@ ARG_SPECS: dict[str, tuple[tuple[str, dict[str, Any]], ...]] = {
         ("file_name", {"type": "string", "description": "Original file name."}),
         ("file_type", {"type": "string", "description": "Optional MIME type."}),
     ),
-    "fetchHistory": (
-        ("conversation_id", {"type": "string", "description": "Arinova conversation id."}),
-        ("options", {**FETCH_HISTORY_OPTIONS_SCHEMA, "description": "Optional history pagination options."}),
-    ),
     "listNotes": (
         ("conversation_id", {"type": "string", "description": "Arinova conversation id."}),
         ("options", {**LIST_NOTES_OPTIONS_SCHEMA, "description": "Optional notes pagination/filter options."}),
@@ -510,7 +507,6 @@ REQUIRED_ARG_COUNTS: dict[str, int] = {
     "reportToolCall": 1,
     "callAction": 2,
     "uploadFile": 3,
-    "fetchHistory": 1,
     "listNotes": 1,
     "createNote": 2,
     "updateNote": 3,
@@ -815,18 +811,48 @@ def _file_arg(value: Any) -> Any:
     if "path" in value:
         if not isinstance(value.get("path"), str) or not str(value.get("path")).strip():
             raise ValueError("upload file path must be a non-empty string")
-        path = Path(str(value["path"])).expanduser()
-        if not path.exists():
-            raise FileNotFoundError(f"upload file path does not exist: {path}")
+        if os.getenv("ARINOVA_ALLOW_LOCAL_UPLOADS", "").strip().lower() not in {"1", "true", "yes", "on"}:
+            raise PermissionError("local path uploads are disabled")
+        root_value = os.getenv("ARINOVA_UPLOAD_ROOT", "").strip()
+        if not root_value:
+            raise PermissionError("ARINOVA_UPLOAD_ROOT is required for local path uploads")
+        raw_path = Path(str(value["path"]))
+        if raw_path.is_absolute():
+            raise ValueError("upload file path must be relative to ARINOVA_UPLOAD_ROOT")
+        root = Path(root_value).expanduser().resolve(strict=True)
+        path = (root / raw_path).resolve(strict=True)
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("upload file path escapes ARINOVA_UPLOAD_ROOT") from exc
         if not path.is_file():
             raise IsADirectoryError(f"upload file path is not a file: {path}")
-        return path.read_bytes()
+        data = path.read_bytes()
+        max_bytes = _upload_max_bytes()
+        if len(data) > max_bytes:
+            raise ValueError(f"upload file exceeds {max_bytes} bytes")
+        return data
     raw = value.get("base64")
     if not isinstance(raw, str):
         raise ValueError("upload file base64 data must be a string")
     if not BASE64_PATTERN.fullmatch(raw):
         raise ValueError("upload file base64 data is invalid")
+    data = base64.b64decode(raw, validate=True)
+    max_bytes = _upload_max_bytes()
+    if len(data) > max_bytes:
+        raise ValueError(f"upload file exceeds {max_bytes} bytes")
     return value
+
+
+def _upload_max_bytes() -> int:
+    raw = os.getenv("ARINOVA_UPLOAD_MAX_BYTES", "").strip()
+    if not raw:
+        return DEFAULT_UPLOAD_MAX_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_UPLOAD_MAX_BYTES
+    return value if value > 0 else DEFAULT_UPLOAD_MAX_BYTES
 
 
 def _prepare_args(method: str, args: list[Any], *, task_scoped: bool) -> list[Any]:
@@ -1061,7 +1087,7 @@ def _args_property(
     max_items: int | None = None,
 ) -> dict[str, Any]:
     upload_hint = (
-        " For uploadFile, pass file bytes as {'base64':'...'} or a local file as {'path':'/abs/file'}."
+        " For uploadFile, pass file bytes as {'base64':'...'} or an enabled workspace-relative local path."
         if method == "uploadFile"
         else ""
     )
