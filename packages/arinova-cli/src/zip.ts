@@ -8,6 +8,17 @@ export interface ZipEntry {
   data: Buffer;
 }
 
+export function isSafeZipEntryName(name: string): boolean {
+  return Boolean(
+    name &&
+    name !== "." &&
+    name !== ".." &&
+    !name.includes("/") &&
+    !name.includes("\\") &&
+    !name.includes("\0"),
+  );
+}
+
 const CRC_TABLE: number[] = (() => {
   const table = new Array<number>(256);
   for (let n = 0; n < 256; n++) {
@@ -38,6 +49,9 @@ export function createZip(entries: ZipEntry[]): Buffer {
   const dosDate = 0x21;
 
   for (const entry of entries) {
+    if (!isSafeZipEntryName(entry.name)) {
+      throw new Error(`Unsafe ZIP entry name: ${JSON.stringify(entry.name)}`);
+    }
     const nameBuf = Buffer.from(entry.name, "utf-8");
     const crc = crc32(entry.data);
     const size = entry.data.length;

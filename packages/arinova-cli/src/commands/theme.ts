@@ -8,10 +8,11 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
-  statSync,
+  lstatSync,
+  realpathSync,
   watch,
 } from "node:fs";
-import { join, extname, resolve } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { THEME_BRIDGE } from "../generated/theme-bridge.js";
 import { createZip, type ZipEntry } from "../zip.js";
@@ -25,6 +26,55 @@ const ALLOWED_EXTENSIONS = [
 
 const ID_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
+const MAX_RELOAD_CLIENTS = 32;
+const RESERVED_THEME_PROJECT_FILES = new Set([
+  "theme.json",
+  "package.json",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "bun.lock",
+  "bun.lockb",
+  "tsconfig.json",
+]);
+
+export function isSafeBundleFileName(name: string): boolean {
+  return Boolean(
+    name &&
+    name !== "." &&
+    name !== ".." &&
+    basename(name) === name &&
+    !name.includes("/") &&
+    !name.includes("\\") &&
+    !name.includes("\0"),
+  );
+}
+
+export function resolveThemeRootFile(
+  root: string,
+  name: string,
+  allowedExtensions: readonly string[],
+): string {
+  if (!isSafeBundleFileName(name)) {
+    throw new Error(`Theme file must be a single bundle-root filename: ${name}`);
+  }
+  const extension = extname(name).slice(1).toLowerCase();
+  if (!allowedExtensions.includes(extension)) {
+    throw new Error(`Theme file type is not allowed: ${name}`);
+  }
+  const candidate = join(root, name);
+  const stat = lstatSync(candidate);
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    throw new Error(`Theme file must be a regular non-symlink file: ${name}`);
+  }
+  const realRoot = realpathSync(root);
+  const realCandidate = realpathSync(candidate);
+  const rel = relative(realRoot, realCandidate);
+  if (!rel || rel.startsWith("..") || resolve(realRoot, rel) !== realCandidate) {
+    throw new Error(`Theme file escapes the bundle root: ${name}`);
+  }
+  return realCandidate;
+}
 
 function readThemeManifest(filePath: string): Buffer {
   const manifestData = readFileSync(filePath);
@@ -98,8 +148,13 @@ export function registerTheme(program: Command): void {
         if (!resolvedBundle) {
           try {
             const parsed = JSON.parse(readFileSync(resolvedManifest, "utf-8"));
-            const guess = parsed?.id ? `${parsed.id}.zip` : undefined;
-            if (guess && existsSync(guess)) resolvedBundle = guess;
+            const manifestDir = dirname(resolve(resolvedManifest));
+            const guessName = typeof parsed?.id === "string" && ID_RE.test(parsed.id)
+              ? `${parsed.id}.zip`
+              : undefined;
+            if (guessName && existsSync(join(manifestDir, guessName))) {
+              resolvedBundle = resolveThemeRootFile(manifestDir, guessName, ["zip"]);
+            }
           } catch {
             // fall through — bundle stays undefined
           }
@@ -260,6 +315,7 @@ export function registerTheme(program: Command): void {
         const themeName = manifest.name || themeId;
         const entry = manifest.entry || "theme.js";
         const port = parseInt(opts.port, 10);
+        const entryPath = resolveThemeRootFile(cwd, entry, ["js", "mjs"]);
 
         const RUNTIME_HTML = generateDevHtml(themeId, themeName);
 
@@ -272,6 +328,8 @@ export function registerTheme(program: Command): void {
           ".gltf": "model/gltf+json",
         };
 
+        const reloadClients = new Set<ServerResponse>();
+        let reloadWatcher: ReturnType<typeof watch> | null = null;
         const server = createServer((req: IncomingMessage, res: ServerResponse) => {
           const url = (req.url || "/").split("#")[0];
 
@@ -288,50 +346,62 @@ export function registerTheme(program: Command): void {
           }
 
           if (url === "/theme.js") {
-            const filePath = join(cwd, entry);
-            if (!existsSync(filePath)) {
-              res.writeHead(404);
-              res.end("Not found");
-              return;
-            }
             res.writeHead(200, { "Content-Type": "text/javascript" });
-            res.end(readFileSync(filePath));
+            res.end(readFileSync(entryPath));
             return;
           }
 
           // Assets are a flat namespace (single filename segment), mirroring prod.
           if (url.startsWith("/assets/")) {
-            const filename = decodeURIComponent(url.slice("/assets/".length));
-            if (!filename || filename.includes("/") || filename.includes("..")) {
+            let filename: string;
+            try {
+              filename = decodeURIComponent(url.slice("/assets/".length).split("?", 1)[0]);
+            } catch {
               res.writeHead(400);
               res.end("Invalid filename");
               return;
             }
-            const filePath = join(cwd, filename);
-            if (existsSync(filePath) && statSync(filePath).isFile()) {
+            try {
+              if (RESERVED_THEME_PROJECT_FILES.has(filename)) {
+                throw new Error("Reserved project file");
+              }
+              const filePath = resolveThemeRootFile(cwd, filename, ALLOWED_EXTENSIONS);
               const ct = MIME[extname(filePath).toLowerCase()] || "application/octet-stream";
               res.writeHead(200, { "Content-Type": ct });
               res.end(readFileSync(filePath));
               return;
+            } catch {
+              res.writeHead(404);
+              res.end("Not found");
+              return;
             }
-            res.writeHead(404);
-            res.end("Not found");
-            return;
           }
 
           if (url === "/__reload") {
+            if (reloadClients.size >= MAX_RELOAD_CLIENTS) {
+              res.writeHead(503);
+              res.end("Too many reload clients");
+              return;
+            }
             res.writeHead(200, {
               "Content-Type": "text/event-stream",
               "Cache-Control": "no-cache",
               Connection: "keep-alive",
             });
             res.write("data: connected\n\n");
-            const watcher = watch(cwd, { recursive: true }, (_event, filename) => {
+            reloadClients.add(res);
+            reloadWatcher ??= watch(cwd, { recursive: true }, (_event, filename) => {
               if (filename && !filename.startsWith(".") && !filename.includes("node_modules")) {
-                res.write("data: reload\n\n");
+                for (const client of reloadClients) client.write("data: reload\n\n");
               }
             });
-            req.on("close", () => watcher.close());
+            req.on("close", () => {
+              reloadClients.delete(res);
+              if (reloadClients.size === 0) {
+                reloadWatcher?.close();
+                reloadWatcher = null;
+              }
+            });
             return;
           }
 
@@ -339,7 +409,7 @@ export function registerTheme(program: Command): void {
           res.end("Not found");
         });
 
-        server.listen(port, () => {
+        server.listen(port, "127.0.0.1", () => {
           console.log(`\n  Arinova Theme Dev Server`);
           console.log(`  Theme:  ${themeName} (${themeId})`);
           console.log(`  URL:    http://localhost:${port}`);
@@ -352,6 +422,10 @@ export function registerTheme(program: Command): void {
         // server down the instant it starts listening.
         await new Promise<void>((resolve) => {
           const shutdown = () => {
+            reloadWatcher?.close();
+            reloadWatcher = null;
+            for (const client of reloadClients) client.end();
+            reloadClients.clear();
             server.close();
             resolve();
           };
@@ -387,14 +461,12 @@ export function registerTheme(program: Command): void {
         const previewName: string = manifest.preview || "preview.png";
         const outFile = `${id}.zip`;
 
-        if (!existsSync(join(cwd, entry))) {
-          printError(new Error(`Entry file not found: ${entry}`));
-          return;
-        }
-        if (!existsSync(join(cwd, previewName)) || !statSync(join(cwd, previewName)).isFile()) {
-          printError(new Error(`Preview file not found at bundle root: ${previewName}`));
-          return;
-        }
+        const entryPath = resolveThemeRootFile(cwd, entry, ["js", "mjs"]);
+        const previewPath = resolveThemeRootFile(
+          cwd,
+          previewName,
+          ["png", "jpg", "jpeg", "webp", "gif"],
+        );
         if (entry !== "theme.js") {
           console.log(`  note: entry '${entry}' will be packaged as 'theme.js' (the runtime always loads theme.js).`);
         }
@@ -405,14 +477,18 @@ export function registerTheme(program: Command): void {
         // manifest from the multipart 'manifest' field and rejects bundles
         // that contain a duplicate theme.json member.
         const entries = new Map<string, Buffer>();
-        entries.set("theme.js", readFileSync(join(cwd, entry)));
-        entries.set(previewName, readFileSync(join(cwd, previewName)));
+        entries.set("theme.js", readFileSync(entryPath));
+        entries.set(previewName, readFileSync(previewPath));
 
         let skippedDirs = false;
         for (const name of readdirSync(cwd)) {
           if (name.startsWith(".")) continue;
+          if (RESERVED_THEME_PROJECT_FILES.has(name)) continue;
           const full = join(cwd, name);
-          const st = statSync(full);
+          const st = lstatSync(full);
+          if (st.isSymbolicLink()) {
+            throw new Error(`Symlink assets are not allowed: ${name}`);
+          }
           if (st.isDirectory()) {
             if (readdirSync(full).some((f) => !f.startsWith("."))) skippedDirs = true;
             continue;
@@ -472,6 +548,19 @@ export function validateManifestForBuild(manifest: unknown): string | null {
   }
   if (typeof m.entry !== "string" || m.entry.length === 0) {
     return "theme.json is missing required 'entry'.";
+  }
+  if (!isSafeBundleFileName(m.entry) || !["js", "mjs"].includes(extname(m.entry).slice(1).toLowerCase())) {
+    return "theme.json 'entry' must be a JavaScript filename at the bundle root.";
+  }
+  if (
+    m.preview != null &&
+    (
+      typeof m.preview !== "string" ||
+      !isSafeBundleFileName(m.preview) ||
+      !["png", "jpg", "jpeg", "webp", "gif"].includes(extname(m.preview).slice(1).toLowerCase())
+    )
+  ) {
+    return "theme.json 'preview' must be an image filename at the bundle root.";
   }
   if (m.price != null && (typeof m.price !== "number" || m.price < 0)) {
     return "theme.json 'price' must be an integer ≥ 0.";

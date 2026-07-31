@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Command } from "commander";
-import { readFileSync, mkdtempSync, existsSync, rmSync, readdirSync } from "node:fs";
+import {
+  readFileSync,
+  mkdtempSync,
+  existsSync,
+  rmSync,
+  readdirSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +18,8 @@ import {
   validateManifestForBuild,
   scaffoldThemeJs,
   generateDevHtml,
+  isSafeBundleFileName,
+  resolveThemeRootFile,
 } from "./theme.js";
 import { THEME_BRIDGE } from "../generated/theme-bridge.js";
 import { createZip } from "../zip.js";
@@ -91,6 +101,30 @@ describe("validateManifestForBuild", () => {
     expect(validateManifestForBuild({ ...base, name: "" })).toMatch(/1-100/);
     expect(validateManifestForBuild({ ...base, entry: undefined })).toMatch(/entry/);
     expect(validateManifestForBuild({ ...base, price: -1 })).toMatch(/price/);
+    expect(validateManifestForBuild({ ...base, entry: "../secret.js" })).toMatch(/bundle root/);
+    expect(validateManifestForBuild({ ...base, preview: "/tmp/secret.png" })).toMatch(/bundle root/);
+  });
+});
+
+describe("theme bundle file containment", () => {
+  it("accepts only flat member names", () => {
+    expect(isSafeBundleFileName("asset.png")).toBe(true);
+    for (const name of ["../asset.png", "/tmp/asset.png", "nested/asset.png", "nested\\asset.png", ".."]) {
+      expect(isSafeBundleFileName(name)).toBe(false);
+    }
+  });
+
+  it("rejects symlinks even when their target has an allowed extension", () => {
+    const root = mkdtempSync(join(tmpdir(), "arinova-theme-containment-"));
+    const outside = join(root, "..", `outside-${Date.now()}.png`);
+    try {
+      writeFileSync(outside, "secret");
+      symlinkSync(outside, join(root, "preview.png"));
+      expect(() => resolveThemeRootFile(root, "preview.png", ["png"])).toThrow(/non-symlink/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { force: true });
+    }
   });
 });
 
@@ -139,6 +173,14 @@ describe("createZip", () => {
     expect([...back.keys()].sort()).toEqual(["preview.png", "theme.js", "theme.json"]);
     expect(back.get("theme.js")!.toString()).toBe("export default {};");
     expect([...back.get("preview.png")!]).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("rejects traversal and nested member names", () => {
+    for (const name of ["../secret", "/absolute", "nested/file", "nested\\file", ".."]) {
+      expect(() => createZip([{ name, data: Buffer.from("x") }])).toThrow(
+        /Unsafe ZIP entry name/,
+      );
+    }
   });
 });
 
