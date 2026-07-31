@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { request } from "node:http";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   resolveProfileName: vi.fn(),
   saveConfig: vi.fn(),
   setProfile: vi.fn(),
+  spawn: vi.fn((_command?: string, _args?: string[]) => ({ unref: vi.fn() })),
 }));
 
 vi.mock("../config.js", () => ({
@@ -34,7 +36,22 @@ vi.mock("../output.js", () => ({
   printSuccess: mocks.printSuccess,
 }));
 
-const { registerAuth } = await import("./auth.js");
+vi.mock("node:child_process", () => ({
+  spawn: mocks.spawn,
+}));
+
+const { registerAuth, waitForLoginCallback } = await import("./auth.js");
+
+function callback(port: number, path: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const req = request({ host: "127.0.0.1", port, path }, (res) => {
+      res.resume();
+      res.once("end", () => resolve(res.statusCode ?? 0));
+    });
+    req.once("error", reject);
+    req.end();
+  });
+}
 
 function createProgram() {
   const program = new Command();
@@ -101,5 +118,71 @@ describe("auth command", () => {
       agentName: "Agent One",
       key: "<redacted>",
     }));
+  });
+
+  it("accepts only the exact callback path and matching one-time state", async () => {
+    const port = 19_000 + Math.floor(Math.random() * 10_000);
+    const result = waitForLoginCallback(port, "expected-state", 2_000);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(await callback(port, "/wrong?key=ari_attacker&state=expected-state")).toBe(404);
+    expect(await callback(port, "/callback?key=ari_attacker&state=wrong")).toBe(404);
+    expect(await callback(port, "/callback?key=bad&state=expected-state")).toBe(400);
+    expect(await callback(port, "/callback?key=ari_valid&state=expected-state")).toBe(200);
+    await expect(result).resolves.toBe("ari_valid");
+  });
+
+  it("persists only a server-confirmed key from the active browser flow", async () => {
+    const port = 29_000 + Math.floor(Math.random() * 10_000);
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        nonce: "a".repeat(64),
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        username: "Alice",
+      }), { status: 200 }));
+    mocks.spawn.mockImplementationOnce((_command?: string, args?: string[]) => {
+      const loginUrl = new URL(args!.at(-1)!);
+      void callback(
+        port,
+        `/callback?key=ari_confirmed&state=${loginUrl.searchParams.get("state")}`,
+      );
+      return { unref: vi.fn() };
+    });
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "arinova", "auth", "login", "--port", String(port),
+    ]);
+
+    expect(mocks.setProfile).toHaveBeenCalledWith("alice", {
+      type: "user",
+      apiKey: "ari_confirmed",
+    });
+  });
+
+  it("does not persist a callback key when identity confirmation fails", async () => {
+    const port = 39_000 + Math.floor(Math.random() * 10_000);
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        nonce: "a".repeat(64),
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response("unauthorized", { status: 401 }));
+    mocks.spawn.mockImplementationOnce((_command?: string, args?: string[]) => {
+      const loginUrl = new URL(args!.at(-1)!);
+      void callback(
+        port,
+        `/callback?key=ari_unconfirmed&state=${loginUrl.searchParams.get("state")}`,
+      );
+      return { unref: vi.fn() };
+    });
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "arinova", "auth", "login", "--port", String(port),
+    ]);
+
+    expect(mocks.setProfile).not.toHaveBeenCalled();
+    expect(mocks.printError).toHaveBeenCalled();
   });
 });

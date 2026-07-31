@@ -1,5 +1,18 @@
 let jsonMode = false;
 
+const ANSI_SEQUENCE =
+  // CSI, OSC (BEL or ST terminated), and two-byte escape sequences.
+  /\u001B(?:\][^\u0007\u001B]*(?:\u0007|\u001B\\)|\[[0-?]*[ -/]*[@-~]|[@-_])/g;
+const UNSAFE_TERMINAL_CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g;
+
+export function sanitizeTerminalText(value: string): string {
+  return value.replace(ANSI_SEQUENCE, "").replace(UNSAFE_TERMINAL_CONTROL, "");
+}
+
+function terminalText(value: unknown): string {
+  return sanitizeTerminalText(String(value));
+}
+
 export function setJsonMode(enabled: boolean): void {
   jsonMode = enabled;
 }
@@ -65,23 +78,23 @@ export function printError(err: unknown): void {
     console.error(JSON.stringify(obj, null, 2));
   } else {
     if (err instanceof Error) {
-      console.error(`Error: ${err.message}`);
+      console.error(`Error: ${terminalText(err.message)}`);
     } else {
-      console.error(`Error: ${String(err)}`);
+      console.error(`Error: ${terminalText(err)}`);
     }
   }
   throw new ReportedCliError(err);
 }
 
 export function printWarning(message: string): void {
-  console.error(`Warning: ${message}`);
+  console.error(`Warning: ${terminalText(message)}`);
 }
 
 export function printSuccess(msg: string): void {
   if (jsonMode) {
     console.log(JSON.stringify({ ok: true, message: msg }));
   } else {
-    console.log(msg);
+    console.log(terminalText(msg));
   }
 }
 
@@ -106,17 +119,17 @@ function prettyPrint(data: unknown, indent = 0): void {
     for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
       if (value === null || value === undefined) continue;
       if (typeof value === "object" && !Array.isArray(value)) {
-        console.log(`${pad}${key}:`);
+        console.log(`${pad}${terminalText(key)}:`);
         prettyPrint(value, indent + 1);
       } else if (Array.isArray(value)) {
-        console.log(`${pad}${key}: ${value.join(", ")}`);
+        console.log(`${pad}${terminalText(key)}: ${terminalText(value.join(", "))}`);
       } else {
-        console.log(`${pad}${key}: ${String(value)}`);
+        console.log(`${pad}${terminalText(key)}: ${terminalText(value)}`);
       }
     }
     return;
   }
-  console.log(`${pad}${String(data)}`);
+  console.log(`${pad}${terminalText(data)}`);
 }
 
 export function table(
@@ -134,19 +147,19 @@ export function table(
 
   const widths = columns.map((c) =>
     Math.max(
-      c.label.length,
-      ...rows.map((r) => String(r[c.key] ?? "").length),
+      terminalText(c.label).length,
+      ...rows.map((r) => terminalText(r[c.key] ?? "").length),
     ),
   );
 
-  const header = columns.map((c, i) => c.label.padEnd(widths[i])).join("  ");
+  const header = columns.map((c, i) => terminalText(c.label).padEnd(widths[i])).join("  ");
   const separator = widths.map((w) => "-".repeat(w)).join("  ");
   console.log(header);
   console.log(separator);
 
   for (const row of rows) {
     const line = columns
-      .map((c, i) => String(row[c.key] ?? "").padEnd(widths[i]))
+      .map((c, i) => terminalText(row[c.key] ?? "").padEnd(widths[i]))
       .join("  ");
     console.log(line);
   }

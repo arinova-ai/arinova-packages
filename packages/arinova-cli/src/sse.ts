@@ -1,4 +1,4 @@
-import { isJsonMode } from "./output.js";
+import { isJsonMode, sanitizeTerminalText } from "./output.js";
 
 export type SseEvent = Record<string, unknown> & { type?: string; content?: string };
 
@@ -48,7 +48,7 @@ export async function renderSseStream(stream: ReadableStream<Uint8Array>): Promi
     if (ndjson) {
       process.stdout.write(`${JSON.stringify(event)}\n`);
     } else if (event.type === "chunk" && typeof event.content === "string") {
-      process.stdout.write(event.content);
+      process.stdout.write(sanitizeTerminalText(event.content));
       wroteText = true;
     }
     if (event.type === "error") {

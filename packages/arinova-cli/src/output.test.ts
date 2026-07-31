@@ -4,6 +4,7 @@ import {
   printError,
   printResult,
   printSuccess,
+  sanitizeTerminalText,
   setJsonMode,
   table,
 } from "./output.js";
@@ -103,5 +104,22 @@ describe("CLI output formatting", () => {
         2,
       ),
     );
+  });
+
+  it("removes terminal escape and control sequences from human output", () => {
+    printResult({ name: "\u001b[31mred\u001b[0m\u0007", title: "正常\n下一行" });
+    printSuccess("\u001b]0;owned\u0007Saved");
+
+    expect(console.log).toHaveBeenCalledWith("name: red");
+    expect(console.log).toHaveBeenCalledWith("title: 正常\n下一行");
+    expect(console.log).toHaveBeenCalledWith("Saved");
+    expect(sanitizeTerminalText("a\tb\nc")).toBe("a\tb\nc");
+  });
+
+  it("preserves exact values in JSON mode", () => {
+    setJsonMode(true);
+    const value = { content: "\u001b[31mred\u001b[0m" };
+    printResult(value);
+    expect(console.log).toHaveBeenCalledWith(JSON.stringify(value, null, 2));
   });
 });

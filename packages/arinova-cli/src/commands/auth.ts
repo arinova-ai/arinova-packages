@@ -1,8 +1,69 @@
 import { Command } from "commander";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { spawn } from "node:child_process";
 import { loadConfig, saveConfig, setProfile, getEndpoint, getEnvironmentLabel, resolveApiKey, resolveProfileName, getProfile, listProfiles } from "../config.js";
 import { printResult, printError, printSuccess } from "../output.js";
 import { ApiClient } from "../client.js";
+
+const LOGIN_TIMEOUT_MS = 120_000;
+
+function statesMatch(received: string | null, expected: string): boolean {
+  if (!received) return false;
+  const receivedBytes = Buffer.from(received);
+  const expectedBytes = Buffer.from(expected);
+  return receivedBytes.length === expectedBytes.length
+    && timingSafeEqual(receivedBytes, expectedBytes);
+}
+
+export function waitForLoginCallback(
+  port: number,
+  expectedState: string,
+  timeoutMs = LOGIN_TIMEOUT_MS,
+  signal?: AbortSignal,
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error, key?: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", abort);
+      server.close();
+      if (error) reject(error);
+      else resolve(key!);
+    };
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      const url = new URL(req.url || "/", `http://127.0.0.1:${port}`);
+      if (
+        req.method !== "GET"
+        || url.pathname !== "/callback"
+        || !statesMatch(url.searchParams.get("state"), expectedState)
+      ) {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Not found");
+        return;
+      }
+      const key = url.searchParams.get("key");
+      if (!key || !key.startsWith("ari_")) {
+        res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+        res.end("<html><body><h2>Invalid key</h2></body></html>");
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end("<html><body><h2>Authentication successful!</h2><p>You can close this tab.</p></body></html>");
+      finish(undefined, key);
+    });
+    server.once("error", (error) => finish(error));
+    server.listen(port, "127.0.0.1");
+    const abort = () => finish(new Error("Login cancelled"));
+    signal?.addEventListener("abort", abort, { once: true });
+    const timeout = setTimeout(
+      () => finish(new Error("Login timed out after 120 seconds")),
+      timeoutMs,
+    );
+  });
+}
 
 export function registerAuth(program: Command): void {
   const auth = program.command("auth").description("Authentication commands");
@@ -12,73 +73,75 @@ export function registerAuth(program: Command): void {
     .description("Log in via browser (creates a user profile with your username)")
     .option("-p, --port <port>", "Local callback port", "9876")
     .action(async function (this: Command, opts: { port: string }) {
-      const port = parseInt(opts.port, 10);
+      const port = Number(opts.port);
+      if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+        printError(new Error("Callback port must be an integer from 1 to 65535"));
+        return;
+      }
       // Derive web URL from API endpoint (strip "api." prefix)
       const apiEndpoint = getEndpoint();
       const endpoint = apiEndpoint.replace("://api.", "://");
+      const callback = `http://127.0.0.1:${port}/callback`;
+      const state = randomBytes(32).toString("hex");
 
       console.log("Opening browser for authentication...");
-      console.log(`Waiting for callback on http://localhost:${port} ...\n`);
+      console.log(`Waiting for callback on ${callback} ...\n`);
 
-      const keyPromise = new Promise<string>((resolve, reject) => {
-        const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-          const url = new URL(req.url || "/", `http://localhost:${port}`);
-          if (url.pathname === "/callback") {
-            const key = url.searchParams.get("key");
-            if (key && key.startsWith("ari_")) {
-              res.writeHead(200, { "Content-Type": "text/html" });
-              res.end("<html><body><h2>Authentication successful!</h2><p>You can close this tab.</p></body></html>");
-              server.close();
-              resolve(key);
-            } else {
-              res.writeHead(400, { "Content-Type": "text/html" });
-              res.end("<html><body><h2>Invalid key</h2></body></html>");
-              server.close();
-              reject(new Error("Received invalid key from browser"));
-            }
-          } else {
-            res.writeHead(404);
-            res.end("Not found");
-          }
-        });
-
-        server.listen(port, () => {
-          const loginUrl = `${endpoint}/creator/cli-auth?callback=http://localhost:${port}/callback`;
-          // Open browser
-          const open =
-            process.platform === "darwin" ? "open" :
-            process.platform === "win32" ? "start" : "xdg-open";
-          import("node:child_process").then(({ exec }) => {
-            exec(`${open} "${loginUrl}"`);
-          });
-          console.log(`If the browser didn't open, visit:\n  ${loginUrl}\n`);
-        });
-
-        setTimeout(() => {
-          server.close();
-          reject(new Error("Login timed out after 120 seconds"));
-        }, 120_000);
-      });
-
+      const callbackController = new AbortController();
+      const keyPromise = waitForLoginCallback(
+        port,
+        state,
+        LOGIN_TIMEOUT_MS,
+        callbackController.signal,
+      );
       try {
+        const registrationResponse = await fetch(
+          `${apiEndpoint.replace(/\/+$/, "")}/api/creator/cli-auth/requests`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ callback }),
+          },
+        );
+        const registration = await registrationResponse.json() as { nonce?: unknown };
+        if (!registrationResponse.ok) {
+          throw new Error("Unable to register CLI authorization request");
+        }
+        if (typeof registration.nonce !== "string" || !/^[a-f0-9]{64}$/.test(registration.nonce)) {
+          throw new Error("Server returned an invalid CLI authorization nonce");
+        }
+        const loginUrl = new URL("/creator/cli-auth", endpoint);
+        loginUrl.searchParams.set("callback", callback);
+        loginUrl.searchParams.set("nonce", registration.nonce);
+        loginUrl.searchParams.set("state", state);
+        const open =
+          process.platform === "darwin" ? "open" :
+          process.platform === "win32" ? "cmd" : "xdg-open";
+        const args = process.platform === "win32"
+          ? ["/c", "start", "", loginUrl.toString()]
+          : [loginUrl.toString()];
+        spawn(open, args, { detached: true, stdio: "ignore" }).unref();
+        console.log(`If the browser didn't open, visit:\n  ${loginUrl.toString()}\n`);
         const key = await keyPromise;
 
         // Fetch username to use as profile name
-        let profileName = "user";
-        try {
-          const data = (await new ApiClient({
-            endpoint: apiEndpoint,
-            token: key,
-          }).get("/api/v1/creator/api-keys/whoami")) as Record<string, unknown>;
-          const name = (data.username ?? data.name ?? "") as string;
-          if (name) profileName = name.toLowerCase().replace(/\s+/g, "-");
-        } catch { /* use default name */ }
+        const data = (await new ApiClient({
+          endpoint: apiEndpoint,
+          token: key,
+        }).get("/api/v1/creator/api-keys/whoami")) as Record<string, unknown>;
+        const name = data.username ?? data.name;
+        if (typeof name !== "string" || !name.trim()) {
+          throw new Error("Authenticated account did not return a valid profile name");
+        }
+        const profileName = name.toLowerCase().replace(/\s+/g, "-");
 
         setProfile(profileName, { type: "user", apiKey: key });
 
         printSuccess(`Logged in! Profile '${profileName}' created (user, key stored securely)`);
         console.log(`\nTo use: arinova --profile ${profileName} <command>`);
       } catch (err) {
+        callbackController.abort();
+        await keyPromise.catch(() => undefined);
         printError(err);
       }
     });
