@@ -20,8 +20,11 @@ card `SKILLS-PKG-MODERATION-BASELINE-DICT-SEED` Iris comments
 2. Sensitive lists (`minor_safety_zh`): triple-sign gate (Iris + Casey + Linda) +
    private submodule with restricted commit ACL — see follow-up card
    `SKILLS-PKG-MODERATION-BASELINE-MINOR-SAFETY-ZH` (`749cee53`).
-3. Automation: cron jobs in `.github/workflows/` pull external feeds (165, abuse.ch,
-   blocklistproject, hagezi); diff PR auto-opened daily.
+3. Automation: `.github/workflows/update-moderation-url-deny.yml` runs
+   `pnpm --filter @arinova-ai/moderation-baseline update:url-deny` daily and
+   opens a review PR when the bounded Block List Project snapshot changes.
+   The updater validates domains, protects `url_allow.toml` entries, requires
+   the expected count from every feed, and atomically replaces the file.
 
 ## Hot reload
 
@@ -43,7 +46,7 @@ Retention: 90 days (per Linda 2026-05-23 verdict; Web PRD §15 Q11).
 | `dict/ip_keyword.toml`       | Iris seed §8.3; press kits + JPO trademark DB     | block / warn |
 | `dict/fraud_pattern.toml`    | 165 NPA + 中國反詐中心 monthly                    | block |
 | `dict/minor_safety_zh.toml`  | Iris seed §8.5 — 3 pattern-family stubs only (triple-sign gate); full enumeration in private submodule | block / review |
-| `dict/url_deny.toml`         | Daily cron (abuse.ch + blocklistproject + hagezi) | block |
+| `dict/url_deny.toml`         | Daily bounded Block List Project ransomware + scam snapshot | block |
 | `dict/url_allow.toml`        | Curated whitelist (Wikipedia / GitHub / .gov / arxiv etc) | allow |
 
 ## `minor_safety_zh` special handling

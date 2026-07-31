@@ -29,6 +29,7 @@ family       = "grooming-script-private-contact"
 pattern_stub = '(別告訴|秘密|不要跟|爸爸媽媽不知道).*(line|微信|私訊|聯絡)'
 category     = "grooming-script"
 severity     = "block"
+audit        = "hard-flag — full audit log + escalation to Linda"
 
 [[entries]]
 family       = "material-request-targeting-minor"

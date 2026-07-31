@@ -1,0 +1,57 @@
+name: Update moderation URL deny baseline
+
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-moderation-url-deny
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm install -g pnpm@10.28.2
+          pnpm install --frozen-lockfile
+      - run: pnpm --filter @arinova-ai/moderation-baseline update:url-deny
+      - run: pnpm --filter @arinova-ai/moderation-baseline test
+      - name: Open update pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- packages/moderation-baseline/dict/url_deny.toml; then
+            echo "URL deny baseline is already current"
+            exit 0
+          fi
+          if gh pr list --state open --json headRefName \
+            --jq 'map(select(.headRefName | startswith("automation/update-url-deny-"))) | length' \
+            | grep -qv '^0$'; then
+            echo "An URL deny update pull request is already open"
+            exit 0
+          fi
+          branch="automation/update-url-deny-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add packages/moderation-baseline/dict/url_deny.toml
+          git commit -m "chore(moderation-baseline): refresh URL deny snapshot"
+          git push --set-upstream origin "$branch"
+          gh pr create \
+            --title "chore(moderation-baseline): refresh URL deny snapshot" \
+            --body "Automated bounded refresh of the moderation URL deny baseline. Package tests passed before this PR was opened." \
+            --base main \
+            --head "$branch"

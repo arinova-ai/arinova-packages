@@ -108,6 +108,7 @@ describe("moderation-baseline/dict — schema validation", () => {
             for (const a of entry.locale) expect(typeof a).toBe("string");
           }
           if (entry.category !== undefined) expect(typeof entry.category).toBe("string");
+          if (entry.audit !== undefined) expect(typeof entry.audit).toBe("string");
           if (entry.note !== undefined) expect(typeof entry.note).toBe("string");
         },
       );
@@ -127,8 +128,22 @@ describe("moderation-baseline/dict — schema validation", () => {
     it("url_allow has 6 domains", () => {
       expect(loadDict("url_allow.toml").entries?.length).toBe(6);
     });
-    it("url_deny is empty (pull-only seed)", () => {
-      expect(loadDict("url_deny.toml").entries ?? []).toEqual([]);
+    it("url_deny ships a bounded, non-empty generated baseline", () => {
+      const entries = loadDict("url_deny.toml").entries ?? [];
+      const allowDomains = new Set(
+        (loadDict("url_allow.toml").entries ?? []).map((entry) => entry.domain),
+      );
+      expect(entries).toHaveLength(1024);
+      expect(new Set(entries.map((entry) => entry.domain)).size).toBe(entries.length);
+      for (const entry of entries) {
+        expect(entry.domain).toMatch(/^[a-z0-9][a-z0-9.-]*\.[a-z0-9-]+$/);
+        for (const allowed of allowDomains) {
+          expect(entry.domain === allowed || entry.domain?.endsWith(`.${allowed}`)).toBe(false);
+        }
+        expect(entry.severity).toBe("block");
+        expect(entry.applies).toEqual(["web_search.output"]);
+        expect(entry.audit).toContain("https://raw.githubusercontent.com/");
+      }
     });
     it("minor_safety_zh has 3 pattern-family stub entries (Iris §8.5 verbatim)", () => {
       expect(loadDict("minor_safety_zh.toml").entries?.length).toBe(3);
@@ -181,6 +196,12 @@ describe("moderation-baseline/dict — schema validation", () => {
         }
       },
     );
+
+    it("every block family carries a non-empty audit directive", () => {
+      for (const entry of entries.filter((candidate) => candidate.severity === "block")) {
+        expect(entry.audit?.trim()).toBeTruthy();
+      }
+    });
 
     it.each(FORBIDDEN_ENUMERATION_FIELDS)(
       "no entry carries forbidden enumeration field %s",

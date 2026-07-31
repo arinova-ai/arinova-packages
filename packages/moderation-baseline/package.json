@@ -9,6 +9,7 @@
     "README.md"
   ],
   "scripts": {
+    "update:url-deny": "node scripts/update-url-deny.mjs",
     "test": "vitest run"
   },
   "keywords": [
