@@ -31,7 +31,7 @@ describe("non-interactive confirmation", () => {
     ).toThrow(ConfirmationRequiredError);
   });
 
-  it("accepts --yes and does not gate read-only commands", () => {
+  it("accepts --yes and allows explicitly read-only commands", () => {
     expect(() =>
       requireNonInteractiveConfirmation(command("delete", true), {
         isTTY: false,
@@ -45,8 +45,12 @@ describe("non-interactive confirmation", () => {
   it.each([
     [["community", "add-agent"], {}],
     [["file", "batch"], { op: "delete" }],
+    [["file", "batch"], { op: "copy" }],
     [["image", "project", "public-share", "create"], {}],
+    [["image", "project", "member", "add"], {}],
+    [["image", "project", "agent-permissions", "set"], {}],
     [["memory", "grant", "set"], {}],
+    [["memory", "import", "confirm"], {}],
   ] as const)("fails closed for uncovered side-effect path %j", (path, options) => {
     expect(() =>
       requireNonInteractiveConfirmation(nestedCommand([...path], options), {
@@ -55,12 +59,12 @@ describe("non-interactive confirmation", () => {
     ).toThrow(ConfirmationRequiredError);
   });
 
-  it("does not gate a non-delete file batch operation", () => {
+  it("fails closed for an unclassified future command", () => {
     expect(() =>
       requireNonInteractiveConfirmation(
-        nestedCommand(["file", "batch"], { op: "copy" }),
+        nestedCommand(["future", "new-command"]),
         { isTTY: false },
       ),
-    ).not.toThrow();
+    ).toThrow(ConfirmationRequiredError);
   });
 });

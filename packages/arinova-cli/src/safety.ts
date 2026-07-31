@@ -1,38 +1,43 @@
 import type { Command } from "commander";
 
-const DESTRUCTIVE_COMMANDS = new Set([
-  "ack",
-  "approve",
-  "archive",
-  "cancel",
-  "close",
-  "delete",
-  "disable",
-  "discard",
-  "logout",
-  "pause",
-  "publish",
-  "purchase",
-  "reject",
-  "remove",
-  "remove-agent",
-  "remove-image",
-  "restore",
-  "restore-batch",
-  "rollback",
-  "rotate-secret",
-  "run",
-  "test",
-  "unarchive",
-  "unfavorite",
-  "uninstall",
-  "unpublish",
-]);
-
-const DESTRUCTIVE_COMMAND_PATHS = new Set([
-  "arinova community add-agent",
-  "arinova image project public-share create",
-  "arinova memory grant set",
+// Unknown leaves are side effects by default. This allowlist contains only
+// commands whose handlers are expected to observe state without changing
+// remote or local durable state.
+const READ_ONLY_COMMANDS = new Set([
+  "agent-manifest",
+  "agents",
+  "categories",
+  "content",
+  "credit",
+  "duplicates",
+  "function-executions",
+  "get",
+  "history",
+  "hub-data",
+  "info",
+  "installed",
+  "list",
+  "list-agents",
+  "list-members",
+  "manifest",
+  "my-generations",
+  "overview",
+  "payload",
+  "pending",
+  "profile",
+  "prompt",
+  "published",
+  "query",
+  "revenue",
+  "runs",
+  "search",
+  "show",
+  "stats",
+  "status",
+  "suggestions",
+  "usage",
+  "url",
+  "versions",
 ]);
 
 export class ConfirmationRequiredError extends Error {
@@ -57,14 +62,6 @@ export function requireNonInteractiveConfirmation(
     if (current.name()) path.unshift(current.name());
   }
   const commandPath = path.join(" ");
-  const destructiveBatchDelete =
-    commandPath === "arinova file batch" && command.opts().op === "delete";
-  if (
-    !DESTRUCTIVE_COMMANDS.has(command.name()) &&
-    !DESTRUCTIVE_COMMAND_PATHS.has(commandPath) &&
-    !destructiveBatchDelete
-  ) {
-    return;
-  }
+  if (READ_ONLY_COMMANDS.has(command.name())) return;
   throw new ConfirmationRequiredError(commandPath);
 }
