@@ -280,6 +280,26 @@ describe("API client request builders", () => {
       "https://chat.example.test/api/v1/notes/n1",
     ]);
   });
+
+  it("keeps attacker-controlled identifiers inside one encoded URL segment", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockImplementation(async () => new Response(JSON.stringify({ id: "ok" }), { status: 200 }));
+    const agent = new ArinovaAgent({
+      serverUrl: "wss://chat.example.test",
+      botToken: "ari_bot_token",
+    });
+
+    await agent.updateNote("../kanban/cards/card-1", { title: "safe" });
+    await agent.updateCard("card/../../notes/secret", { title: "safe" });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://chat.example.test/api/v1/notes/..%2Fkanban%2Fcards%2Fcard-1",
+      "https://chat.example.test/api/v1/kanban/cards/card%2F..%2F..%2Fnotes%2Fsecret",
+    ]);
+    await expect(agent.deleteNote("..")).rejects.toThrow(
+      "noteId must be a non-empty URL path segment",
+    );
+  });
 });
 
 // ── Per-conversation queue tests (real ArinovaAgent) ─────────
@@ -290,6 +310,7 @@ describe("per-conversation task queue", () => {
     const agent = new ArinovaAgent({
       serverUrl: "ws://localhost:9999",
       botToken: "ari_test",
+      concurrencyMode: "per-conversation",
     });
     const a = agent as unknown as {
       taskHandler: ((ctx: unknown) => Promise<void>) | null;
@@ -721,6 +742,61 @@ describe("agent-wide task queue", () => {
       ctx.signal.addEventListener("abort", () => resolve(), { once: true });
     });
   };
+
+  it("uses agent-wide serialization by default", () => {
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:9999",
+      botToken: "ari_test",
+    });
+    const a = agent as unknown as {
+      taskHandler: ((ctx: unknown) => Promise<void>) | null;
+      handleTask: (data: Record<string, unknown>) => void;
+      taskAbortControllers: Map<string, AbortController>;
+      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      send: ReturnType<typeof vi.fn>;
+    };
+    a.send = vi.fn();
+    a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
+
+    a.handleTask({ taskId: "a1", conversationId: "conv-A", content: "first" });
+    a.handleTask({ taskId: "b1", conversationId: "conv-B", content: "second" });
+
+    expect([...a.taskAbortControllers.keys()]).toEqual(["a1"]);
+    expect(a.conversationQueues.get("conv-B")?.map((task) => task.taskId)).toEqual(["b1"]);
+  });
+
+  it("caps aggregate queued tasks across distinct conversations", () => {
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:9999",
+      botToken: "ari_test",
+      maxQueuedTasks: 3,
+    });
+    const a = agent as unknown as {
+      taskHandler: ((ctx: unknown) => Promise<void>) | null;
+      handleTask: (data: Record<string, unknown>) => void;
+      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      send: ReturnType<typeof vi.fn>;
+    };
+    a.send = vi.fn();
+    a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
+
+    a.handleTask({ taskId: "active", conversationId: "conv-active", content: "" });
+    for (let index = 1; index <= 4; index++) {
+      a.handleTask({
+        taskId: `queued-${index}`,
+        conversationId: `conv-${index}`,
+        content: "",
+      });
+    }
+
+    expect([...a.conversationQueues.values()].flat()).toHaveLength(3);
+    expect(a.conversationQueues.has("conv-4")).toBe(false);
+    expect(a.send).toHaveBeenCalledWith({
+      type: "agent_error",
+      taskId: "queued-4",
+      error: "queue_overflow",
+    });
+  });
 
   it("cross-conv second task queues instead of running in parallel", () => {
     const { a } = createAgentWide();
@@ -1156,10 +1232,13 @@ describe("pong watchdog", () => {
 // ── no-conversation (platform cron/trigger) task tests ───────
 
 describe("tasks without conversationId (cron/trigger wakeups)", () => {
-  function createAgent() {
+  function createAgent(
+    concurrencyMode: "per-conversation" | "agent-wide" = "agent-wide",
+  ) {
     const agent = new ArinovaAgent({
       serverUrl: "ws://localhost:9999",
       botToken: "ari_test",
+      concurrencyMode,
     });
     const a = agent as unknown as {
       taskHandler: ((ctx: unknown) => Promise<void>) | null;
@@ -1251,7 +1330,7 @@ describe("tasks without conversationId (cron/trigger wakeups)", () => {
   });
 
   it("does not interfere with real conversations in per-conversation mode", () => {
-    const { a } = createAgent();
+    const { a } = createAgent("per-conversation");
     a.taskHandler = blockingHandler as unknown as typeof a.taskHandler;
 
     a.handleTask({ taskId: "t1", taskKind: "cron_wakeup", content: "wake up" });

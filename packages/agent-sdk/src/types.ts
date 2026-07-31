@@ -25,10 +25,10 @@ export interface ArinovaAgentOptions {
   /**
    * Controls how the SDK serialises tasks when multiple arrive for the same agent.
    *
-   * - `per-conversation` (default): one active task per conversationId; further
+   * - `per-conversation`: one active task per conversationId; further
    *   tasks for the same conv queue, other convs run in parallel. Backward
    *   compatible with all pre-0.0.17 deployments.
-   * - `agent-wide`: at most one active task across the whole agent; any incoming
+   * - `agent-wide` (default): at most one active task across the whole agent; any incoming
    *   task is queued if another conv is already busy. The queue drains
    *   round-robin with a per-conv consecutive-run cap.
    * - `unbounded`: no gating, every task runs immediately. Intended for edge
@@ -41,6 +41,8 @@ export interface ArinovaAgentOptions {
    * with a non-empty queue. Default: 2. Ignored in other modes.
    */
   maxConsecutivePerConversation?: number;
+  /** Maximum number of queued tasks across all conversations. Default: 100. */
+  maxQueuedTasks?: number;
   /** Logger for connection diagnostics. Pass no-op methods to silence the SDK. */
   logger?: Pick<Console, "warn" | "info" | "error">;
 }

@@ -55,6 +55,7 @@ const SDK_VERSION: string = (
 const DEFAULT_ACTION_TIMEOUT = 60_000;
 const WS_OPEN = 1;
 const MAX_QUEUE_SIZE = 10;
+const DEFAULT_MAX_QUEUED_TASKS = 100;
 const MAX_PENDING_CHUNK_EVENTS = 1_000;
 const MAX_PENDING_TERMINAL_EVENTS = 1_000;
 const MAX_PENDING_CHUNK_AGE_MS = 60_000;
@@ -72,6 +73,13 @@ function noConversationError(api: string, taskKind: string | undefined): Error {
   return new Error(
     `${api} is unavailable: this task (taskKind=${taskKind ?? "unknown"}) is not bound to a conversation`,
   );
+}
+
+function encodePathSegment(value: string, label: string): string {
+  if (!value || value === "." || value === "..") {
+    throw new TypeError(`${label} must be a non-empty URL path segment`);
+  }
+  return encodeURIComponent(value);
 }
 
 /**
@@ -125,6 +133,7 @@ export class ArinovaAgent {
   private readonly pingTimeout: number;
   private readonly concurrencyMode: "per-conversation" | "agent-wide" | "unbounded";
   private readonly maxConsecutive: number;
+  private readonly maxQueuedTasks: number;
   private readonly logger: Pick<Console, "warn" | "info" | "error">;
 
   private ws: WebSocket | null = null;
@@ -185,8 +194,12 @@ export class ArinovaAgent {
     this.reconnectInterval = options.reconnectInterval ?? DEFAULT_RECONNECT_INTERVAL;
     this.pingInterval = options.pingInterval ?? DEFAULT_PING_INTERVAL;
     this.pingTimeout = options.pingTimeout ?? 2 * this.pingInterval;
-    this.concurrencyMode = options.concurrencyMode ?? "per-conversation";
+    this.concurrencyMode = options.concurrencyMode ?? "agent-wide";
     this.maxConsecutive = options.maxConsecutivePerConversation ?? 2;
+    this.maxQueuedTasks =
+      Number.isSafeInteger(options.maxQueuedTasks) && (options.maxQueuedTasks ?? -1) >= 0
+        ? options.maxQueuedTasks!
+        : DEFAULT_MAX_QUEUED_TASKS;
     this.logger = options.logger ?? console;
   }
 
@@ -938,7 +951,7 @@ export class ArinovaAgent {
     const qs = params.toString();
     return this.request<FetchHistoryResult>(
       "GET",
-      `/api/v1/messages/${conversationId}${qs ? `?${qs}` : ""}`,
+      `/api/v1/messages/${encodePathSegment(conversationId, "conversationId")}${qs ? `?${qs}` : ""}`,
       { errorLabel: "fetchHistory" },
     );
   }
@@ -970,7 +983,7 @@ export class ArinovaAgent {
 
   /** Update a note in the authenticated owner's notebook. */
   async updateNote(noteId: string, body: UpdateNoteBody): Promise<Note> {
-    return this.request<Note>("PATCH", `/api/v1/notes/${noteId}`, {
+    return this.request<Note>("PATCH", `/api/v1/notes/${encodePathSegment(noteId, "noteId")}`, {
       body,
       errorLabel: "updateNote",
     });
@@ -978,7 +991,7 @@ export class ArinovaAgent {
 
   /** Delete a note from the authenticated owner's notebook. */
   async deleteNote(noteId: string): Promise<void> {
-    await this.request<void>("DELETE", `/api/v1/notes/${noteId}`, {
+    await this.request<void>("DELETE", `/api/v1/notes/${encodePathSegment(noteId, "noteId")}`, {
       response: "void",
       errorLabel: "deleteNote",
     });
@@ -1014,7 +1027,7 @@ export class ArinovaAgent {
    * @param body - Fields to update (title, description, priority, columnId, sortOrder).
    */
   async updateCard(cardId: string, body: UpdateCardBody): Promise<KanbanCard> {
-    return this.request<KanbanCard>("PATCH", `/api/v1/kanban/cards/${cardId}`, {
+    return this.request<KanbanCard>("PATCH", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}`, {
       body,
       errorLabel: "updateCard",
     });
@@ -1037,7 +1050,7 @@ export class ArinovaAgent {
    * @param body - Fields to update.
    */
   async updateBoard(boardId: string, body: UpdateBoardBody): Promise<KanbanBoard> {
-    return this.request<KanbanBoard>("PATCH", `/api/v1/kanban/boards/${boardId}`, {
+    return this.request<KanbanBoard>("PATCH", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}`, {
       body,
       errorLabel: "updateBoard",
     });
@@ -1048,7 +1061,7 @@ export class ArinovaAgent {
    * @param boardId - The board ID to archive.
    */
   async archiveBoard(boardId: string): Promise<void> {
-    await this.request<void>("POST", `/api/v1/kanban/boards/${boardId}/archive`, {
+    await this.request<void>("POST", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/archive`, {
       response: "void",
       errorLabel: "archiveBoard",
     });
@@ -1059,7 +1072,7 @@ export class ArinovaAgent {
    * @param boardId - The board ID.
    */
   async listColumns(boardId: string): Promise<KanbanColumn[]> {
-    return this.request<KanbanColumn[]>("GET", `/api/v1/kanban/boards/${boardId}/columns`, {
+    return this.request<KanbanColumn[]>("GET", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/columns`, {
       errorLabel: "listColumns",
     });
   }
@@ -1070,7 +1083,7 @@ export class ArinovaAgent {
    * @param body - Column name and optional sort order.
    */
   async createColumn(boardId: string, body: CreateColumnBody): Promise<KanbanColumn> {
-    return this.request<KanbanColumn>("POST", `/api/v1/kanban/boards/${boardId}/columns`, {
+    return this.request<KanbanColumn>("POST", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/columns`, {
       body,
       errorLabel: "createColumn",
     });
@@ -1082,7 +1095,7 @@ export class ArinovaAgent {
    * @param body - Fields to update (name, sortOrder).
    */
   async updateColumn(columnId: string, body: UpdateColumnBody): Promise<KanbanColumn> {
-    return this.request<KanbanColumn>("PATCH", `/api/v1/kanban/columns/${columnId}`, {
+    return this.request<KanbanColumn>("PATCH", `/api/v1/kanban/columns/${encodePathSegment(columnId, "columnId")}`, {
       body,
       errorLabel: "updateColumn",
     });
@@ -1093,7 +1106,7 @@ export class ArinovaAgent {
    * @param columnId - The column ID to delete.
    */
   async deleteColumn(columnId: string): Promise<void> {
-    await this.request<void>("DELETE", `/api/v1/kanban/columns/${columnId}`, {
+    await this.request<void>("DELETE", `/api/v1/kanban/columns/${encodePathSegment(columnId, "columnId")}`, {
       response: "void",
       errorLabel: "deleteColumn",
     });
@@ -1105,7 +1118,7 @@ export class ArinovaAgent {
    * @param columnIds - Ordered array of column IDs.
    */
   async reorderColumns(boardId: string, columnIds: string[]): Promise<void> {
-    await this.request<void>("POST", `/api/v1/kanban/boards/${boardId}/columns/reorder`, {
+    await this.request<void>("POST", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/columns/reorder`, {
       body: { columnIds },
       response: "void",
       errorLabel: "reorderColumns",
@@ -1137,7 +1150,7 @@ export class ArinovaAgent {
    * @param cardId - The card ID to complete.
    */
   async completeCard(cardId: string): Promise<KanbanCard> {
-    return this.request<KanbanCard>("POST", `/api/v1/kanban/cards/${cardId}/complete`, {
+    return this.request<KanbanCard>("POST", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/complete`, {
       errorLabel: "completeCard",
     });
   }
@@ -1158,7 +1171,7 @@ export class ArinovaAgent {
     const qs = params.toString();
     return this.request<ArchivedCardsResult>(
       "GET",
-      `/api/v1/kanban/boards/${boardId}/archived-cards${qs ? `?${qs}` : ""}`,
+      `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/archived-cards${qs ? `?${qs}` : ""}`,
       { errorLabel: "listArchivedCards" },
     );
   }
@@ -1169,7 +1182,7 @@ export class ArinovaAgent {
    * @param body - Commit hash and optional message.
    */
   async addCardCommit(cardId: string, body: AddCommitBody): Promise<CardCommit> {
-    return this.request<CardCommit>("POST", `/api/v1/kanban/cards/${cardId}/commits`, {
+    return this.request<CardCommit>("POST", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/commits`, {
       body,
       errorLabel: "addCardCommit",
     });
@@ -1180,7 +1193,7 @@ export class ArinovaAgent {
    * @param cardId - The card ID.
    */
   async listCardCommits(cardId: string): Promise<CardCommit[]> {
-    return this.request<CardCommit[]>("GET", `/api/v1/kanban/cards/${cardId}/commits`, {
+    return this.request<CardCommit[]>("GET", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/commits`, {
       errorLabel: "listCardCommits",
     });
   }
@@ -1191,7 +1204,7 @@ export class ArinovaAgent {
    * @param noteId - The note ID to link.
    */
   async linkCardNote(cardId: string, noteId: string): Promise<void> {
-    await this.request<void>("POST", `/api/v1/kanban/cards/${cardId}/notes`, {
+    await this.request<void>("POST", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/notes`, {
       body: { noteId },
       response: "void",
       errorLabel: "linkCardNote",
@@ -1204,7 +1217,7 @@ export class ArinovaAgent {
    * @param noteId - The note ID to unlink.
    */
   async unlinkCardNote(cardId: string, noteId: string): Promise<void> {
-    await this.request<void>("DELETE", `/api/v1/kanban/cards/${cardId}/notes/${noteId}`, {
+    await this.request<void>("DELETE", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/notes/${encodePathSegment(noteId, "noteId")}`, {
       response: "void",
       errorLabel: "unlinkCardNote",
     });
@@ -1215,7 +1228,7 @@ export class ArinovaAgent {
    * @param cardId - The card ID.
    */
   async listCardNotes(cardId: string): Promise<CardNote[]> {
-    return this.request<CardNote[]>("GET", `/api/v1/kanban/cards/${cardId}/notes`, {
+    return this.request<CardNote[]>("GET", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/notes`, {
       errorLabel: "listCardNotes",
     });
   }
@@ -1227,7 +1240,7 @@ export class ArinovaAgent {
    * @param boardId - The board ID.
    */
   async listLabels(boardId: string): Promise<KanbanLabel[]> {
-    return this.request<KanbanLabel[]>("GET", `/api/v1/kanban/boards/${boardId}/labels`, {
+    return this.request<KanbanLabel[]>("GET", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/labels`, {
       errorLabel: "listLabels",
     });
   }
@@ -1238,7 +1251,7 @@ export class ArinovaAgent {
    * @param body - Label name and optional color.
    */
   async createLabel(boardId: string, body: CreateLabelBody): Promise<KanbanLabel> {
-    return this.request<KanbanLabel>("POST", `/api/v1/kanban/boards/${boardId}/labels`, {
+    return this.request<KanbanLabel>("POST", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/labels`, {
       body,
       errorLabel: "createLabel",
     });
@@ -1250,7 +1263,7 @@ export class ArinovaAgent {
    * @param body - Fields to update (name, color).
    */
   async updateLabel(labelId: string, body: UpdateLabelBody): Promise<KanbanLabel> {
-    return this.request<KanbanLabel>("PATCH", `/api/v1/kanban/labels/${labelId}`, {
+    return this.request<KanbanLabel>("PATCH", `/api/v1/kanban/labels/${encodePathSegment(labelId, "labelId")}`, {
       body,
       errorLabel: "updateLabel",
     });
@@ -1261,7 +1274,7 @@ export class ArinovaAgent {
    * @param labelId - The label ID to delete.
    */
   async deleteLabel(labelId: string): Promise<void> {
-    await this.request<void>("DELETE", `/api/v1/kanban/labels/${labelId}`, {
+    await this.request<void>("DELETE", `/api/v1/kanban/labels/${encodePathSegment(labelId, "labelId")}`, {
       response: "void",
       errorLabel: "deleteLabel",
     });
@@ -1273,7 +1286,7 @@ export class ArinovaAgent {
    * @param labelId - The label ID to add.
    */
   async addCardLabel(cardId: string, labelId: string): Promise<void> {
-    await this.request<void>("POST", `/api/v1/kanban/cards/${cardId}/labels`, {
+    await this.request<void>("POST", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/labels`, {
       body: { labelId },
       response: "void",
       errorLabel: "addCardLabel",
@@ -1286,7 +1299,7 @@ export class ArinovaAgent {
    * @param labelId - The label ID to remove.
    */
   async removeCardLabel(cardId: string, labelId: string): Promise<void> {
-    await this.request<void>("DELETE", `/api/v1/kanban/cards/${cardId}/labels/${labelId}`, {
+    await this.request<void>("DELETE", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/labels/${encodePathSegment(labelId, "labelId")}`, {
       response: "void",
       errorLabel: "removeCardLabel",
     });
@@ -1375,6 +1388,18 @@ export class ArinovaAgent {
     }
 
     if (shouldQueue) {
+      let globalQueueSize = 0;
+      for (const queued of this.conversationQueues.values()) {
+        globalQueueSize += queued.length;
+      }
+      if (globalQueueSize >= this.maxQueuedTasks) {
+        this.send({
+          type: "agent_error",
+          taskId: data.taskId as string,
+          error: "queue_overflow",
+        });
+        return;
+      }
       let queue = this.conversationQueues.get(convKey);
       if (!queue) {
         queue = [];
@@ -1391,7 +1416,7 @@ export class ArinovaAgent {
       // the web/iOS clients can render a "position N in queue" indicator.
       // globalQueueSize spans every conv's queue — the UI uses it for the
       // "跨 conv 前面 N 則" cross-conversation count.
-      let globalQueueSize = 0;
+      globalQueueSize = 0;
       for (const q of this.conversationQueues.values()) globalQueueSize += q.length;
       this.send({
         type: "task_queued",
