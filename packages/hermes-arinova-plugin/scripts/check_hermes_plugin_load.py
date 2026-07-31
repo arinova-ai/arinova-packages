@@ -861,6 +861,7 @@ def main() -> int:
         or fallback_adapter.adapter_port != loaded.module.adapter.DEFAULT_ADAPTER_PORT
         or fallback_adapter.connect_timeout_ms != loaded.module.adapter.DEFAULT_CONNECT_TIMEOUT_MS
         or fallback_adapter.attachment_max_bytes != loaded.module.adapter.DEFAULT_ATTACHMENT_MAX_BYTES
+        or fallback_adapter.control_max_body_bytes != loaded.module.adapter.DEFAULT_CONTROL_MAX_BODY_BYTES
         or fallback_adapter.sidecar_post_timeout_ms != loaded.module.adapter.DEFAULT_SIDECAR_POST_TIMEOUT_MS
     ):
         raise RuntimeError(
@@ -876,10 +877,13 @@ def main() -> int:
         "ARINOVA_PING_TIMEOUT_MS",
         "ARINOVA_MAX_CONSECUTIVE_PER_CONVERSATION",
         "ARINOVA_ADAPTER_POST_TIMEOUT_MS",
-        "ARINOVA_CONTROL_MAX_BODY_BYTES",
     ]:
         if key in fallback_env:
             raise RuntimeError(f"invalid optional SDK timing config leaked into sidecar env: {key}={fallback_env[key]!r}")
+    if fallback_env.get("ARINOVA_CONTROL_MAX_BODY_BYTES") != str(
+        loaded.module.adapter.DEFAULT_CONTROL_MAX_BODY_BYTES
+    ):
+        raise RuntimeError("invalid callback body limit did not fall back to the finite default")
 
     boolean_numeric_adapter = loaded.module.ArinovaAdapter(
         PlatformConfig(
@@ -906,6 +910,7 @@ def main() -> int:
         or boolean_numeric_adapter.adapter_port != loaded.module.adapter.DEFAULT_ADAPTER_PORT
         or boolean_numeric_adapter.connect_timeout_ms != loaded.module.adapter.DEFAULT_CONNECT_TIMEOUT_MS
         or boolean_numeric_adapter.attachment_max_bytes != loaded.module.adapter.DEFAULT_ATTACHMENT_MAX_BYTES
+        or boolean_numeric_adapter.control_max_body_bytes != loaded.module.adapter.DEFAULT_CONTROL_MAX_BODY_BYTES
         or boolean_numeric_adapter.sidecar_post_timeout_ms != loaded.module.adapter.DEFAULT_SIDECAR_POST_TIMEOUT_MS
     ):
         raise RuntimeError("adapter coerced boolean YAML numeric config into required integer settings")
@@ -916,10 +921,13 @@ def main() -> int:
         "ARINOVA_PING_TIMEOUT_MS",
         "ARINOVA_MAX_CONSECUTIVE_PER_CONVERSATION",
         "ARINOVA_ADAPTER_POST_TIMEOUT_MS",
-        "ARINOVA_CONTROL_MAX_BODY_BYTES",
     ]:
         if key in boolean_numeric_env:
             raise RuntimeError(f"boolean optional SDK timing config leaked into sidecar env: {key}={boolean_numeric_env[key]!r}")
+    if boolean_numeric_env.get("ARINOVA_CONTROL_MAX_BODY_BYTES") != str(
+        loaded.module.adapter.DEFAULT_CONTROL_MAX_BODY_BYTES
+    ):
+        raise RuntimeError("boolean callback body limit did not fall back to the finite default")
 
     float_numeric_adapter = loaded.module.ArinovaAdapter(
         PlatformConfig(
@@ -1489,7 +1497,7 @@ def main() -> int:
         parsed = json.loads(body.decode("utf-8"))
         if status != 413 or parsed.get("ok") is not False or "exceeds 16 bytes" not in str(parsed.get("error")):
             raise RuntimeError(f"inbound server accepted oversized callback body: status={status} body={body!r}")
-        inbound_adapter.control_max_body_bytes = None
+        inbound_adapter.control_max_body_bytes = loaded.module.adapter.DEFAULT_CONTROL_MAX_BODY_BYTES
         status, body = raw_inbound_request(
             "/connection-status",
             {

@@ -49,6 +49,7 @@ DEFAULT_ATTACHMENT_TOTAL_MAX_BYTES = 64 * 1024 * 1024
 DEFAULT_ATTACHMENT_TOTAL_TIMEOUT_MS = 30_000
 DEFAULT_CONNECT_TIMEOUT_MS = 30_000
 DEFAULT_SIDECAR_POST_TIMEOUT_MS = 10_000
+DEFAULT_CONTROL_MAX_BODY_BYTES = 128 * 1024 * 1024
 SIDECAR_DIR = Path(__file__).parent / "sidecar"
 DEFAULT_SDK_ROOT = Path.home() / ".arinova-bridge/workspace/projects/arinova-packages/packages/agent-sdk"
 SDK_DIST_FILES = (
@@ -1040,9 +1041,10 @@ class ArinovaAdapter(BasePlatformAdapter):
             "ARINOVA_ADAPTER_POST_TIMEOUT_MS",
             extra.get("adapter_post_timeout_ms"),
         )
-        self.control_max_body_bytes = _optional_int_setting(
+        self.control_max_body_bytes = _int_setting(
             "ARINOVA_CONTROL_MAX_BODY_BYTES",
             extra.get("control_max_body_bytes"),
+            DEFAULT_CONTROL_MAX_BODY_BYTES,
         )
         self.sidecar_post_timeout_ms = _int_setting(
             "ARINOVA_SIDECAR_POST_TIMEOUT_MS",

@@ -134,6 +134,10 @@ arinova:
   attachment_total_timeout_ms: 30000
 ```
 
+`control_max_body_bytes` defaults to 128 MiB and is always enforced by both
+the sidecar and adapter callback servers. Lower it for deployments whose task
+payloads have a smaller known maximum.
+
 ## Architecture
 
 ```text

@@ -8115,6 +8115,8 @@ def main() -> int:
         or "_callback_content_length" not in adapter_source
         or "callback request body must use application/json" not in adapter_source
         or "callback request body exceeds" not in adapter_source
+        or "DEFAULT_CONTROL_MAX_BODY_BYTES = 128 * 1024 * 1024" not in adapter_source
+        or "self.control_max_body_bytes = _int_setting(" not in adapter_source
         or "callback Content-Length is required" not in adapter_source
         or "callback Content-Length must be a non-negative integer" not in adapter_source
         or "parse_constant=_reject_json_constant" not in adapter_source
