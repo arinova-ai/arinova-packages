@@ -34,7 +34,12 @@ export function domainsFromFeed(body: string): string[];
 export function parseAllowlist(body: string, floor?: number): string[];
 export function isAllowlisted(domain: string, allowlisted: string[]): boolean;
 export function stableSample(domains: string[], count: number): string[];
-export function selectEntries(feeds: Feed[], allowlisted: string[], perSource?: number): DenyEntry[];
+export function selectEntries(
+  feeds: Feed[],
+  allowlisted: string[],
+  perSource?: number,
+  existingDomains?: Iterable<string>,
+): DenyEntry[];
 export function entriesEqual(left: DenyEntry[], right: DenyEntry[]): boolean;
 export function render(entries: DenyEntry[], options: { version: string; date?: string; sources?: Array<{ url: string }> }): string;
 export function download(url: string, options?: DownloadOptions): Promise<string>;

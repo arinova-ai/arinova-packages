@@ -11,6 +11,12 @@ source_refs    = [
   "Internet Watch Foundation (IWF) keyword categories — request access via Linda → legal",
 ]
 
+# Entries deliberately omit `applies`: in the Rust consumer
+# (arinova-chat apps/rust-server moderation/dict.rs) an omitted `applies`
+# means the pattern guards EVERY Tier-1 action input (image_gen.input,
+# voice_tts.input, web_search.input). Do not add `applies` here unless the
+# intent is to narrow minor-safety coverage to a subset of actions.
+
 # Pattern families only — regex stubs.
 # Full term enumeration lives in a private submodule with restricted ACL
 # (Iris + Casey + Linda + Hank); not in this file. See dict/README.md
@@ -22,7 +28,6 @@ family       = "age-marker + sexual-context"
 pattern_stub = '(幾歲|小學|國中|未成年).*(裸|脫|私處|親密)'
 category     = "csam-prompt-attempt"
 severity     = "block"
-applies      = ["image_gen.input"]
 audit        = "hard-flag — full audit log + escalation to Linda"
 
 [[entries]]
@@ -30,7 +35,6 @@ family       = "grooming-script-private-contact"
 pattern_stub = '(別告訴|秘密|不要跟|爸爸媽媽不知道).*(line|微信|私訊|聯絡)'
 category     = "grooming-script"
 severity     = "block"
-applies      = ["image_gen.input"]
 audit        = "hard-flag — full audit log + escalation to Linda"
 
 [[entries]]
@@ -38,5 +42,4 @@ family       = "material-request-targeting-minor"
 pattern_stub = '(傳|拍|給我看).*(學校|制服|放學後)'
 category     = "material-request"
 severity     = "review"
-applies      = ["image_gen.input"]
 audit        = "soft-flag — human moderation review"

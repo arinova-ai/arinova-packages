@@ -39,9 +39,11 @@ Consumers normalize keys, aliases, and candidate text to Unicode NFC and then
 lowercase them before matching. Entries with non-ASCII spellings should include
 an ASCII alias when one is commonly used (for example, `Pokémon` also ships
 `Pokemon`). Pattern entries are TOML literal strings so regex backslashes cannot
-turn into control characters during parsing. The schema permits only these
-closed `applies` targets: `image_gen.input`, `voice_tts.input`,
-`web_search.output`, and `username.input`.
+turn into control characters during parsing. The `applies` field is optional:
+when omitted, the Rust consumer applies the entry to every Tier-1 action input
+(`image_gen.input`, `voice_tts.input`, `web_search.input`). When declared, the
+schema permits only these closed targets: `image_gen.input`, `voice_tts.input`,
+`web_search.input`, `web_search.output`, and `username.input`.
 
 ## Audit
 

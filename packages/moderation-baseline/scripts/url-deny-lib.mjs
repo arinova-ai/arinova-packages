@@ -50,9 +50,17 @@ export function domainsFromFeed(body) {
 export function parseAllowlist(body, floor = ALLOWLIST_FLOOR) {
   const parsed = parseToml(body);
   const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
-  const domains = entries
-    .map((entry) => typeof entry?.domain === "string" ? entry.domain.toLowerCase() : "")
-    .filter(validDomain);
+  const domains = entries.map((entry, index) => {
+    const domain = typeof entry?.domain === "string" ? entry.domain.toLowerCase() : "";
+    if (!validDomain(domain)) {
+      // A typo'd protected domain must fail loudly — silently dropping it
+      // would strip its allowlist protection without anyone noticing.
+      throw new Error(
+        `allowlist entry #${index} has invalid domain ${JSON.stringify(entry?.domain ?? null)}`,
+      );
+    }
+    return domain;
+  });
   if (domains.length < floor) throw new Error(`allowlist yielded ${domains.length} valid domains; expected at least ${floor}`);
   return [...new Set(domains)].sort(codepointCompare);
 }
@@ -69,17 +77,29 @@ export function stableSample(domains, count) {
     .slice(0, count);
 }
 
-export function selectEntries(feeds, allowlisted, perSource = ENTRIES_PER_SOURCE) {
+export function selectEntries(feeds, allowlisted, perSource = ENTRIES_PER_SOURCE, existingDomains = []) {
   const selected = [];
   const seen = new Set();
+  const preserve = new Set(existingDomains);
   for (const [sourceRef, source] of feeds.entries()) {
     const candidates = domainsFromFeed(source.body)
       .filter((domain) => !seen.has(domain) && !isAllowlisted(domain, allowlisted));
-    const sample = stableSample(candidates, perSource);
-    if (sample.length !== perSource) {
-      throw new Error(`${source.url} yielded ${sample.length} safe domains; expected ${perSource}`);
+    // Preservation-first: domains already shipped in the current dict that
+    // are still present in this feed keep their slot; only the remaining
+    // budget is filled via hash sampling. Without this, a change to the
+    // sampling scheme silently rotates out most of the shipped coverage.
+    const preserved = candidates.filter((domain) => preserve.has(domain));
+    const kept = preserved.length > perSource ? stableSample(preserved, perSource) : preserved;
+    const keptSet = new Set(kept);
+    const sample = stableSample(
+      candidates.filter((domain) => !keptSet.has(domain)),
+      perSource - kept.length,
+    );
+    const chosen = [...kept, ...sample];
+    if (chosen.length !== perSource) {
+      throw new Error(`${source.url} yielded ${chosen.length} safe domains; expected ${perSource}`);
     }
-    for (const domain of sample) {
+    for (const domain of chosen) {
       selected.push({ domain, category: source.category, sourceRef });
       seen.add(domain);
     }
@@ -112,6 +132,11 @@ export function render(entries, { version, date = new Date().toISOString().slice
     "# Do not hand-edit entries; update the source configuration and rerun the updater.",
   ];
   for (const entry of entries) {
+    const sourceRef = entry.sourceRef ?? entry.source_ref;
+    const source = sources[sourceRef];
+    if (!source?.url) {
+      throw new Error(`entry ${entry.domain} has source_ref ${sourceRef} with no matching source URL`);
+    }
     lines.push(
       "",
       "[[entries]]",
@@ -119,7 +144,11 @@ export function render(entries, { version, date = new Date().toISOString().slice
       `category   = ${JSON.stringify(entry.category)}`,
       'severity   = "block"',
       'applies    = ["web_search.output"]',
-      `source_ref = ${entry.sourceRef ?? entry.source_ref}`,
+      // Rust consumer contract (dict.rs maps `audit` -> audit_note and
+      // asserts the "source=https://..." prefix); source_ref is kept as
+      // the machine-readable index into meta.source_refs.
+      `audit      = ${JSON.stringify(`source=${source.url}`)}`,
+      `source_ref = ${sourceRef}`,
     );
   }
   return `${lines.join("\n")}\n`;

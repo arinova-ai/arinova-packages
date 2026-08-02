@@ -75,6 +75,11 @@ describe("URL deny pure helpers", () => {
     expect(() => parseAllowlist("[meta]\nlist_name='empty'\n", 1)).toThrow(/expected at least/);
   });
 
+  it("throws on malformed allowlist entries instead of silently dropping their protection", () => {
+    expect(() => parseAllowlist(`[[entries]]\ndomain = "git_hub.com"\n`, 1)).toThrow(/git_hub\.com/);
+    expect(() => parseAllowlist(`[[entries]]\nnote = "missing domain"\n`, 1)).toThrow(/entry #0/);
+  });
+
   it("normalizes feeds and honors parent-domain allowlisting", () => {
     expect(domainsFromFeed("# comment\nGOOD.example\n0.0.0.0\nco.uk\ngood.example\n"))
       .toEqual(["good.example"]);
@@ -100,16 +105,35 @@ describe("URL deny pure helpers", () => {
     expect(selected.some((entry) => entry.domain === "c.test")).toBe(false);
   });
 
-  it("renders a stable, round-trippable TOML snapshot with indexed sources", () => {
+  it("preserves previously shipped domains still present in the feed before sampling", () => {
+    const body = Array.from({ length: 26 }, (_, index) => `${String.fromCharCode(97 + index)}.example`).join("\n");
+    const feeds = [{ url: "https://one.test", category: "scam-host", body }];
+    const preserved = selectEntries(feeds, [], 4, ["m.example", "q.example", "gone.example"]);
+    const domains = preserved.map((entry) => entry.domain);
+    expect(domains).toHaveLength(4);
+    expect(domains).toContain("m.example");
+    expect(domains).toContain("q.example");
+    expect(domains).not.toContain("gone.example");
+    // Allowlisted domains lose their slot even if previously shipped.
+    const filtered = selectEntries(feeds, ["m.example"], 4, ["m.example"]);
+    expect(filtered.map((entry) => entry.domain)).not.toContain("m.example");
+    // Determinism: same inputs, same selection.
+    expect(selectEntries(feeds, [], 4, ["q.example", "m.example", "gone.example"])).toEqual(preserved);
+  });
+
+  it("renders a stable, round-trippable TOML snapshot with indexed sources and audit provenance", () => {
     const sources = [{ url: "https://one.test" }, { url: "https://two.test" }];
     const entries = [{ domain: "a.test", category: "scam-host", sourceRef: 1 }];
     const output = render(entries, { version: "1.2.3", date: "2026-08-02", sources });
-    const parsed = parseToml(output) as { meta: { version: string; source_refs: string[] }; entries: Array<{ source_ref: number }> };
+    const parsed = parseToml(output) as { meta: { version: string; source_refs: string[] }; entries: Array<{ source_ref: number; audit: string }> };
     expect(parsed.meta).toMatchObject({ version: "1.2.3", source_refs: ["https://one.test", "https://two.test"] });
     expect(parsed.entries[0]?.source_ref).toBe(1);
-    expect(output).not.toContain("audit    =");
+    // Rust consumer contract: `audit` carries the feed URL as "source=<url>".
+    expect(parsed.entries[0]?.audit).toBe("source=https://two.test");
     expect(render(entries, { version: "1.2.3", date: "2026-08-02", sources })).toBe(output);
     expect(entriesEqual(parsed.entries.map((entry) => ({ ...entry, domain: "a.test", category: "scam-host" })), entries)).toBe(true);
+    expect(() => render([{ domain: "b.test", category: "scam-host", sourceRef: 9 }], { version: "1.2.3", sources }))
+      .toThrow(/no matching source URL/);
   });
 
   it("round-trips the shipped generated file byte-for-byte", () => {

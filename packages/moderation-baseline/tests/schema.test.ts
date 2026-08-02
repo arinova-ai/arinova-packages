@@ -39,7 +39,9 @@ type Dict = {
 
 const VERSION_RE = /^\d+\.\d+\.\d+(?:-[\w.-]+)?$/;
 const VALID_SEVERITIES = new Set(["block", "warn", "review", "allow"]);
-const VALID_APPLIES = new Set(["image_gen.input", "voice_tts.input", "web_search.output", "username.input"]);
+const VALID_APPLIES = new Set([
+  "image_gen.input", "voice_tts.input", "web_search.input", "web_search.output", "username.input",
+]);
 const VALID_CATEGORIES = new Set([
   "academic", "atm-fraud", "bank-fraud", "brand-impersonation", "celebrity-impersonation", "code",
   "copyrighted-character", "csam-prompt-attempt", "dev-qa", "ecommerce-fraud", "encyclopedia",
@@ -56,7 +58,6 @@ function loadDict(file: string): Dict {
 }
 
 const dictFiles = readdirSync(DICT_DIR).filter((f) => extname(f) === ".toml").sort();
-const packageVersion = JSON.parse(readFileSync(join(DICT_DIR, "..", "package.json"), "utf8")).version as string;
 
 describe("moderation-baseline/dict — schema validation", () => {
   it("ships the expected 7 seed dict files", () => {
@@ -83,8 +84,11 @@ describe("moderation-baseline/dict — schema validation", () => {
       const dict = loadDict(file);
       expect(dict.meta).toBeDefined();
       expect(dict.meta.list_name).toBe(stem);
+      // Dict versions are semver-ish strings maintained per-list; they are
+      // deliberately NOT pinned to package.json's version — a changeset bump
+      // of the package must not invalidate every shipped dictionary.
+      expect(dict.meta.version).toBeTypeOf("string");
       expect(dict.meta.version).toMatch(VERSION_RE);
-      expect(dict.meta.version).toBe(packageVersion);
       expect(VALID_REVIEW_CADENCES.has(dict.meta.review_cadence ?? "")).toBe(true);
       expect(dict.meta.last_updated).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(new Date(`${dict.meta.last_updated}T00:00:00Z`).getTime()).toBeLessThanOrEqual(Date.now());
@@ -101,8 +105,16 @@ describe("moderation-baseline/dict — schema validation", () => {
         expect(discriminators).toHaveLength(1);
         expect(VALID_SEVERITIES.has(entry.severity ?? "")).toBe(true);
         expect(VALID_CATEGORIES.has(entry.category ?? "")).toBe(true);
-        expect(Array.isArray(entry.applies)).toBe(true);
-        for (const applies of entry.applies ?? []) expect(VALID_APPLIES.has(applies)).toBe(true);
+        // `applies` is OPTIONAL. When omitted, the Rust consumer
+        // (arinova-chat apps/rust-server moderation/dict.rs) applies the
+        // entry to every Tier-1 action input: image_gen.input,
+        // voice_tts.input, and web_search.input. Entries that do declare
+        // it must use the closed vocabulary and be non-empty.
+        if (entry.applies !== undefined) {
+          expect(Array.isArray(entry.applies)).toBe(true);
+          expect(entry.applies.length).toBeGreaterThan(0);
+          for (const applies of entry.applies) expect(VALID_APPLIES.has(applies)).toBe(true);
+        }
         for (const alias of entry.aliases ?? []) expect(alias).toBeTypeOf("string");
         for (const locale of entry.locale ?? []) expect(locale).toBeTypeOf("string");
         if (entry.audit !== undefined) expect(entry.audit).toBeTypeOf("string");
@@ -168,6 +180,9 @@ describe("moderation-baseline/dict — schema validation", () => {
         }
         expect(entry.severity).toBe("block");
         expect(entry.applies).toEqual(["web_search.output"]);
+        // Rust consumer contract: audit_note must carry the feed URL.
+        expect(entry.audit).toMatch(/^source=https:\/\//);
+        expect(entry.audit).toContain("https://raw.githubusercontent.com/");
         expect(entry.source_ref).toBeTypeOf("number");
       }
     });
