@@ -35,6 +35,13 @@ jobs:
       - name: Build
         run: pnpm -r build
 
+      - name: Sync the workspace agent-sdk into the hermes sidecar
+        # sidecar/node_modules is npm-managed and outside the pnpm workspace,
+        # so it does not exist on a fresh checkout and the plugin gate cannot
+        # run. The gate verifies the sidecar against the workspace source, so
+        # sync the build rather than installing the older published tarball.
+        run: packages/hermes-arinova-plugin/scripts/sync-sidecar-sdk.sh
+
       - name: Lint
         run: pnpm -r lint
 
