@@ -160,6 +160,27 @@ describe("office hook telemetry and forwarding safety", () => {
     expect(sendHud).not.toHaveBeenCalled();
   });
 
+  it("clamps HUD percentages and isolates sessions that lack agent ids", () => {
+    const { handlers } = createApi();
+    registerHooks({ on: vi.fn((name: string, handler: Handler) => handlers.set(name, handler)) } as unknown as OpenClawPluginApi);
+    handlers.get("llm_output")?.(
+      { sessionId: "anonymous-session-a", model: "gpt-4", usage: { inputTokens: 20_000 } },
+      { accountId: "account-1" },
+    );
+    handlers.get("session_start")?.(
+      { sessionId: "anonymous-session-b" },
+      { accountId: "account-1" },
+    );
+    expect(sendHud).toHaveBeenCalledWith({
+      context: { percent: 100, inputTokens: 20_000, maxTokens: 8_192 },
+      model: "gpt-4",
+    });
+    expect(officeState.snapshot().agents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agentId: "anonymous-session-a" }),
+      expect.objectContaining({ agentId: "anonymous-session-b" }),
+    ]));
+  });
+
   it("no-ops telemetry when account id is missing", () => {
     const { handlers } = createApi();
     registerHooks({ on: vi.fn((name: string, handler: Handler) => handlers.set(name, handler)) } as unknown as OpenClawPluginApi);

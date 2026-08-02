@@ -19,8 +19,9 @@ import { ArinovaChatConfigSchema } from "./config-schema.js";
 import {
   looksLikeArinovaChatTargetId,
   normalizeArinovaChatMessagingTarget,
+  stripArinovaChatTargetPrefix,
 } from "./normalize.js";
-import { getArinovaChatRuntime, setAgentInstance } from "./runtime.js";
+import { getArinovaChatRuntime, removeAgentInstance, setAgentInstance } from "./runtime.js";
 import { sendMessageArinovaChat } from "./send.js";
 import { ArinovaAgent } from "@arinova-ai/agent-sdk";
 import { handleArinovaChatInbound } from "./inbound.js";
@@ -37,13 +38,16 @@ const meta = {
   quickstartAllowFrom: true,
 };
 
+const isConfigured = (account: ResolvedArinovaChatAccount) =>
+  Boolean(account.apiUrl?.trim() && account.botToken?.trim());
+
 export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
   id: "openclaw-arinova-ai",
   meta,
   pairing: {
     idLabel: "arinovaUserId",
     normalizeAllowEntry: (entry) =>
-      entry.replace(/^(openclaw-arinova-ai|arinova):/i, "").toLowerCase(),
+      stripArinovaChatTargetPrefix(entry).toLowerCase(),
     notifyApproval: async ({ id }) => {
       console.log(`[openclaw-arinova-ai] User ${id} approved for pairing`);
     },
@@ -63,13 +67,12 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
     resolveAccount: (cfg, accountId) =>
       resolveArinovaChatAccount({ cfg: cfg as CoreConfig, accountId }),
     defaultAccountId: (cfg) => resolveDefaultArinovaChatAccountId(cfg as CoreConfig),
-    isConfigured: (account) =>
-      Boolean(account.apiUrl?.trim() && account.botToken?.trim()),
+    isConfigured,
     describeAccount: (account) => ({
       accountId: account.accountId,
       name: account.name,
       enabled: account.enabled,
-      configured: Boolean(account.apiUrl?.trim() && account.botToken?.trim()),
+      configured: isConfigured(account),
       apiUrl: account.apiUrl ? "[set]" : "[missing]",
       botToken: account.botToken ? "[set]" : "[missing]",
     }),
@@ -81,7 +84,7 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
       allowFrom
         .map((entry) => String(entry).trim())
         .filter(Boolean)
-        .map((entry) => entry.replace(/^(openclaw-arinova-ai|arinova):/i, ""))
+        .map(stripArinovaChatTargetPrefix)
         .map((entry) => entry.toLowerCase()),
   },
   security: {
@@ -99,7 +102,7 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
         policyPath: `${basePath}dmPolicy`,
         allowFromPath: basePath,
         approveHint: formatPairingApproveHint("openclaw-arinova-ai"),
-        normalizeEntry: (raw) => raw.replace(/^(openclaw-arinova-ai|arinova):/i, "").toLowerCase(),
+        normalizeEntry: (raw) => stripArinovaChatTargetPrefix(raw).toLowerCase(),
       };
     },
     collectWarnings: () => [],
@@ -171,11 +174,14 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
     chunker: (text, limit) => getArinovaChatRuntime().channel.text.chunkMarkdownText(text, limit),
     chunkerMode: "markdown",
     textChunkLimit: 32000,
+    resolveEffectiveTextChunkLimit: ({ cfg, accountId, fallbackLimit }) =>
+      resolveArinovaChatAccount({ cfg: cfg as CoreConfig, accountId: accountId ?? undefined })
+        .config.textChunkLimit ?? fallbackLimit ?? 32000,
     sendText: async ({ to, text, accountId }) => {
       const result = await sendMessageArinovaChat(to, text, {
         accountId: accountId ?? undefined,
       });
-      return { channel: "openclaw-arinova-ai", messageId: result.messageId ?? "inline", ...result };
+      return { channel: "openclaw-arinova-ai", ...result, messageId: result.messageId ?? "inline" };
     },
     sendMedia: async ({ to, text, mediaUrl, accountId }) => {
       // Convert media URL to markdown image so frontend renders it as <img>
@@ -184,7 +190,7 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
       const result = await sendMessageArinovaChat(to, messageWithMedia, {
         accountId: accountId ?? undefined,
       });
-      return { channel: "openclaw-arinova-ai", messageId: result.messageId ?? "inline", ...result };
+      return { channel: "openclaw-arinova-ai", ...result, messageId: result.messageId ?? "inline" };
     },
   },
   status: {
@@ -204,9 +210,7 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
       lastError: snapshot.lastError ?? null,
     }),
     buildAccountSnapshot: ({ account, runtime }) => {
-      const configured = Boolean(
-        account.apiUrl?.trim() && account.botToken?.trim(),
-      );
+      const configured = isConfigured(account);
       return {
         accountId: account.accountId,
         name: account.name,
@@ -253,8 +257,7 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
       };
 
       // Connect to backend via SDK (botToken auth, no pair step needed)
-      const serverUrl = account.apiUrl.replace(/^http/, "ws");
-      logger.info(`[${account.accountId}] connecting to backend: ${serverUrl}`);
+      logger.info(`[${account.accountId}] connecting to backend: ${account.apiUrl}`);
 
       const agent = new ArinovaAgent({
         serverUrl: account.apiUrl,
@@ -274,7 +277,7 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
         await handleArinovaChatInbound({
           message: {
             taskId: task.taskId,
-            text: task.content,
+            text: task.content ?? "",
             timestamp: Date.now(),
             conversationId: task.conversationId,
             conversationType: task.conversationType,
@@ -286,7 +289,6 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
             replyTo: task.replyTo,
             history: task.history,
             attachments: task.attachments,
-            fetchHistory: task.fetchHistory,
           },
           sendChunk: task.sendChunk,
           sendComplete: task.sendComplete,
@@ -310,20 +312,40 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
         logger.error(`[openclaw-arinova-ai:${account.accountId}] WebSocket error: ${error.message}`);
       });
 
-      // Connect and keep the Promise pending for the lifetime of the connection.
-      // The gateway expects startAccount to return a Promise that stays open
-      // while the channel is running, and resolves/rejects when it stops.
-      await agent.connect();
-      logger.info(`[openclaw-arinova-ai:${account.accountId}] WebSocket connected and authenticated`);
-
-      // Return a Promise that stays pending until the abort signal fires
-      // (gateway calls abort when stopping the channel)
-      return new Promise<void>((resolve) => {
+      let rejectLifetime: ((error: Error) => void) | undefined;
+      const lifetime = new Promise<void>((resolve, reject) => {
+        rejectLifetime = reject;
         ctx.abortSignal.addEventListener("abort", () => {
+          removeAgentInstance(account.accountId, agent);
           agent.disconnect();
           resolve();
         }, { once: true });
       });
+      agent.on("auth_failed", () => {
+        removeAgentInstance(account.accountId, agent);
+        agent.disconnect();
+        rejectLifetime?.(new Error(`Arinova authentication failed for account "${account.accountId}"`));
+      });
+
+      // Connect and keep the Promise pending for the lifetime of the connection.
+      // The gateway expects startAccount to return a Promise that stays open
+      // while the channel is running, and resolves/rejects when it stops.
+      try {
+        await agent.connect();
+      } catch (error) {
+        removeAgentInstance(account.accountId, agent);
+        agent.disconnect();
+        throw error;
+      }
+      logger.info(`[openclaw-arinova-ai:${account.accountId}] WebSocket connected and authenticated`);
+
+      // Return a Promise that stays pending until the abort signal fires
+      // (gateway calls abort when stopping the channel)
+      return lifetime;
+    },
+    stopAccount: async ({ account }) => {
+      const agent = removeAgentInstance(account.accountId);
+      agent?.disconnect();
     },
   },
 };

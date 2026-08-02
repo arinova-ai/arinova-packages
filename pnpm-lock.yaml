@@ -43,6 +43,8 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.17)(jiti@2.7.0)(jsdom@26.1.0)(yaml@2.9.0)
 
+  packages/hermes-arinova-plugin: {}
+
   packages/mcp-server:
     dependencies:
       '@modelcontextprotocol/sdk':
@@ -82,13 +84,10 @@ importers:
 
   packages/openclaw-plugin:
     dependencies:
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-    devDependencies:
       '@arinova-ai/agent-sdk':
         specifier: workspace:*
         version: link:../agent-sdk
+    devDependencies:
       '@types/node':
         specifier: ^22
         version: 22.19.17

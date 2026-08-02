@@ -41,7 +41,8 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
 function getModelLimit(model: string): number | null {
   if (MODEL_CONTEXT_LIMITS[model]) return MODEL_CONTEXT_LIMITS[model];
   // Try prefix match (e.g. "claude-opus-4-6-20260301" → "claude-opus-4-6")
-  for (const [key, limit] of Object.entries(MODEL_CONTEXT_LIMITS)) {
+  for (const [key, limit] of Object.entries(MODEL_CONTEXT_LIMITS)
+    .sort(([left], [right]) => right.length - left.length)) {
     if (model.startsWith(key)) return limit;
   }
   return null;
@@ -68,7 +69,7 @@ function sendHudContext(accountId: string | undefined, model: string, inputToken
   if (!agent) return;
   const limit = getModelLimit(model);
   if (!limit) return;
-  const percent = Math.round((inputTokens / limit) * 100);
+  const percent = Math.max(0, Math.min(100, Math.round((inputTokens / limit) * 100)));
   agent.sendHud({
     context: { percent, inputTokens, maxTokens: limit },
     model,
@@ -83,6 +84,8 @@ export function registerHooks(api: OpenClawPluginApi): void {
   // accountId may not be on all SDK context types yet — extract safely
   const acct = (ctx: Record<string, unknown>) =>
     ctx.accountId as string | undefined;
+  const identity = (ctx: Record<string, unknown>, sessionId?: string) =>
+    (ctx.agentId as string | undefined) ?? sessionId ?? "unknown";
 
   // ── Session lifecycle ──────────────────────────────────
 
@@ -90,7 +93,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
     const accountId = acct(ctx);
     emit({
       type: "session_start",
-      agentId: ctx.agentId ?? "unknown",
+      agentId: identity(ctx, event.sessionId),
       sessionId: event.sessionId,
       timestamp: Date.now(),
       data: { resumedFrom: event.resumedFrom },
@@ -107,7 +110,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
     const accountId = acct(ctx);
     emit({
       type: "session_end",
-      agentId: ctx.agentId ?? "unknown",
+      agentId: identity(ctx, event.sessionId),
       sessionId: event.sessionId,
       timestamp: Date.now(),
       data: {
@@ -127,7 +130,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
   api.on("llm_input", (event, ctx) => {
     emit({
       type: "llm_input",
-      agentId: ctx.agentId ?? "unknown",
+      agentId: identity(ctx, event.runId ?? ctx.sessionKey),
       sessionId: event.runId ?? ctx.sessionKey ?? "",
       timestamp: Date.now(),
       data: {
@@ -141,7 +144,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
     const accountId = acct(ctx);
     emit({
       type: "llm_output",
-      agentId: ctx.agentId ?? "unknown",
+      agentId: identity(ctx, event.sessionId),
       sessionId: event.sessionId,
       timestamp: Date.now(),
       data: {
@@ -177,7 +180,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
     const hasError = Boolean(event.error);
     emit({
       type: hasError ? "tool_result" : "tool_call",
-      agentId: ctx.agentId ?? "unknown",
+      agentId: identity(ctx, ctx.sessionKey),
       sessionId: ctx.sessionKey ?? "",
       timestamp: Date.now(),
       data: {
@@ -198,7 +201,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
     if (hasError) {
       emit({
         type: "agent_error",
-        agentId: ctx.agentId ?? "unknown",
+        agentId: identity(ctx, ctx.sessionKey),
         sessionId: ctx.sessionKey ?? "",
         timestamp: Date.now(),
         data: { error: event.error, toolName: event.toolName },
@@ -238,7 +241,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
     if (!event.success && event.error) {
       emit({
         type: "agent_error",
-        agentId: ctx.agentId ?? "unknown",
+        agentId: identity(ctx, ctx.sessionKey),
         sessionId: ctx.sessionKey ?? "",
         timestamp: Date.now(),
         data: { error: event.error, durationMs: event.durationMs },
@@ -246,7 +249,7 @@ export function registerHooks(api: OpenClawPluginApi): void {
     } else {
       emit({
         type: "agent_end",
-        agentId: ctx.agentId ?? "unknown",
+        agentId: identity(ctx, ctx.sessionKey),
         sessionId: ctx.sessionKey ?? "",
         timestamp: Date.now(),
         data: { durationMs: event.durationMs },
@@ -308,8 +311,6 @@ function emit(event: InternalEvent, accountId?: string): void {
   // Try exact account token first, then fall back to "default" for single-agent setups
   const token = (accountId ? accountTokens.get(accountId) : undefined) ?? accountTokens.get("default");
   if (!token) return;
-
-  console.log("[office] emit", event.type, accountId, "token found:", !!token);
 
   fetch(forwardUrl, {
     method: "POST",

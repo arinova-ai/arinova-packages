@@ -3,6 +3,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   sendMessageArinovaChat: vi.fn(),
 }));
+const runtimeMocks = vi.hoisted(() => ({
+  setAgentInstance: vi.fn(),
+  removeAgentInstance: vi.fn(),
+  logger: { info: vi.fn(), error: vi.fn() },
+}));
+const sdkMocks = vi.hoisted(() => ({
+  instances: [] as Array<{
+    options: unknown;
+    handlers: Map<string, (...args: any[]) => void>;
+    onTask: ReturnType<typeof vi.fn>;
+    on: ReturnType<typeof vi.fn>;
+    connect: ReturnType<typeof vi.fn>;
+    disconnect: ReturnType<typeof vi.fn>;
+  }>,
+}));
 
 vi.mock("./send.js", () => ({
   sendMessageArinovaChat: mocks.sendMessageArinovaChat,
@@ -10,17 +25,32 @@ vi.mock("./send.js", () => ({
 
 vi.mock("./runtime.js", () => ({
   getArinovaChatRuntime: () => ({
+    logging: { getChildLogger: () => runtimeMocks.logger },
     channel: {
+      activity: { record: vi.fn() },
       text: {
         chunkMarkdownText: (text: string, limit: number) => [text.slice(0, limit)],
       },
     },
   }),
-  setAgentInstance: vi.fn(),
+  setAgentInstance: runtimeMocks.setAgentInstance,
+  removeAgentInstance: runtimeMocks.removeAgentInstance,
 }));
 
 vi.mock("@arinova-ai/agent-sdk", () => ({
-  ArinovaAgent: class {},
+  ArinovaAgent: function (this: unknown, options: unknown) {
+    const handlers = new Map<string, (...args: any[]) => void>();
+    const instance = {
+      options,
+      handlers,
+      onTask: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: any[]) => void) => handlers.set(event, handler)),
+      connect: vi.fn().mockResolvedValue(undefined),
+      disconnect: vi.fn(),
+    };
+    sdkMocks.instances.push(instance);
+    return instance;
+  },
 }));
 
 import { arinovaChatPlugin } from "./channel.js";
@@ -54,6 +84,8 @@ const cfg = {
 describe("arinovaChatPlugin channel contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sdkMocks.instances.length = 0;
+    runtimeMocks.removeAgentInstance.mockReturnValue(undefined);
     mocks.sendMessageArinovaChat.mockResolvedValue({ messageId: "msg-1", ok: true });
   });
 
@@ -104,7 +136,6 @@ describe("arinovaChatPlugin channel contract", () => {
       apiUrl: "https://api.named.test",
       botToken: "ari_secret",
       agentId: "agent-1",
-      sessionToken: "",
       config: {},
     })).toMatchObject({
       accountId: "named",
@@ -120,7 +151,6 @@ describe("arinovaChatPlugin channel contract", () => {
       apiUrl: "",
       botToken: "",
       agentId: "",
-      sessionToken: "",
       config: {},
     })).toMatchObject({
       configured: false,
@@ -140,7 +170,6 @@ describe("arinovaChatPlugin channel contract", () => {
         apiUrl: "https://api.example.test",
         botToken: "ari_default",
         agentId: "agent-default",
-        sessionToken: "",
         config: { dmPolicy: "allowlist", allowFrom: ["UserA"] },
       },
     });
@@ -154,7 +183,6 @@ describe("arinovaChatPlugin channel contract", () => {
         apiUrl: "https://api.named.test",
         botToken: "ari_named",
         agentId: "agent-named",
-        sessionToken: "",
         config: { dmPolicy: "open", allowFrom: ["UserB"] },
       },
     });
@@ -241,7 +269,6 @@ describe("arinovaChatPlugin channel contract", () => {
         apiUrl: "https://api.named.test",
         botToken: "ari_secret",
         agentId: "agent-named",
-        sessionToken: "",
         config: {},
       },
       runtime: {
@@ -263,5 +290,49 @@ describe("arinovaChatPlugin channel contract", () => {
       lastInboundAt: 20,
       lastOutboundAt: 30,
     });
+  });
+
+  it("settles gateway lifetime on auth failure and removes the live instance", async () => {
+    const controller = new AbortController();
+    const account = plugin.config.resolveAccount(cfg, "named");
+    const lifetime = plugin.gateway.startAccount({
+      account,
+      accountId: "named",
+      cfg,
+      abortSignal: controller.signal,
+      setStatus: vi.fn(),
+      runtime: { log: vi.fn(), error: vi.fn(), exit: vi.fn() },
+    });
+    await Promise.resolve();
+    const agent = sdkMocks.instances[0]!;
+
+    agent.handlers.get("auth_failed")?.();
+
+    await expect(lifetime).rejects.toThrow("authentication failed");
+    expect(runtimeMocks.removeAgentInstance).toHaveBeenCalledWith("named", agent);
+    expect(agent.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("disconnects and removes the instance when gateway aborts or stops", async () => {
+    const controller = new AbortController();
+    const account = plugin.config.resolveAccount(cfg, "named");
+    const lifetime = plugin.gateway.startAccount({
+      account,
+      accountId: "named",
+      cfg,
+      abortSignal: controller.signal,
+      setStatus: vi.fn(),
+      runtime: { log: vi.fn(), error: vi.fn(), exit: vi.fn() },
+    });
+    await Promise.resolve();
+    const agent = sdkMocks.instances[0]!;
+    controller.abort();
+    await expect(lifetime).resolves.toBeUndefined();
+    expect(agent.disconnect).toHaveBeenCalledOnce();
+
+    runtimeMocks.removeAgentInstance.mockReturnValue(agent);
+    await plugin.gateway.stopAccount({ account });
+    expect(runtimeMocks.removeAgentInstance).toHaveBeenLastCalledWith("named");
+    expect(agent.disconnect).toHaveBeenCalledTimes(2);
   });
 });

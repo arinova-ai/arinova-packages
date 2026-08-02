@@ -2,6 +2,9 @@ import type { ArinovaChatSendResult, CoreConfig } from "./types.js";
 import { resolveArinovaChatAccount } from "./accounts.js";
 import { getArinovaChatRuntime, getAgentInstance } from "./runtime.js";
 import { ArinovaAgent } from "@arinova-ai/agent-sdk";
+import { stripArinovaChatTargetPrefix } from "./normalize.js";
+
+const fallbackAgents = new Map<string, { agent: ArinovaAgent; apiUrl: string; botToken: string }>();
 
 type ArinovaChatSendOpts = {
   accountId?: string;
@@ -36,12 +39,7 @@ export async function sendMessageArinovaChat(
   }
 
   // Strip channel prefix to get conversation ID
-  let conversationId = to.trim();
-  if (conversationId.startsWith("openclaw-arinova-ai:")) {
-    conversationId = conversationId.slice("openclaw-arinova-ai:".length).trim();
-  } else if (conversationId.startsWith("arinova:")) {
-    conversationId = conversationId.slice("arinova:".length).trim();
-  }
+  const conversationId = stripArinovaChatTargetPrefix(to);
 
   if (!conversationId) {
     // Delivery-recovery retries may have a `to` without conversationId (e.g. --deliver mode).
@@ -61,11 +59,18 @@ export async function sendMessageArinovaChat(
     console.log(
       `[openclaw-arinova-ai] sendMessage via HTTP (no agent instance) accountId=${account.accountId} conversationId=${conversationId}`,
     );
-    const tempAgent = new ArinovaAgent({
-      serverUrl: account.apiUrl,
-      botToken: account.botToken,
-    });
-    await tempAgent.sendMessage(conversationId, text);
+    if (!account.botToken?.trim()) throw new Error(`Arinova Chat botToken missing for account "${account.accountId}"`);
+    let fallback = fallbackAgents.get(account.accountId);
+    if (!fallback || fallback.apiUrl !== account.apiUrl || fallback.botToken !== account.botToken) {
+      fallback?.agent.disconnect();
+      fallback = {
+        agent: new ArinovaAgent({ serverUrl: account.apiUrl, botToken: account.botToken }),
+        apiUrl: account.apiUrl,
+        botToken: account.botToken,
+      };
+      fallbackAgents.set(account.accountId, fallback);
+    }
+    await fallback.agent.sendMessage(conversationId, text);
   }
 
   getArinovaChatRuntime().channel.activity.record({

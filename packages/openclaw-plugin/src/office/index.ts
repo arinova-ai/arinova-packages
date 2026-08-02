@@ -51,40 +51,9 @@ export function shutdown(): void {
  * Register office hooks with the OpenClaw plugin API and start the tick loop.
  * Called from the main arinova plugin's register().
  *
- * Derives forwarding config from the channel's apiUrl + botToken so no extra
- * environment variables are needed.
+ * Hook forwarding can be configured separately through configure().
  */
 export function registerOffice(api: OpenClawPluginApi): void {
-  const channels = (api.config as Record<string, unknown>).channels as
-    | Record<string, Record<string, unknown>>
-    | undefined;
-  const arinova = channels?.["openclaw-arinova-ai"];
-  const apiUrl = arinova?.apiUrl as string | undefined;
-
-  const tokens = new Map<string, string>();
-
-  // Single-agent: direct botToken
-  const directToken = arinova?.botToken as string | undefined;
-  if (directToken) {
-    tokens.set("default", directToken);
-  }
-
-  // Multi-agent: accounts structure
-  if (arinova?.accounts) {
-    const accounts = arinova.accounts as Record<string, Record<string, unknown>>;
-    for (const [accountId, acc] of Object.entries(accounts)) {
-      if (acc.enabled !== false && acc.botToken) {
-        tokens.set(accountId, acc.botToken as string);
-      }
-    }
-  }
-
-  // Legacy event forwarding disabled — task_update now uses HUD WS channel
-  // if (apiUrl && tokens.size > 0) {
-  //   const forwardUrl = apiUrl.replace(/\/+$/, "") + "/api/office/event";
-  //   setForwardTarget(forwardUrl, tokens);
-  // }
-
   registerOfficeHooks(api);
   initialize();
 }

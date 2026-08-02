@@ -313,7 +313,7 @@ export class OfficeStateStore {
 
     // Set collaborating status for agents with active links
     for (const agent of this.agents.values()) {
-      if (agent.collaboratingWith.length > 0 && agent.online) {
+      if (agent.collaboratingWith.length > 0 && agent.online && agent.status !== "blocked") {
         agent.status = "collaborating";
       } else if (agent.status === "collaborating") {
         // No more links — revert to working if online
@@ -448,8 +448,12 @@ export class OfficeStateStore {
 
   private broadcast(): void {
     const event = this.snapshot();
-    for (const listener of this.listeners) {
-      listener(event);
+    for (const listener of [...this.listeners]) {
+      try {
+        listener(event);
+      } catch {
+        this.listeners.delete(listener);
+      }
     }
   }
 }

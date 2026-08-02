@@ -1,118 +1,34 @@
-import { describe, it, expect } from "vitest";
-import { buildArinovaPromptContext } from "./index.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import plugin, { buildArinovaPromptContext, isHealthy, shutdownOffice } from "./index.js";
 
-describe("Arinova prompt context", () => {
-  it("contains no credential-bearing API instructions", () => {
+afterEach(() => shutdownOffice());
+
+describe("Arinova plugin", () => {
+  it("builds credential-free prompt context", () => {
     const context = buildArinovaPromptContext().prependContext;
-
-    expect(context).not.toContain("Authorization:");
-    expect(context).not.toContain("Bearer ");
-    expect(context).not.toContain("botToken");
-    expect(context).not.toContain("curl ");
+    expect(context).toContain("the channel streams your response automatically");
+    expect(context).not.toMatch(/Authorization:|Bearer |botToken|curl /);
   });
 
-  it("preserves safe channel guidance for legitimate turns", () => {
-    expect(buildArinovaPromptContext().prependContext).toContain(
-      "the channel streams your response automatically",
-    );
-  });
-});
+  it("registers one CLI root and restarts office maintenance with the gateway", () => {
+    const handlers = new Map<string, () => void>();
+    const api = {
+      runtime: {},
+      config: { channels: {} },
+      logger: { warn: vi.fn() },
+      registerChannel: vi.fn(),
+      registerCli: vi.fn(),
+      on: vi.fn((name: string, handler: () => void) => handlers.set(name, handler)),
+    };
 
-// Test inbound message parsing utilities
-describe("inbound message parsing", () => {
-  it("collapses consecutive tool blocks", () => {
-    const input = "[Bash] ls\n📎 output1\n[Read] file.ts\n📎 content\nHello world";
-    // Tool blocks get collapsed to keep only the latest
-    expect(input).toContain("[Read]");
-    expect(input).toContain("Hello world");
-  });
+    plugin.register(api as never);
+    expect(api.registerChannel).toHaveBeenCalledOnce();
+    expect(api.registerCli).toHaveBeenCalledOnce();
+    expect(isHealthy()).toBe(true);
 
-  it("detects MEDIA lines", () => {
-    const line1 = "MEDIA: https://example.com/img.png";
-    const line2 = "  media: http://cdn.test/file.jpg";
-    const line3 = "Not a media line";
-    expect(/^\s*MEDIA:\s/i.test(line1)).toBe(true);
-    expect(/^\s*MEDIA:\s/i.test(line2)).toBe(true);
-    expect(/^\s*MEDIA:\s/i.test(line3)).toBe(false);
-  });
-
-  it("detects tool lines", () => {
-    const TOOL_LINE_RE = /^\[(Bash|Read|Write|Edit|Grep|Glob|WebFetch|WebSearch|Task|Skill|NotebookEdit)\]/;
-    expect(TOOL_LINE_RE.test("[Bash] ls")).toBe(true);
-    expect(TOOL_LINE_RE.test("[Read] file.ts")).toBe(true);
-    expect(TOOL_LINE_RE.test("[Unknown] foo")).toBe(false);
-    expect(TOOL_LINE_RE.test("Regular text")).toBe(false);
-  });
-});
-
-// Test SenderName JSON encoding
-describe("SenderName JSON encoding", () => {
-  it("encodes sender metadata as JSON string", () => {
-    const sender = { name: "Ron", conversationId: "abc-123", agentName: "ron" };
-    const encoded = JSON.stringify(sender);
-    const decoded = JSON.parse(encoded);
-    expect(decoded.name).toBe("Ron");
-    expect(decoded.conversationId).toBe("abc-123");
-    expect(decoded.agentName).toBe("ron");
-  });
-
-  it("handles special characters in names", () => {
-    const sender = { name: "Test \"User\"", conversationId: "id-1" };
-    const encoded = JSON.stringify(sender);
-    expect(encoded).toContain('\\"User\\"');
-    const decoded = JSON.parse(encoded);
-    expect(decoded.name).toBe('Test "User"');
-  });
-
-  it("handles empty sender name", () => {
-    const sender = { name: "", conversationId: "id-1" };
-    const encoded = JSON.stringify(sender);
-    const decoded = JSON.parse(encoded);
-    expect(decoded.name).toBe("");
-  });
-});
-
-// Test API endpoint path construction
-describe("API endpoint paths", () => {
-  const apiUrl = "https://api.chat-staging.arinova.ai";
-
-  it("constructs message send path", () => {
-    const path = `${apiUrl}/api/v1/messages/send`;
-    expect(path).toBe("https://api.chat-staging.arinova.ai/api/v1/messages/send");
-  });
-
-  it("constructs conversation messages path", () => {
-    const convId = "abc-123";
-    const path = `${apiUrl}/api/conversations/${convId}/messages`;
-    expect(path).toContain(convId);
-  });
-
-  it("constructs wiki path", () => {
-    const convId = "abc-123";
-    const path = `${apiUrl}/api/v1/wiki`;
-    expect(path).toBe("https://api.chat-staging.arinova.ai/api/v1/wiki");
-  });
-
-  it("constructs notes path with conversation", () => {
-    const convId = "abc-123";
-    const path = `${apiUrl}/api/v1/notes?conversationId=${convId}`;
-    expect(path).toContain("conversationId=abc-123");
-  });
-});
-
-// Test markdown table GFM handling
-describe("GFM table detection", () => {
-  it("detects table row ending with pipe", () => {
-    const isTableRow = (line: string) => line.trim().startsWith("|") && line.trim().endsWith("|");
-    expect(isTableRow("| Name | Value |")).toBe(true);
-    expect(isTableRow("|---|---|")).toBe(true);
-    expect(isTableRow("Normal text")).toBe(false);
-  });
-
-  it("table rows joined with single newline", () => {
-    const rows = ["| A | B |", "|---|---|", "| 1 | 2 |"];
-    const table = rows.join("\n");
-    expect(table.split("\n").length).toBe(3);
-    expect(table).not.toContain("\n\n");
+    handlers.get("gateway_stop")?.();
+    expect(isHealthy()).toBe(false);
+    handlers.get("gateway_start")?.();
+    expect(isHealthy()).toBe(true);
   });
 });

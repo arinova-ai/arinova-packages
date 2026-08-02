@@ -3,29 +3,12 @@
  * Skipped when no token is available.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
 
 const API_URL = "https://api.chat-staging.arinova.ai";
 const CONV_ID = process.env.TEST_CONVERSATION_ID ?? "db39d380-f132-45a2-929b-1cac8b98bbd8";
 
-/** Resolve bot token from env or openclaw config. */
-function resolveToken(): string {
-  if (process.env.TEST_BOT_TOKEN) return process.env.TEST_BOT_TOKEN;
-  try {
-    const configPath = join(homedir(), ".openclaw", "openclaw.json");
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    const accounts = config?.channels?.["openclaw-arinova-ai"]?.accounts ?? {};
-    for (const acc of Object.values(accounts) as any[]) {
-      if (acc.botToken) return acc.botToken;
-    }
-  } catch {}
-  return "";
-}
-
-const TOKEN = resolveToken();
-const HAS_TOKEN = TOKEN.length > 0;
+const TOKEN = process.env.TEST_BOT_TOKEN ?? "";
+const HAS_TOKEN = process.env.RUN_OPENCLAW_INTEGRATION === "1" && TOKEN.length > 0;
 
 /** Direct API call helper. */
 async function api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {

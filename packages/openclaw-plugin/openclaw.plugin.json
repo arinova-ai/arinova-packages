@@ -14,9 +14,6 @@
           "enabled": { "type": "boolean" },
           "apiUrl": { "type": "string" },
           "botToken": { "type": "string" },
-          "email": { "type": "string" },
-          "password": { "type": "string" },
-          "sessionToken": { "type": "string" },
           "agentId": { "type": "string", "format": "uuid" },
           "dmPolicy": {
             "type": "string",
@@ -24,6 +21,10 @@
             "default": "open"
           },
           "allowFrom": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "allowAgentMessagesFrom": {
             "type": "array",
             "items": { "type": "string" }
           },
@@ -38,9 +39,6 @@
                 "enabled": { "type": "boolean" },
                 "apiUrl": { "type": "string" },
                 "botToken": { "type": "string" },
-                "email": { "type": "string" },
-                "password": { "type": "string" },
-                "sessionToken": { "type": "string" },
                 "agentId": { "type": "string", "format": "uuid" },
                 "dmPolicy": {
                   "type": "string",
@@ -51,6 +49,10 @@
                   "type": "array",
                   "items": { "type": "string" }
                 },
+                "allowAgentMessagesFrom": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
                 "textChunkLimit": { "type": "integer", "minimum": 1 }
               }
             }
@@ -58,9 +60,7 @@
         }
       },
       "uiHints": {
-        "botToken": { "sensitive": true },
-        "password": { "sensitive": true },
-        "sessionToken": { "sensitive": true }
+        "botToken": { "sensitive": true }
       }
     }
   },

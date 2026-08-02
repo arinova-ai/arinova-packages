@@ -8,7 +8,6 @@ export type ResolvedArinovaChatAccount = {
   apiUrl: string;
   botToken: string;
   agentId: string;
-  sessionToken: string;
   config: ArinovaChatAccountConfig;
 };
 
@@ -82,7 +81,6 @@ export function resolveArinovaChatAccount(params: {
     apiUrl: merged.apiUrl?.trim()?.replace(/\/$/, "") ?? "",
     botToken: merged.botToken?.trim() ?? "",
     agentId: merged.agentId ?? "",
-    sessionToken: merged.sessionToken ?? "",
     config: merged,
   };
 }

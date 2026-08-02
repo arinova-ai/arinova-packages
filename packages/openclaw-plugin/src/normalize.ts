@@ -1,16 +1,14 @@
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+export function stripArinovaChatTargetPrefix(raw: string): string {
+  return raw.trim().replace(/^(?:openclaw-arinova-ai|arinova):/i, "").trim();
+}
+
 export function normalizeArinovaChatMessagingTarget(raw: string): string | undefined {
   const trimmed = raw.trim();
   if (!trimmed) return undefined;
 
-  let normalized = trimmed;
-
-  if (normalized.startsWith("openclaw-arinova-ai:")) {
-    normalized = normalized.slice("openclaw-arinova-ai:".length).trim();
-  } else if (normalized.startsWith("arinova:")) {
-    normalized = normalized.slice("arinova:".length).trim();
-  }
+  const normalized = stripArinovaChatTargetPrefix(trimmed);
 
   if (!normalized) return undefined;
 

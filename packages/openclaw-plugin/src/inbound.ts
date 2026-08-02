@@ -10,14 +10,12 @@ import type { ResolvedArinovaChatAccount } from "./accounts.js";
 import type { ArinovaChatInboundMessage, CoreConfig } from "./types.js";
 import { getArinovaChatRuntime } from "./runtime.js";
 import { replaceImagePaths, type UploadFn } from "./image-upload.js";
+import { stripArinovaChatTargetPrefix } from "./normalize.js";
 
 const CHANNEL_ID = "openclaw-arinova-ai" as const;
 
 function normalizeAllowEntry(value: string): string {
-  return value
-    .trim()
-    .replace(/^(openclaw-arinova-ai|arinova):/i, "")
-    .toLowerCase();
+  return stripArinovaChatTargetPrefix(value).toLowerCase();
 }
 
 async function resolveSenderAuthorization(params: {
@@ -90,13 +88,21 @@ const MEDIA_LINE_RE = /^\s*MEDIA:\s/i;
  * we can show only the most recent tool activity for a cleaner UX.
  */
 export function collapseToolBlocks(text: string): string {
-  const lines = text.split("\n");
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const output: string[] = [];
   let pendingTool: string[] | null = null;
   let inResult = false;
+  let fence: string | null = null;
 
   for (const line of lines) {
-    if (TOOL_LINE_RE.test(line)) {
+    const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[1]![0];
+      if (fence === marker) fence = null;
+      else if (fence === null) fence = marker;
+    }
+
+    if (fence === null && TOOL_LINE_RE.test(line)) {
       // New tool call — discard any previous pending tool block
       pendingTool = [line];
       inResult = false;
@@ -137,7 +143,11 @@ export function collapseToolBlocks(text: string): string {
 export function stripMediaLines(text: string): string {
   return text
     .split("\n")
-    .filter((line) => !MEDIA_LINE_RE.test(line))
+    .filter((line) => {
+      if (MEDIA_LINE_RE.test(line)) return false;
+      const token = line.trim().toUpperCase();
+      return !token || !"MEDIA:".startsWith(token);
+    })
     .join("\n");
 }
 
@@ -146,6 +156,157 @@ export function stripMediaLines(text: string): string {
  */
 export function mediaUrlsToMarkdown(urls: string[]): string {
   return urls.map((url) => `![](${url})`).join("\n");
+}
+
+class StreamRelay {
+  finalText = "";
+  lastAccumulatedText = "";
+  private lastCollapsedText = "";
+  private lastSentLength = 0;
+
+  constructor(private readonly sendChunk: (chunk: string) => void) {}
+
+  onPartial(payload: { text?: string; delta?: string; replace?: true }): void {
+    const text = payload.text ?? "";
+    if (!text) return;
+    this.lastAccumulatedText = text.replace(/\r\n?/g, "\n");
+    const cleaned = stripMediaLines(this.lastAccumulatedText);
+    if (!cleaned.trim()) {
+      this.lastCollapsedText = "";
+      this.lastSentLength = 0;
+      return;
+    }
+    const collapsed = collapseToolBlocks(cleaned);
+    const stablePrefix = !payload.replace && collapsed.startsWith(this.lastCollapsedText);
+    const delta = stablePrefix ? collapsed.slice(this.lastCollapsedText.length) : collapsed;
+    this.lastCollapsedText = collapsed;
+    this.lastSentLength = collapsed.length;
+    if (delta) this.sendChunk(delta);
+  }
+
+  appendDelivered(text: string): void {
+    if (this.finalText) {
+      const continuesTable = /\|[^\n]*\|\s*$/.test(this.finalText) && /^\s*\|/.test(text);
+      this.finalText += continuesTable ? "\n" : "\n\n";
+    }
+    this.finalText += text;
+  }
+
+  get hasStreamed(): boolean {
+    return this.lastSentLength > 0;
+  }
+
+  get visibleText(): string {
+    return this.finalText || this.lastCollapsedText || this.lastAccumulatedText;
+  }
+
+  get completedText(): string {
+    return this.finalText || this.lastAccumulatedText;
+  }
+}
+
+async function authorizeInbound(params: {
+  message: ArinovaChatInboundMessage;
+  account: ResolvedArinovaChatAccount;
+  runtime: RuntimeEnv;
+}): Promise<{
+  senderAgentId?: string;
+  senderId: string;
+  senderDisplayName: string;
+  chatType: "group" | "direct";
+  commandsAuthorized: boolean;
+} | null> {
+  const { message, account, runtime } = params;
+  const senderAgentId = message.senderAgentId?.trim() || undefined;
+  const senderId = senderAgentId || message.senderUserId?.trim();
+  if (!senderId) {
+    runtime.log?.("openclaw-arinova-ai: drop inbound message without sender identity");
+    return null;
+  }
+  const chatType = message.conversationType === "group" ? "group" : "direct";
+  const allowedAgentSenders = (account.config.allowAgentMessagesFrom ?? [])
+    .map((entry) => normalizeAllowEntry(String(entry)))
+    .filter(Boolean);
+  const access = senderAgentId
+    ? {
+        inboundAllowed: allowedAgentSenders.includes(normalizeAllowEntry(senderId)),
+        commandsAuthorized: false,
+      }
+    : await resolveSenderAuthorization({ account, senderId, chatType, runtime });
+  if (!access.inboundAllowed) {
+    runtime.log?.(senderAgentId
+      ? "openclaw-arinova-ai: drop unlisted agent-authored message"
+      : `openclaw-arinova-ai: drop unauthorized ${chatType} sender (dmPolicy=${account.config.dmPolicy ?? "open"})`);
+    return null;
+  }
+  return {
+    senderAgentId,
+    senderId,
+    senderDisplayName: (senderAgentId ? message.senderAgentName : message.senderUsername)
+      ?? (senderAgentId ? "Arinova Agent" : "Arinova User"),
+    chatType,
+    commandsAuthorized: access.commandsAuthorized,
+  };
+}
+
+function buildInboundContext(params: {
+  message: ArinovaChatInboundMessage;
+  account: ResolvedArinovaChatAccount;
+  config: CoreConfig;
+  rawBody: string;
+  auth: NonNullable<Awaited<ReturnType<typeof authorizeInbound>>>;
+}) {
+  const { message, account, config, rawBody, auth } = params;
+  const peerId = message.conversationId || auth.senderId || message.taskId;
+  const { route, buildEnvelope } = resolveChannelInboundRouteEnvelope({
+    cfg: config as OpenClawConfig,
+    channel: CHANNEL_ID,
+    accountId: account.accountId,
+    peer: { kind: auth.chatType, id: peerId },
+  });
+  const senderName = JSON.stringify({
+    name: auth.senderDisplayName,
+    conversationId: message.conversationId || "",
+    agentName: account.name || account.accountId || "",
+  });
+  const body = buildEnvelope({
+    channel: "Arinova Chat",
+    from: auth.senderDisplayName,
+    timestamp: message.timestamp,
+    body: rawBody,
+  });
+  const replyTarget = `openclaw-arinova-ai:${account.agentId}`;
+  const ctxPayload = buildChannelInboundEventContext({
+    channel: CHANNEL_ID,
+    accountId: route.accountId,
+    messageId: message.taskId,
+    timestamp: message.timestamp,
+    from: `openclaw-arinova-ai:${auth.senderId}`,
+    sender: { id: auth.senderId, name: senderName },
+    conversation: { kind: auth.chatType, id: peerId, label: auth.senderDisplayName },
+    route: {
+      agentId: route.agentId,
+      dmScope: route.dmScope,
+      accountId: route.accountId,
+      routeSessionKey: route.sessionKey,
+    },
+    reply: { to: replyTarget, originatingTo: replyTarget },
+    message: {
+      body,
+      bodyForAgent: buildEnrichedBody(rawBody, message),
+      rawBody,
+      commandBody: rawBody.replace(/^!\[/, "["),
+    },
+    access: { commands: { authorized: auth.commandsAuthorized } },
+    extra: {
+      OriginatingChannel: CHANNEL_ID,
+      ReceiverId: account.accountId,
+      ReceiverName: account.accountId,
+      ArinovaConversationId: message.conversationId || peerId,
+      ...(auth.senderAgentId ? { ArinovaSenderAgentId: auth.senderAgentId } : {}),
+    },
+  });
+  return { route, ctxPayload, peerId, persistedSessionKey: ctxPayload.SessionKey ?? route.sessionKey };
 }
 
 /**
@@ -181,117 +342,18 @@ export async function handleArinovaChatInbound(params: {
 
   statusSink?.({ lastInboundAt: message.timestamp });
 
-  // Sender identity is an authorization input. Agent-authored A2A messages
-  // use a separate deny-by-default allowlist so a group of bots cannot form
-  // an automatic reply loop merely because the original human was allowed.
-  const senderAgentId = message.senderAgentId?.trim();
-  const senderId = senderAgentId || message.senderUserId?.trim();
-  if (!senderId) {
-    runtime.log?.("openclaw-arinova-ai: drop inbound message without sender identity");
+  const auth = await authorizeInbound({ message, account, runtime });
+  if (!auth) {
     sendComplete("");
     return;
   }
-  const senderDisplayName =
-    (senderAgentId ? message.senderAgentName : message.senderUsername)
-    ?? (senderAgentId ? "Arinova Agent" : "Arinova User");
-  // SenderName carries JSON with conversationId + agentName for bridge routing
-  const senderNameJson = JSON.stringify({
-    name: senderDisplayName,
-    conversationId: message.conversationId || "",
-    agentName: account.name || account.accountId || "",
+  const { route, ctxPayload, peerId, persistedSessionKey } = buildInboundContext({
+    message,
+    account,
+    config,
+    rawBody,
+    auth,
   });
-  const chatType = message.conversationType === "group" ? "group" : "direct";
-  const allowedAgentSenders = (account.config.allowAgentMessagesFrom ?? [])
-    .map((entry) => normalizeAllowEntry(String(entry)))
-    .filter(Boolean);
-  const agentSenderAllowed =
-    Boolean(senderAgentId)
-    && allowedAgentSenders.includes(normalizeAllowEntry(senderId));
-  const access = senderAgentId
-    ? { inboundAllowed: agentSenderAllowed, commandsAuthorized: false }
-    : await resolveSenderAuthorization({
-      account,
-      senderId,
-      chatType,
-      runtime,
-    });
-  if (!access.inboundAllowed) {
-    runtime.log?.(
-      senderAgentId
-        ? "openclaw-arinova-ai: drop unlisted agent-authored message"
-        : `openclaw-arinova-ai: drop unauthorized ${chatType} sender (dmPolicy=${account.config.dmPolicy ?? "open"})`,
-    );
-    sendComplete("");
-    return;
-  }
-
-  // Resolve agent route — use conversationId as peer id so each conversation
-  // gets its own session (critical for groups where multiple convos exist).
-  const peerId = message.conversationId || senderId || message.taskId;
-  const { route, buildEnvelope } = resolveChannelInboundRouteEnvelope({
-    cfg: config as OpenClawConfig,
-    channel: CHANNEL_ID,
-    accountId: account.accountId,
-    peer: {
-      kind: chatType === "group" ? "group" : "direct",
-      id: peerId,
-    },
-  });
-
-  const fromLabel = senderDisplayName;
-
-  // Build enriched body for the LLM with context sections
-  const bodyForAgent = buildEnrichedBody(rawBody, message);
-
-  const body = buildEnvelope({
-    channel: "Arinova Chat",
-    from: fromLabel,
-    timestamp: message.timestamp,
-    body: rawBody,
-  });
-
-  const replyTarget = `openclaw-arinova-ai:${account.agentId}`;
-  const ctxPayload = buildChannelInboundEventContext({
-    channel: CHANNEL_ID,
-    accountId: route.accountId,
-    messageId: message.taskId,
-    timestamp: message.timestamp,
-    from: `openclaw-arinova-ai:${senderId}`,
-    sender: { id: senderId, name: senderNameJson },
-    conversation: {
-      kind: chatType === "group" ? "group" : "direct",
-      id: peerId,
-      label: fromLabel,
-    },
-    route: {
-      agentId: route.agentId,
-      dmScope: route.dmScope,
-      accountId: route.accountId,
-      routeSessionKey: route.sessionKey,
-    },
-    reply: {
-      to: replyTarget,
-      originatingTo: replyTarget,
-    },
-    message: {
-      body,
-      bodyForAgent,
-      rawBody,
-      commandBody: rawBody.replace(/^!\[/, "["),
-    },
-    access: {
-      commands: { authorized: access.commandsAuthorized },
-    },
-    extra: {
-      OriginatingChannel: CHANNEL_ID,
-      ReceiverId: account.accountId,
-      ReceiverName: account.accountId,
-      ArinovaConversationId: message.conversationId || peerId,
-      ...(senderAgentId ? { ArinovaSenderAgentId: senderAgentId } : {}),
-    },
-  });
-
-  const persistedSessionKey = ctxPayload.SessionKey ?? route.sessionKey;
 
   const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
     cfg: config as OpenClawConfig,
@@ -300,13 +362,7 @@ export async function handleArinovaChatInbound(params: {
     accountId: account.accountId,
   });
 
-  // Track final content from block delivery
-  let finalText = "";
-  // Track the full accumulated text from onPartialReply — this preserves
-  // original line breaks (e.g. inside markdown tables) that get corrupted
-  // when blocks are joined with "\n\n" in the deliver callback.
-  let lastAccumulatedText = "";
-  let lastSentLength = 0;
+  const relay = new StreamRelay(sendChunk);
   let aborted = false;
   let deliverySuppressed = false;
   let silentReplySkipped = false;
@@ -324,7 +380,7 @@ export async function handleArinovaChatInbound(params: {
         // Send whatever we accumulated so far — the agent SDK's guard
         // will also prevent duplicates, but we short-circuit here to
         // avoid waiting for the (potentially slow) LLM to finish.
-        sendComplete(finalText || "");
+        sendComplete(relay.visibleText);
       }
     }, { once: true });
   }
@@ -353,14 +409,7 @@ export async function handleArinovaChatInbound(params: {
 
         if (!text.trim()) return { visibleReplySent: false };
 
-        if (finalText) {
-          // If we're inside a GFM table (previous block ends with a table row
-          // and next block starts with one), join with \n to avoid breaking it.
-          const prevEndsWithTableRow = /\|[^\n]*\|\s*$/.test(finalText);
-          const nextStartsWithTableRow = /^\s*\|/.test(text);
-          finalText += (prevEndsWithTableRow && nextStartsWithTableRow) ? "\n" : "\n\n";
-        }
-        finalText += text;
+        relay.appendDelivered(text);
         statusSink?.({ lastOutboundAt: Date.now() });
         return { visibleReplySent: true, content: text };
       },
@@ -385,30 +434,7 @@ export async function handleArinovaChatInbound(params: {
       abortSignal: signal,
       onPartialReply: (payload) => {
         if (aborted) return;
-        // onPartialReply gives accumulated text for the CURRENT block only —
-        // deltaBuffer resets in handleMessageEnd between tool calls.
-        const partial = payload as { text?: string; delta?: string; replace?: true };
-        const text = partial.text ?? "";
-        if (text) {
-          lastAccumulatedText = text;
-          // Strip MEDIA: lines so raw tokens don't flash during streaming
-          const cleaned = stripMediaLines(text);
-          if (!cleaned.trim()) return;
-          const collapsed = collapseToolBlocks(cleaned);
-          // A replacement starts a new accumulated stream even when it is
-          // longer than the previous text. A shorter payload also indicates
-          // that core reset its per-message delta buffer.
-          if (partial.replace || collapsed.length < lastSentLength) {
-            lastSentLength = 0;
-          }
-          const delta = partial.delta !== undefined && !partial.replace
-            ? stripMediaLines(partial.delta)
-            : collapsed.slice(lastSentLength);
-          if (delta) {
-            lastSentLength = collapsed.length;
-            sendChunk(delta.replace(/\r\n?/g, "\n"));
-          }
-        }
+        relay.onPartial(payload as { text?: string; delta?: string; replace?: true });
       },
     },
     record: {
@@ -431,16 +457,16 @@ export async function handleArinovaChatInbound(params: {
   // Upstream can intentionally suppress a stale foreground delivery, or skip
   // an exact NO_REPLY final under the silent-reply policy. Both are successful
   // quiet outcomes, not generation failures.
-  if ((deliverySuppressed || silentReplySkipped) && !finalText.trim()) {
+  if ((deliverySuppressed || silentReplySkipped) && !relay.finalText.trim()) {
     completionSent = true;
-    sendComplete("");
+    sendComplete(relay.hasStreamed ? relay.visibleText : "");
     return;
   }
 
   // Post-process completed text: upload local images → R2, resolve @mentions
   // Use finalText (all blocks via deliver callback) as primary — lastAccumulatedText
   // only has the LAST block's text because onPartialReply resets between tool calls.
-  let completedText = finalText || lastAccumulatedText;
+  let completedText = relay.completedText;
 
   // If no content was generated (duplicate detection / fast abort skipped the LLM call),
   // report an error instead of sending empty completion that creates a blank message.
@@ -472,6 +498,9 @@ export function buildEnrichedBody(
   message: ArinovaChatInboundMessage,
 ): string {
   const sections: string[] = [];
+
+  const sender = message.senderAgentName ?? message.senderUsername;
+  if (sender) sections.push(`[Sender: ${sender}]`);
 
   // Group members context
   if (message.conversationType === "group" && message.members?.length) {
@@ -520,17 +549,21 @@ export function resolveMentions(
   members?: { agentId: string; agentName: string }[],
 ): string[] {
   if (!members?.length) return [];
-  const mentionPattern = /@(\w+)/g;
-  const ids = new Set<string>();
-  let match: RegExpExecArray | null;
-  while ((match = mentionPattern.exec(text)) !== null) {
-    const name = match[1].toLowerCase();
-    for (const m of members) {
-      if (m.agentName.toLowerCase() === name) {
-        ids.add(m.agentId);
+  const matches: Array<{ start: number; end: number; agentId: string }> = [];
+  const sorted = [...members].sort((a, b) => b.agentName.length - a.agentName.length);
+  for (const member of sorted) {
+    const escaped = member.agentName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`(^|[^\\w@])@${escaped}(?=$|[^\\w])`, "giu");
+    for (const match of text.matchAll(pattern)) {
+      const start = (match.index ?? 0) + match[1]!.length;
+      const end = start + member.agentName.length + 1;
+      if (!matches.some((existing) => start < existing.end && end > existing.start)) {
+        matches.push({ start, end, agentId: member.agentId });
       }
     }
   }
+  const ids = new Set<string>();
+  for (const match of matches.sort((a, b) => a.start - b.start)) ids.add(match.agentId);
   return [...ids];
 }
 

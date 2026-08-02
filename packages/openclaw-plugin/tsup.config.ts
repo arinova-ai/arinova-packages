@@ -7,5 +7,5 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   target: "node22",
-  external: [/^openclaw/],  // Mark all openclaw/* imports as external
+  external: [/^openclaw/, "@arinova-ai/agent-sdk"],
 });

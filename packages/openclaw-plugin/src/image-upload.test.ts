@@ -1,10 +1,12 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { replaceImagePaths } from "./image-upload.js";
 
 const tempDirs: string[] = [];
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
+const WEBP = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]);
 
 async function makeTempDir() {
   const dir = await mkdtemp(join(tmpdir(), "openclaw-image-upload-"));
@@ -20,7 +22,7 @@ describe("replaceImagePaths", () => {
   it("uploads existing relative image paths and replaces every occurrence", async () => {
     const workDir = await makeTempDir();
     await mkdir(join(workDir, "images"));
-    await writeFile(join(workDir, "images", "diagram.png"), new Uint8Array([1, 2, 3]));
+    await writeFile(join(workDir, "images", "diagram.png"), PNG);
     const upload = vi.fn().mockResolvedValue({ url: "https://cdn.test/diagram.png" });
 
     const result = await replaceImagePaths(
@@ -31,7 +33,7 @@ describe("replaceImagePaths", () => {
 
     expect(upload).toHaveBeenCalledTimes(1);
     expect(upload).toHaveBeenCalledWith(
-      new Uint8Array([1, 2, 3]),
+      PNG,
       "diagram.png",
       "image/png",
     );
@@ -41,7 +43,7 @@ describe("replaceImagePaths", () => {
   it("resolves nested paths, infers MIME type, and leaves missing files unchanged", async () => {
     const workDir = await makeTempDir();
     await mkdir(join(workDir, "assets"));
-    await writeFile(join(workDir, "assets", "photo.webp"), new Uint8Array([9]));
+    await writeFile(join(workDir, "assets", "photo.webp"), WEBP);
     const upload = vi.fn().mockResolvedValue({ url: "https://cdn.test/photo.webp" });
 
     const result = await replaceImagePaths(
@@ -51,7 +53,7 @@ describe("replaceImagePaths", () => {
     );
 
     expect(upload).toHaveBeenCalledWith(
-      new Uint8Array([9]),
+      WEBP,
       "photo.webp",
       "image/webp",
     );
@@ -61,7 +63,7 @@ describe("replaceImagePaths", () => {
   it("keeps original text when upload fails and logs the failure", async () => {
     const workDir = await makeTempDir();
     await mkdir(join(workDir, "images"));
-    await writeFile(join(workDir, "images", "broken.jpg"), new Uint8Array([4]));
+    await writeFile(join(workDir, "images", "broken.jpg"), new Uint8Array([0xff, 0xd8, 0xff]));
     const upload = vi.fn().mockRejectedValue(new Error("boom"));
     const log = vi.fn();
 
@@ -94,11 +96,56 @@ describe("replaceImagePaths", () => {
     expect(upload).not.toHaveBeenCalled();
   });
 
+  it("allows absolute image paths contained by the working directory", async () => {
+    const workDir = await makeTempDir();
+    const image = join(workDir, "inside.png");
+    await writeFile(image, PNG);
+    const upload = vi.fn().mockResolvedValue({ url: "https://cdn.test/inside.png" });
+
+    await expect(replaceImagePaths(image, workDir, upload)).resolves.toBe(
+      "https://cdn.test/inside.png",
+    );
+    expect(upload).toHaveBeenCalledOnce();
+  });
+
+  it("rejects oversized and extension-only image files", async () => {
+    const workDir = await makeTempDir();
+    await writeFile(join(workDir, "fake.png"), "not an image");
+    await writeFile(join(workDir, "huge.png"), PNG);
+    await truncate(join(workDir, "huge.png"), 10 * 1024 * 1024 + 1);
+    const upload = vi.fn();
+    const text = "fake.png huge.png";
+
+    await expect(replaceImagePaths(text, workDir, upload)).resolves.toBe(text);
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it("replaces overlapping path suffixes without corrupting uploaded urls", async () => {
+    const workDir = await makeTempDir();
+    await mkdir(join(workDir, "nested", "images"), { recursive: true });
+    await mkdir(join(workDir, "images"));
+    await writeFile(join(workDir, "nested", "images", "a.png"), PNG);
+    await writeFile(join(workDir, "images", "a.png"), PNG);
+    const upload = vi.fn(async (_data: Uint8Array, _name: string) => ({
+      url: upload.mock.calls.length === 1
+        ? "https://cdn.test/nested/images/a.png"
+        : "https://cdn.test/short.png",
+    }));
+
+    const result = await replaceImagePaths(
+      "nested/images/a.png images/a.png",
+      workDir,
+      upload,
+    );
+
+    expect(result).toBe("https://cdn.test/nested/images/a.png https://cdn.test/short.png");
+  });
+
   it("caps each output batch and uploads sequentially", async () => {
     const workDir = await makeTempDir();
     await mkdir(join(workDir, "images"));
     for (let index = 0; index < 10; index++) {
-      await writeFile(join(workDir, "images", `image-${index}.png`), new Uint8Array([index]));
+      await writeFile(join(workDir, "images", `image-${index}.png`), PNG);
     }
     let active = 0;
     let maxActive = 0;

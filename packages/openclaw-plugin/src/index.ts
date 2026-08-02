@@ -1,12 +1,10 @@
 import {
   emptyPluginConfigSchema,
-  type OpenClawConfig,
   type OpenClawPluginApi,
 } from "openclaw/plugin-sdk/core";
 import { arinovaChatPlugin } from "./channel.js";
 import { setArinovaChatRuntime } from "./runtime.js";
-import { exchangeBotToken } from "./auth.js";
-import { registerOffice, shutdown as shutdownOffice } from "./office/index.js";
+import { initialize as initializeOffice, registerOffice, shutdown as shutdownOffice } from "./office/index.js";
 import { registerCli } from "./cli.js";
 
 export function buildArinovaPromptContext(): { prependContext: string } {
@@ -49,6 +47,7 @@ const plugin: {
 
     // Hint on gateway start if not configured
     api.on("gateway_start", () => {
+      initializeOffice();
       const channels = (api.config as Record<string, unknown>).channels as Record<string, unknown> | undefined;
       const arinova = (channels?.["openclaw-arinova-ai"] ?? {}) as Record<string, unknown>;
       const hasUrl = Boolean(arinova.apiUrl);
@@ -70,68 +69,12 @@ const plugin: {
       shutdownOffice();
     });
 
-    // CLI: openclaw arinova setup-openclaw --token <bot-token> [--api-url <url>]
-    api.registerCli(
-      async (ctx) => {
-        const arinova = ctx.program.commands.find((c: any) => c.name() === "arinova")
-          ?? ctx.program.command("arinova").description("Arinova Chat commands");
-        arinova
-          .command("setup-openclaw")
-          .description("Connect to an Arinova Chat bot using a bot token")
-          .requiredOption("--token <bot-token>", "Bot token from Arinova Chat bot settings (ari_...)")
-          .option("--api-url <url>", "Arinova Chat backend URL (default: https://api.chat.arinova.ai)")
-          .action(async (opts: { token: string; apiUrl?: string }) => {
-            const channelCfg = (ctx.config as Record<string, unknown>).channels as Record<string, unknown> | undefined;
-            const arinovaCfg = (channelCfg?.["openclaw-arinova-ai"] ?? {}) as Record<string, unknown>;
-            const apiUrl = opts.apiUrl ?? (arinovaCfg.apiUrl as string | undefined) ?? "https://api.chat.arinova.ai";
-
-            console.log(`Connecting to ${apiUrl} using bot token...`);
-
-            try {
-              const result = await exchangeBotToken({
-                apiUrl,
-                botToken: opts.token,
-              });
-              console.log(`Connected! Agent: "${result.name}" (id: ${result.agentId})`);
-
-              // Persist to config
-              const arinovaUpdate: Record<string, unknown> = {
-                ...arinovaCfg,
-                enabled: true,
-                apiUrl,
-                agentId: result.agentId,
-                botToken: opts.token,
-              };
-
-              const updatedCfg = {
-                ...ctx.config,
-                channels: {
-                  ...channelCfg,
-                  "openclaw-arinova-ai": arinovaUpdate,
-                },
-              };
-
-              await api.runtime.config.replaceConfigFile({
-                nextConfig: updatedCfg as OpenClawConfig,
-                afterWrite: { mode: "auto" },
-              });
-              console.log("Config saved to openclaw.json");
-              console.log("\nRestart the gateway to connect: openclaw gateway start");
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
-              console.error(`Connection failed: ${msg}`);
-              process.exit(1);
-            }
-          });
-      },
-      { commands: ["arinova"] },
-    );
   },
 };
 
 // Office integration re-exports
 export { officeState, handleSSEConnection, ingestHookEvent, configure as configureOffice } from "./office/index.js";
-export { initialize as initializeOffice, shutdown as shutdownOffice } from "./office/index.js";
+export { initialize as initializeOffice, isHealthy, shutdown as shutdownOffice } from "./office/index.js";
 export type { AgentState, AgentStatus, TokenUsage, OfficeStatusEvent, InternalEvent, InternalEventType } from "./office/types.js";
 
 export default plugin;

@@ -65,7 +65,6 @@ function createAccount(overrides: Partial<ResolvedArinovaChatAccount> = {}): Res
     apiUrl: "http://localhost:21001",
     botToken: "token",
     agentId: "agent-1",
-    sessionToken: "session",
     config: { dmPolicy: "open", allowFrom: ["*"] },
     ...overrides,
   };
@@ -86,12 +85,14 @@ function createMessage(overrides: Partial<ArinovaChatInboundMessage> = {}): Arin
 
 function createRuntime(options: {
   deliverText?: string;
+  deliverPayloads?: Array<{ text?: string; mediaUrls?: string[] }>;
   partialText?: string;
   partialPayloads?: Array<{ text?: string; delta?: string; replace?: true }>;
   skipDelivery?: boolean;
   skipReason?: "empty" | "silent" | "heartbeat";
   cancelDelivery?: boolean;
   deliverError?: unknown;
+  afterPartials?: () => void;
 } = {}) {
   const runtimeLog = vi.fn();
   const runtimeError = vi.fn();
@@ -121,6 +122,7 @@ function createRuntime(options: {
     if (options.partialText) {
       request.replyOptions.onPartialReply?.({ text: options.partialText });
     }
+    options.afterPartials?.();
     if (options.skipReason) {
       request.dispatcherOptions.onSkip?.(
         { text: "NO_REPLY" },
@@ -131,7 +133,10 @@ function createRuntime(options: {
       request.dispatcherOptions.onBeforeDeliverCancelled?.();
       return;
     }
-    if (!options.skipDelivery) {
+    for (const payload of options.deliverPayloads ?? []) {
+      await request.delivery.deliver(payload);
+    }
+    if (!options.skipDelivery && !options.deliverPayloads) {
       await request.delivery.deliver({ text: options.deliverText ?? "reply" });
     }
   });
@@ -174,6 +179,13 @@ describe("inbound payload helpers", () => {
     ].join("\n"));
   });
 
+  it("preserves tool-like lines inside fenced code blocks", () => {
+    const input = "```sh\r\n[Bash] echo literal\r\n```\r\n[Read] real\r\n📎 result";
+    expect(collapseToolBlocks(input)).toBe(
+      "```sh\n[Bash] echo literal\n```\n[Read] real\n📎 result",
+    );
+  });
+
   it("strips streaming MEDIA token lines", () => {
     expect(stripMediaLines("hello\nMEDIA: https://cdn/image.png\n  media: file.jpg\nworld"))
       .toBe("hello\nworld");
@@ -191,6 +203,7 @@ describe("inbound payload helpers", () => {
       conversationType: "group",
       text: "please summarize",
       timestamp: 1000,
+      senderUsername: "User One",
       members: [
         { agentId: "agent-a", agentName: "Alice" },
         { agentId: "agent-b", agentName: "Bob" },
@@ -216,6 +229,7 @@ describe("inbound payload helpers", () => {
     });
 
     expect(body).toContain("[Group: Alice, Bob]");
+    expect(body).toContain("[Sender: User One]");
     expect(body).toContain("- report.pdf (application/pdf, 1.5KB) https://cdn/report.pdf");
     expect(body).toContain("> Replying to Researcher:\n> line 1\n> line 2");
     expect(body).toContain("[History]\n[Alice]: previous question");
@@ -227,6 +241,15 @@ describe("inbound payload helpers", () => {
       { agentId: "agent-a", agentName: "Alice" },
       { agentId: "agent-b", agentName: "Bob" },
     ])).toEqual(["agent-a", "agent-b"]);
+  });
+
+  it("resolves punctuation, spaces, and CJK names without matching emails", () => {
+    expect(resolveMentions("mail a@Alice.com, ping @Alice Chen, @研究員-一 and @bot.v2!", [
+      { agentId: "short", agentName: "Alice" },
+      { agentId: "alice", agentName: "Alice Chen" },
+      { agentId: "cjk", agentName: "研究員-一" },
+      { agentId: "bot", agentName: "bot.v2" },
+    ])).toEqual(["alice", "cjk", "bot"]);
   });
 
   it("formats attachment sizes", () => {
@@ -595,11 +618,11 @@ describe("handleArinovaChatInbound", () => {
     ]);
   });
 
-  it("uses the explicit partial delta when upstream provides one", async () => {
+  it("derives deltas from accumulated text instead of trusting upstream delta", async () => {
     const { runtime } = createRuntime({
       partialPayloads: [
         { text: "hello" },
-        { text: "hello world", delta: " world" },
+        { text: "hello world", delta: " CORRUPT" },
       ],
       deliverText: "hello world",
     });
@@ -616,6 +639,91 @@ describe("handleArinovaChatInbound", () => {
     });
 
     expect(sendChunk.mock.calls).toEqual([["hello"], [" world"]]);
+  });
+
+  it("resends collapsed content when a new tool block rewrites the prefix", async () => {
+    const { runtime } = createRuntime({
+      partialPayloads: [
+        { text: "[Bash] first\n📎 one" },
+        { text: "[Bash] first\n📎 one\n[Read] second\n📎 two" },
+      ],
+      deliverText: "done",
+    });
+    const sendChunk = vi.fn();
+
+    await handleArinovaChatInbound({
+      message: createMessage(), sendChunk, sendComplete: vi.fn(), sendError: vi.fn(),
+      account: createAccount(), config, runtime,
+    });
+
+    expect(sendChunk.mock.calls).toEqual([
+      ["[Bash] first\n📎 one"],
+      ["[Read] second\n📎 two"],
+    ]);
+  });
+
+  it("completes an abort with the already-visible first block", async () => {
+    const controller = new AbortController();
+    const { runtime } = createRuntime({
+      partialText: "visible\r\ntext",
+      afterPartials: () => controller.abort(),
+      skipDelivery: true,
+    });
+    const sendComplete = vi.fn();
+
+    await handleArinovaChatInbound({
+      message: createMessage(), sendChunk: vi.fn(), sendComplete, sendError: vi.fn(),
+      signal: controller.signal, account: createAccount(), config, runtime,
+    });
+
+    expect(sendComplete).toHaveBeenCalledOnce();
+    expect(sendComplete).toHaveBeenCalledWith("visible\ntext");
+  });
+
+  it("keeps streamed content when final delivery is suppressed", async () => {
+    const { runtime } = createRuntime({ partialText: "kept", cancelDelivery: true });
+    const sendComplete = vi.fn();
+
+    await handleArinovaChatInbound({
+      message: createMessage(), sendChunk: vi.fn(), sendComplete, sendError: vi.fn(),
+      account: createAccount(), config, runtime,
+    });
+
+    expect(sendComplete).toHaveBeenCalledWith("kept");
+  });
+
+  it("does not leak a MEDIA token split across accumulated partials", async () => {
+    const { runtime } = createRuntime({
+      partialPayloads: [{ text: "answer\nMED" }, { text: "answer\nMEDIA: local.png" }],
+      deliverText: "answer",
+    });
+    const sendChunk = vi.fn();
+
+    await handleArinovaChatInbound({
+      message: createMessage(), sendChunk, sendComplete: vi.fn(), sendError: vi.fn(),
+      account: createAccount(), config, runtime,
+    });
+
+    expect(sendChunk.mock.calls).toEqual([["answer"]]);
+  });
+
+  it("joins separately delivered GFM table rows without a blank line", async () => {
+    const { runtime } = createRuntime({
+      deliverPayloads: [
+        { text: "| Name | Value |" },
+        { text: "| --- | --- |" },
+        { text: "| A | B |" },
+      ],
+    });
+    const sendComplete = vi.fn();
+    await handleArinovaChatInbound({
+      message: createMessage(), sendChunk: vi.fn(), sendComplete, sendError: vi.fn(),
+      account: createAccount(), config, runtime,
+    });
+    expect(sendComplete).toHaveBeenCalledWith(
+      "| Name | Value |\n| --- | --- |\n| A | B |",
+      undefined,
+    );
   });
 
   it("streams partial text, completes delivered text, and resolves mentions", async () => {

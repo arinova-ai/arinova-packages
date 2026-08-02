@@ -20,6 +20,12 @@ export function setAgentInstance(accountId: string, agent: ArinovaAgent) {
   agentInstances.set(accountId, agent);
 }
 
+export function removeAgentInstance(accountId: string, agent?: ArinovaAgent): ArinovaAgent | undefined {
+  const current = agentInstances.get(accountId);
+  if (!agent || current === agent) agentInstances.delete(accountId);
+  return current;
+}
+
 export function getAgentInstance(accountId: string): ArinovaAgent | undefined {
   return agentInstances.get(accountId);
 }

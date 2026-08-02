@@ -18,7 +18,7 @@ export async function apiCall(opts: {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${opts.token}`,
   };
-  const init: RequestInit = { method: opts.method, headers };
+  const init: RequestInit = { method: opts.method, headers, signal: AbortSignal.timeout(30_000) };
 
   if (opts.body !== undefined) {
     headers["Content-Type"] = "application/json";
@@ -32,16 +32,10 @@ export async function apiCall(opts: {
     throw new Error(`HTTP ${res.status}: ${text.slice(0, 500)}`);
   }
 
+  if (!text) return undefined;
   try {
     return JSON.parse(text);
   } catch {
     return text;
   }
-}
-
-export function errResult(msg: string) {
-  return {
-    content: [{ type: "text" as const, text: `Error: ${msg}` }],
-    details: { error: msg },
-  };
 }

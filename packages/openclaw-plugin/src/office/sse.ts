@@ -24,24 +24,46 @@ export function handleSSEConnection(
     Connection: "keep-alive",
   });
 
-  // Send initial snapshot
-  const snapshot = officeState.snapshot();
-  sendSSE(res, snapshot);
+  let backpressured = !sendSSE(res, officeState.snapshot());
+  let pending: OfficeStatusEvent | undefined;
+  let cleanedUp = false;
 
   // Subscribe to updates
   const unsubscribe = officeState.subscribe((event) => {
-    sendSSE(res, event);
+    if (backpressured) {
+      pending = event;
+      return;
+    }
+    backpressured = !sendSSE(res, event);
   });
 
+  const heartbeat = setInterval(() => {
+    if (!backpressured) backpressured = !res.write(": ping\n\n");
+  }, 15_000);
+  heartbeat.unref?.();
+
   // Clean up on disconnect
-  res.on("close", () => {
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    clearInterval(heartbeat);
     unsubscribe();
+  };
+  res.on("drain", () => {
+    backpressured = false;
+    if (pending) {
+      const event = pending;
+      pending = undefined;
+      backpressured = !sendSSE(res, event);
+    }
   });
+  res.on("close", cleanup);
+  res.on("error", cleanup);
 }
 
 function sendSSE(
   res: { write: (data: string) => boolean },
   event: OfficeStatusEvent,
-): void {
-  res.write(`data: ${JSON.stringify(event)}\n\n`);
+): boolean {
+  return res.write(`data: ${JSON.stringify(event)}\n\n`);
 }
