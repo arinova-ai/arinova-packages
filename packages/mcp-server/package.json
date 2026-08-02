@@ -10,10 +10,11 @@
   },
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
     "./cli": {
+      "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js"
     },
     "./dist/cli.js": "./dist/cli.js"
@@ -26,7 +27,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --coverage"
   },
   "keywords": [
     "arinova",
@@ -36,11 +37,16 @@
     "tools"
   ],
   "license": "MIT",
+  "engines": {
+    "node": ">=20.10"
+  },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "ajv": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "@vitest/coverage-v8": "^3.2.4",
     "typescript": "^5",
     "vitest": "^3.2.4"
   }

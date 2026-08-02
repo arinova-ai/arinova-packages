@@ -97,9 +97,7 @@ describe("mapManifestToTools", () => {
     expect(mapping.tools).toHaveLength(1);
     expect(mapping.tools[0].name).toBe("arinova_kanban_add_commit");
     expect(mapping.tools[0].actionName).toBe("arinova.kanban.add_commit");
-    expect(mapping.toolToAction.get("arinova_kanban_add_commit")).toBe(
-      "arinova.kanban.add_commit",
-    );
+    expect(mapping.tools[0].validateArguments({ cardId: "card-1" })).toBe(true);
   });
 
   it("filters removed actions from tool registration", () => {
@@ -124,11 +122,10 @@ describe("mapManifestToTools", () => {
 
     expect(mapping.tools).toHaveLength(1);
     expect(mapping.tools[0].actionName).toBe("arinova.new.action");
-    expect(mapping.toolToAction.has("arinova_old_action")).toBe(false);
     expect(mapping.skippedActions).toEqual([]);
   });
 
-  it("skips actions without inputSchema", () => {
+  it("registers actions without inputSchema as zero-argument tools", () => {
     const manifest: ActionManifest = {
       manifestVersion: "1.0.0",
       actions: [
@@ -141,9 +138,9 @@ describe("mapManifestToTools", () => {
 
     const mapping = mapManifestToTools(manifest);
 
-    expect(mapping.tools).toHaveLength(0);
-    expect(mapping.skippedActions).toHaveLength(1);
-    expect(mapping.skippedActions[0].reason).toBe("missing_input_schema");
+    expect(mapping.tools).toHaveLength(1);
+    expect(mapping.tools[0].inputSchema).toEqual({ type: "object", properties: {} });
+    expect(mapping.skippedActions).toHaveLength(0);
   });
 
   it("detects tool name collisions", () => {
@@ -210,5 +207,62 @@ describe("mapManifestToTools", () => {
 
     expect(mapping.tools[0].maxExecutionMs).toBe(30000);
     expect(mapping.tools[0].maxArgumentsBytes).toBe(1024);
+  });
+
+  it("sanitizes and truncates names to the MCP tool-name contract", () => {
+    const mapping = mapManifestToTools({
+      manifestVersion: "1",
+      actions: [{
+        name: `arinova.bad name/${"x".repeat(200)}`,
+        version: "1",
+        inputSchema: { type: "object" },
+      }],
+    });
+    expect(mapping.tools[0].name).toMatch(/^[A-Za-z0-9_-]{1,128}$/);
+    expect(mapping.tools[0].name).toHaveLength(128);
+  });
+
+  it("skips names that collide with built-in tools", () => {
+    const mapping = mapManifestToTools({
+      manifestVersion: "1",
+      actions: [{
+        name: "arinova.health",
+        version: "1",
+        inputSchema: { type: "object" },
+      }],
+    });
+    expect(mapping.tools).toEqual([]);
+    expect(mapping.skippedActions).toEqual([{
+      actionName: "arinova.health",
+      reason: "reserved_builtin_name",
+    }]);
+  });
+
+  it("skips schemas AJV cannot compile and validates compiled schemas", () => {
+    const mapping = mapManifestToTools({
+      manifestVersion: "1",
+      actions: [
+        {
+          name: "arinova.valid",
+          version: "1",
+          inputSchema: {
+            type: "object",
+            required: ["value"],
+            properties: { value: { type: "string" } },
+          },
+        },
+        {
+          name: "arinova.invalid",
+          version: "1",
+          inputSchema: { type: "definitely-not-json-schema" },
+        },
+      ],
+    });
+    expect(mapping.tools).toHaveLength(1);
+    expect(mapping.tools[0].validateArguments({ value: 1 })).toBe(false);
+    expect(mapping.skippedActions[0]).toMatchObject({
+      actionName: "arinova.invalid",
+      reason: "invalid_input_schema",
+    });
   });
 });

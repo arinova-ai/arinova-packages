@@ -123,7 +123,7 @@ describe("shouldReportAsError", () => {
     ).toBe(true);
   });
 
-  it("returns true for requires_confirmation", () => {
+  it("returns false for requires_confirmation", () => {
     expect(
       shouldReportAsError({
         ok: false,
@@ -131,6 +131,27 @@ describe("shouldReportAsError", () => {
         action: "test",
         callId: "c1",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
+
+  for (const status of ["processing", "received", "validating"] as const) {
+    it(`preserves ${status} payload without reporting an MCP error`, () => {
+      const response = normalizeResult({
+        callId: "c1",
+        action: "test",
+        status,
+        result: { pollToken: "poll-1" },
+        actionVersion: "1.2.3",
+        dryRun: true,
+      });
+      expect(response).toMatchObject({
+        ok: true,
+        status,
+        result: { pollToken: "poll-1" },
+        actionVersion: "1.2.3",
+        dryRun: true,
+      });
+      expect(shouldReportAsError(response)).toBe(false);
+    });
+  }
 });

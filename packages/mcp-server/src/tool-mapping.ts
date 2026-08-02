@@ -1,5 +1,7 @@
 import type { ActionDefinition, ActionManifest } from "./manifest.js";
 import { logger } from "./logger.js";
+import { BUILTIN_TOOL_NAMES } from "./builtins.js";
+import Ajv, { type ValidateFunction } from "ajv";
 
 export interface McpToolDefinition {
   name: string;
@@ -8,11 +10,11 @@ export interface McpToolDefinition {
   actionName: string;
   maxExecutionMs?: number;
   maxArgumentsBytes?: number;
+  validateArguments: ValidateFunction;
 }
 
 export interface ToolMapping {
   tools: McpToolDefinition[];
-  toolToAction: Map<string, string>;
   skippedActions: SkippedAction[];
 }
 
@@ -22,7 +24,10 @@ export interface SkippedAction {
 }
 
 export function normalizeToolName(actionName: string): string {
-  return actionName.replace(/\./g, "_");
+  return actionName
+    .replace(/[^A-Za-z0-9_-]/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 128);
 }
 
 export function buildToolDescription(action: ActionDefinition): string {
@@ -56,27 +61,25 @@ function defaultInputSchema(): Record<string, unknown> {
 
 export function mapManifestToTools(manifest: ActionManifest): ToolMapping {
   const tools: McpToolDefinition[] = [];
-  const toolToAction = new Map<string, string>();
   const skippedActions: SkippedAction[] = [];
   const seenToolNames = new Map<string, string>();
+  const ajv = new Ajv({ allErrors: true, strict: false });
 
   for (const action of manifest.actions) {
     if (action.removed) {
       continue;
     }
 
-    if (!action.inputSchema) {
-      logger.warn(
-        `Action ${action.name} has no inputSchema; skipping tool registration`,
-      );
-      skippedActions.push({
-        actionName: action.name,
-        reason: "missing_input_schema",
-      });
+    const toolName = normalizeToolName(action.name);
+    if (!toolName) {
+      skippedActions.push({ actionName: action.name, reason: "invalid_tool_name" });
       continue;
     }
 
-    const toolName = normalizeToolName(action.name);
+    if (BUILTIN_TOOL_NAMES.has(toolName)) {
+      skippedActions.push({ actionName: action.name, reason: "reserved_builtin_name" });
+      continue;
+    }
 
     const existing = seenToolNames.get(toolName);
     if (existing) {
@@ -98,21 +101,32 @@ export function mapManifestToTools(manifest: ActionManifest): ToolMapping {
       );
     }
 
+    const inputSchema = action.inputSchema ?? defaultInputSchema();
+    let validateArguments: ValidateFunction;
+    try {
+      validateArguments = ajv.compile(inputSchema);
+    } catch (err) {
+      logger.warn(
+        `Action ${action.name} has an invalid input schema: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      skippedActions.push({ actionName: action.name, reason: "invalid_input_schema" });
+      continue;
+    }
+
     tools.push({
       name: toolName,
       description: buildToolDescription(action),
-      inputSchema: action.inputSchema ?? defaultInputSchema(),
+      inputSchema,
       actionName: action.name,
       maxExecutionMs: action.maxExecutionMs,
       maxArgumentsBytes: action.maxArgumentsBytes,
+      validateArguments,
     });
-
-    toolToAction.set(toolName, action.name);
   }
 
   logger.info(
     `Mapped ${tools.length} tools from ${manifest.actions.length} actions; skipped ${skippedActions.length}`,
   );
 
-  return { tools, toolToAction, skippedActions };
+  return { tools, skippedActions };
 }

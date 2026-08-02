@@ -1,5 +1,6 @@
 import { ManifestError } from "./errors.js";
 import { logger } from "./logger.js";
+import { httpRequest, HttpRequestError } from "./http.js";
 
 export interface ActionDefinition {
   name: string;
@@ -27,6 +28,7 @@ export async function fetchManifest(
   apiUrl: string,
   botToken: string,
   etag?: string,
+  options: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<{ manifest: ActionManifest; etag?: string } | "not_modified"> {
   const url = `${apiUrl}/api/v1/actions/agent-manifest`;
   logger.info(`Fetching manifest from ${url}`);
@@ -39,12 +41,23 @@ export async function fetchManifest(
     headers["If-None-Match"] = etag;
   }
 
-  let res: Response;
+  let res;
   try {
-    res = await fetch(url, { headers });
+    res = await httpRequest(url, {
+      headers,
+      timeoutMs: options.timeoutMs ?? 15_000,
+      signal: options.signal,
+      maxResponseBytes: MAX_MANIFEST_BYTES,
+    });
   } catch (err) {
+    const reason =
+      err instanceof HttpRequestError && err.code === "TIMEOUT"
+        ? `Manifest request timed out after ${options.timeoutMs ?? 15_000}ms`
+        : err instanceof Error
+          ? err.message
+          : String(err);
     throw new ManifestError(
-      `Failed to reach manifest endpoint: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to reach manifest endpoint: ${reason}`,
     );
   }
 
@@ -53,23 +66,15 @@ export async function fetchManifest(
   }
 
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
     throw new ManifestError(
-      `Manifest fetch failed: HTTP ${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 200)}` : ""}`,
+      `Manifest fetch failed: HTTP ${res.status} ${res.statusText}${res.body ? ` — ${res.body.slice(0, 200)}` : ""}`,
       res.status,
-    );
-  }
-
-  const contentLength = res.headers.get("content-length");
-  if (contentLength && parseInt(contentLength, 10) > MAX_MANIFEST_BYTES) {
-    throw new ManifestError(
-      `Manifest too large: ${contentLength} bytes exceeds ${MAX_MANIFEST_BYTES} limit`,
     );
   }
 
   let data: unknown;
   try {
-    data = await res.json();
+    data = JSON.parse(res.body) as unknown;
   } catch {
     throw new ManifestError("Manifest response is not valid JSON");
   }

@@ -8,9 +8,11 @@ export interface McpServerConfig {
   apiUrlDerived: boolean;
   transport: "stdio";
   actionTimeoutMs: number;
+  manifestTimeoutMs: number;
   startupMode: "lazy" | "strict";
   maxConcurrentActions: number;
   actionQueueLimit: number;
+  actionQueueWaitMs: number;
   logLevel: LogLevel;
 }
 
@@ -29,27 +31,28 @@ function parseCliFlags(argv: string[]): CliFlags {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = argv[i + 1];
+    const value = next && !next.startsWith("--") ? next : undefined;
     switch (arg) {
       case "--token":
-        flags.botToken = next;
-        i++;
+        flags.botToken = value;
+        if (value) i++;
         break;
       case "--server-url":
-        flags.serverUrl = next;
-        i++;
+        flags.serverUrl = value;
+        if (value) i++;
         break;
       case "--api-url":
-        flags.apiUrl = next;
-        i++;
+        flags.apiUrl = value;
+        if (value) i++;
         break;
       case "--strict-startup":
         flags.startupMode = "strict";
         break;
       case "--log-level":
-        if (next && VALID_LOG_LEVELS.has(next)) {
-          flags.logLevel = next as LogLevel;
+        if (value && VALID_LOG_LEVELS.has(value)) {
+          flags.logLevel = value as LogLevel;
         }
-        i++;
+        if (value) i++;
         break;
     }
   }
@@ -68,6 +71,21 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const n = parseInt(value, 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function validateUrl(value: string, name: string, protocols: string[]): void {
+  if (!value) return;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ConfigError(`${name} must be a valid absolute URL.`);
+  }
+  if (!protocols.includes(url.protocol)) {
+    throw new ConfigError(
+      `${name} must use ${protocols.map((protocol) => protocol.replace(":", "")).join(" or ")}.`,
+    );
+  }
 }
 
 export function parseConfig(argv: string[] = process.argv.slice(2)): McpServerConfig {
@@ -94,6 +112,8 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): McpServerCo
     ? strip(explicitApiUrl)
     : deriveApiUrl(serverUrl);
   const apiUrlDerived = !explicitApiUrl;
+  validateUrl(apiUrl, "API URL", ["http:", "https:"]);
+  validateUrl(serverUrl, "Server URL", ["ws:", "wss:"]);
 
   if (apiUrlDerived) {
     logger.warn(
@@ -121,6 +141,10 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): McpServerCo
       process.env.ARINOVA_ACTION_TIMEOUT_MS,
       60_000,
     ),
+    manifestTimeoutMs: parsePositiveInt(
+      process.env.ARINOVA_MANIFEST_TIMEOUT_MS,
+      15_000,
+    ),
     startupMode,
     maxConcurrentActions: parsePositiveInt(
       process.env.ARINOVA_MAX_CONCURRENT_ACTIONS,
@@ -130,21 +154,19 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): McpServerCo
       process.env.ARINOVA_ACTION_QUEUE_LIMIT,
       32,
     ),
+    actionQueueWaitMs: parsePositiveInt(
+      process.env.ARINOVA_ACTION_QUEUE_WAIT_MS,
+      30_000,
+    ),
     logLevel,
   };
 }
 
 export function redactConfig(config: McpServerConfig): Record<string, unknown> {
-  return {
-    serverUrl: config.serverUrl,
-    apiUrl: config.apiUrl,
-    apiUrlDerived: config.apiUrlDerived,
-    transport: config.transport,
-    actionTimeoutMs: config.actionTimeoutMs,
-    startupMode: config.startupMode,
-    maxConcurrentActions: config.maxConcurrentActions,
-    actionQueueLimit: config.actionQueueLimit,
-    logLevel: config.logLevel,
-    botToken: "***",
-  };
+  return Object.fromEntries(
+    Object.entries(config).map(([key, value]) => [
+      key,
+      /token|secret|password|key/i.test(key) ? "***" : value,
+    ]),
+  );
 }

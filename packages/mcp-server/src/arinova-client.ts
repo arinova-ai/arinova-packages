@@ -6,6 +6,8 @@ import { mapManifestToTools } from "./tool-mapping.js";
 import { ConnectionError, ActionExecutionError } from "./errors.js";
 import { logger } from "./logger.js";
 import type { ActionCallResult, ActionCallOptions } from "./action-types.js";
+import { randomUUID } from "node:crypto";
+import { httpRequest, HttpRequestError } from "./http.js";
 
 export const EXPECTED_ACTION_PROTOCOL_VERSION = "2026-05-05";
 
@@ -35,10 +37,12 @@ export class ArinovaClient {
   private queue: Array<{
     resolve: () => void;
     reject: (err: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
   }> = [];
   private inFlight = 0;
   private inFlightTracker = new Set<Promise<unknown>>();
   private shuttingDown = false;
+  private activeRequests = new Set<AbortController>();
 
   constructor(config: McpServerConfig) {
     this.config = config;
@@ -86,11 +90,7 @@ export class ArinovaClient {
     }
     this.manifestState = "loading";
     try {
-      const result = await fetchManifest(
-        this.config.apiUrl,
-        this.config.botToken,
-        this.manifestEtag,
-      );
+      let result = await this.fetchCurrentManifest(this.manifestEtag);
 
       if (result === "not_modified" && this.toolMapping) {
         this.manifestState = "loaded";
@@ -98,13 +98,17 @@ export class ArinovaClient {
       }
 
       if (result === "not_modified") {
-        this.manifestState = "error";
-        throw new Error("Manifest not modified but no cached mapping exists");
+        this.manifestEtag = undefined;
+        result = await this.fetchCurrentManifest();
+        if (result === "not_modified") {
+          throw new Error("Manifest returned 304 without a cached mapping");
+        }
       }
 
+      const mapping = mapManifestToTools(result.manifest);
       this.manifest = result.manifest;
+      this.toolMapping = mapping;
       this.manifestEtag = result.etag;
-      this.toolMapping = mapManifestToTools(result.manifest);
       this.manifestState = "loaded";
       return this.toolMapping;
     } catch (err) {
@@ -120,6 +124,7 @@ export class ArinovaClient {
     actionName: string,
     args: Record<string, unknown>,
     options?: Partial<ActionCallOptions>,
+    maxRequestBytes?: number,
   ): Promise<ActionCallResult> {
     if (this.shuttingDown) {
       throw new ActionExecutionError(
@@ -145,7 +150,12 @@ export class ArinovaClient {
       );
     }
 
-    const actionPromise = this.executeAction(actionName, args, options);
+    const actionPromise = this.executeAction(
+      actionName,
+      args,
+      options,
+      maxRequestBytes,
+    );
     this.inFlightTracker.add(actionPromise);
     const cleanup = () => { this.inFlightTracker.delete(actionPromise); };
     actionPromise.then(cleanup, cleanup);
@@ -157,11 +167,17 @@ export class ArinovaClient {
     actionName: string,
     args: Record<string, unknown>,
     options?: Partial<ActionCallOptions>,
+    maxRequestBytes?: number,
   ): Promise<ActionCallResult> {
     try {
       const timeoutMs =
         options?.timeoutMs ?? this.config.actionTimeoutMs;
-      return await this.callActionHttp(actionName, args, { ...options, timeoutMs });
+      return await this.callActionHttp(
+        actionName,
+        args,
+        { ...options, timeoutMs },
+        maxRequestBytes,
+      );
     } catch (err) {
       throw err;
     } finally {
@@ -173,57 +189,77 @@ export class ArinovaClient {
     actionName: string,
     args: Record<string, unknown>,
     options: Partial<ActionCallOptions>,
+    maxRequestBytes?: number,
   ): Promise<ActionCallResult> {
-    const controller = new AbortController();
     const timeoutMs = options.timeoutMs ?? this.config.actionTimeoutMs;
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    const callId = options.callId ?? `mcp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const callId = options.callId ?? `mcp_${randomUUID()}`;
+    const payload = {
+      type: "action_call",
+      id: callId,
+      taskId: options.taskId ?? null,
+      conversationId: options.conversationId ?? null,
+      messageId: options.messageId ?? null,
+      action: actionName,
+      arguments: args,
+      dryRun: options.dryRun ?? false,
+      reason: options.reason ?? null,
+      metadata: options.metadata ?? null,
+      parentCallId: options.parentCallId ?? null,
+    };
+    const bodyText = JSON.stringify(payload);
+    const requestBytes = Buffer.byteLength(bodyText, "utf8");
+    if (maxRequestBytes && requestBytes > maxRequestBytes) {
+      throw new ActionExecutionError(
+        "ARGUMENTS_TOO_LARGE",
+        `Action call envelope size ${requestBytes} exceeds limit ${maxRequestBytes}`,
+        { callId },
+      );
+    }
+    const controller = this.createRequestController();
 
     try {
-      const res = await fetch(`${this.config.apiUrl}/api/v1/actions/call`, {
+      const res = await httpRequest(`${this.config.apiUrl}/api/v1/actions/call`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.config.botToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          type: "action_call",
-          id: callId,
-          taskId: options.taskId ?? null,
-          conversationId: options.conversationId ?? null,
-          messageId: options.messageId ?? options.taskId ?? null,
-          action: actionName,
-          arguments: args,
-          dryRun: options.dryRun ?? false,
-          reason: options.reason ?? null,
-          metadata: options.metadata ?? null,
-          parentCallId: options.parentCallId ?? null,
-        }),
+        body: bodyText,
         signal: controller.signal,
+        timeoutMs,
       });
 
       const body = await parseJsonBody(res);
       if (!res.ok) {
-        const message =
-          body && typeof body === "object" && "message" in body
-            ? String((body as { message?: unknown }).message)
-            : `HTTP action call failed (${res.status})`;
-        throw new ActionExecutionError("HTTP_ACTION_CALL_FAILED", message);
+        const error = actionErrorFromBody(body);
+        throw new ActionExecutionError(
+          error.code ?? "HTTP_ACTION_CALL_FAILED",
+          error.message ?? `HTTP action call failed (${res.status})`,
+          { statusCode: res.status, details: error.details, callId },
+        );
       }
 
       return normalizeHttpActionResult(body, callId, actionName);
     } catch (err) {
       if (err instanceof ActionExecutionError) throw err;
-      if (err instanceof Error && err.name === "AbortError") {
+      if (err instanceof HttpRequestError && err.code === "TIMEOUT") {
         throw new ActionExecutionError(
           "TIMEOUT",
           `Action timed out after ${timeoutMs}ms`,
+          { callId },
         );
       }
+      if (err instanceof HttpRequestError && err.code === "ABORTED") {
+        throw new ActionExecutionError("ABORTED", "Action request was aborted", {
+          callId,
+        });
+      }
       const message = err instanceof Error ? err.message : String(err);
-      throw new ActionExecutionError("HTTP_ACTION_CALL_FAILED", message);
+      throw new ActionExecutionError("HTTP_ACTION_CALL_FAILED", message, {
+        callId,
+      });
     } finally {
-      clearTimeout(timeout);
+      this.activeRequests.delete(controller);
     }
   }
 
@@ -241,7 +277,26 @@ export class ArinovaClient {
     }
 
     return new Promise<void>((resolve, reject) => {
-      this.queue.push({ resolve, reject });
+      const item = {
+        resolve: () => {
+          clearTimeout(item.timer);
+          resolve();
+        },
+        reject,
+        timer: undefined as unknown as ReturnType<typeof setTimeout>,
+      };
+      item.timer = setTimeout(() => {
+        const index = this.queue.indexOf(item);
+        if (index >= 0) this.queue.splice(index, 1);
+        reject(
+          new ActionExecutionError(
+            "QUEUE_TIMEOUT",
+            `Action waited more than ${this.config.actionQueueWaitMs}ms for capacity`,
+          ),
+        );
+      }, this.config.actionQueueWaitMs);
+      item.timer.unref?.();
+      this.queue.push(item);
     });
   }
 
@@ -259,8 +314,8 @@ export class ArinovaClient {
 
     while (this.queue.length > 0) {
       const item = this.queue.shift()!;
-      this.inFlight++;
-      item.resolve();
+      clearTimeout(item.timer);
+      item.reject(new ActionExecutionError("SHUTDOWN", "Server is shutting down"));
     }
 
     if (this.inFlightTracker.size === 0) return;
@@ -270,8 +325,13 @@ export class ArinovaClient {
     );
 
     const pending = Promise.allSettled([...this.inFlightTracker]);
-    const timer = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
+    let timerHandle: ReturnType<typeof setTimeout> | undefined;
+    const timer = new Promise<void>((resolve) => {
+      timerHandle = setTimeout(resolve, timeoutMs);
+      timerHandle.unref?.();
+    });
     await Promise.race([pending, timer]);
+    if (timerHandle) clearTimeout(timerHandle);
 
     if (this.inFlightTracker.size > 0) {
       logger.warn(
@@ -282,6 +342,13 @@ export class ArinovaClient {
 
   disconnect(): void {
     this.connectionState = "disconnected";
+    for (const controller of this.activeRequests) controller.abort();
+    this.activeRequests.clear();
+    while (this.queue.length > 0) {
+      const item = this.queue.shift()!;
+      clearTimeout(item.timer);
+      item.reject(new ActionExecutionError("DISCONNECTED", "Client disconnected"));
+    }
   }
 
   getHealthData(): Record<string, unknown> {
@@ -296,7 +363,9 @@ export class ArinovaClient {
       inFlightActions: this.inFlight,
       protocolVersion: {
         expected: EXPECTED_ACTION_PROTOCOL_VERSION,
-        backend: null,
+        backend: this.manifest?.manifestVersion ?? null,
+        compatible:
+          this.manifest?.manifestVersion === EXPECTED_ACTION_PROTOCOL_VERSION,
       },
       lastError: this.lastError,
     };
@@ -335,16 +404,52 @@ export class ArinovaClient {
   get inFlightCount(): number {
     return this.inFlight;
   }
+
+  private createRequestController(): AbortController {
+    const controller = new AbortController();
+    this.activeRequests.add(controller);
+    return controller;
+  }
+
+  private async fetchCurrentManifest(etag?: string) {
+    const controller = this.createRequestController();
+    try {
+      return await fetchManifest(this.config.apiUrl, this.config.botToken, etag, {
+        timeoutMs: this.config.manifestTimeoutMs,
+        signal: controller.signal,
+      });
+    } finally {
+      this.activeRequests.delete(controller);
+    }
+  }
 }
 
-async function parseJsonBody(res: Response): Promise<unknown> {
-  const text = await res.text();
+async function parseJsonBody(res: { body: string }): Promise<unknown> {
+  const text = res.body;
   if (!text) return null;
   try {
     return JSON.parse(text) as unknown;
   } catch {
     return { message: text };
   }
+}
+
+function actionErrorFromBody(body: unknown): {
+  code?: string;
+  message?: string;
+  details?: Record<string, unknown>;
+} {
+  if (!body || typeof body !== "object") return {};
+  const value = body as Record<string, unknown>;
+  const nested =
+    value.error && typeof value.error === "object"
+      ? (value.error as Record<string, unknown>)
+      : value;
+  return {
+    code: stringField(nested.code),
+    message: stringField(nested.message),
+    details: recordOrNull(nested.details) ?? undefined,
+  };
 }
 
 function normalizeHttpActionResult(

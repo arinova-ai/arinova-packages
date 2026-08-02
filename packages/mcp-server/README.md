@@ -36,8 +36,10 @@ Add to your MCP client config (e.g. `claude_desktop_config.json`, `.cursor/mcp.j
 | `ARINOVA_SERVER_URL` | `--server-url` | optional | Legacy WebSocket URL; used only to derive `ARINOVA_API_URL` when the API URL is omitted |
 | `ARINOVA_STARTUP_MODE` | `--strict-startup` | `lazy` | `lazy` or `strict` |
 | `ARINOVA_ACTION_TIMEOUT_MS` | | `60000` | Action execution timeout |
+| `ARINOVA_MANIFEST_TIMEOUT_MS` | | `15000` | Manifest request timeout |
 | `ARINOVA_MAX_CONCURRENT_ACTIONS` | | `4` | Max concurrent action calls |
 | `ARINOVA_ACTION_QUEUE_LIMIT` | | `32` | Max queued action calls |
+| `ARINOVA_ACTION_QUEUE_WAIT_MS` | | `30000` | Maximum time waiting for action capacity |
 | `ARINOVA_LOG_LEVEL` | `--log-level` | `warn` | `debug`, `info`, `warn`, `error` |
 
 CLI flags override environment variables.
@@ -90,4 +92,4 @@ node packages/mcp-server/dist/cli.js --token ari_xxx --api-url https://...
 
 Expected protocol version: `2026-05-05`.
 
-The `arinova_health` tool reports `protocolVersion.expected` (the version this bridge was built for) and `protocolVersion.backend` (currently always `null`). Backend version detection is not yet implemented for the HTTP action endpoint.
+The `arinova_health` tool reports `protocolVersion.expected`, the backend manifest version in `protocolVersion.backend`, and whether they are compatible.

@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { McpServerConfig } from "../src/config.js";
 import { ArinovaClient, EXPECTED_ACTION_PROTOCOL_VERSION } from "../src/arinova-client.js";
-import { ArinovaMcpServer } from "../src/server.js";
+import { ArinovaMcpServer, PACKAGE_VERSION } from "../src/server.js";
+import packageJson from "../package.json" with { type: "json" };
+import { mapManifestToTools } from "../src/tool-mapping.js";
+import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { PassThrough } from "node:stream";
 
 function makeConfig(overrides?: Partial<McpServerConfig>): McpServerConfig {
   return {
@@ -11,9 +17,11 @@ function makeConfig(overrides?: Partial<McpServerConfig>): McpServerConfig {
     apiUrlDerived: true,
     transport: "stdio",
     actionTimeoutMs: 60000,
+    manifestTimeoutMs: 15000,
     startupMode: "lazy",
     maxConcurrentActions: 2,
     actionQueueLimit: 4,
+    actionQueueWaitMs: 30000,
     logLevel: "error",
     ...overrides,
   };
@@ -88,6 +96,7 @@ describe("ArinovaClient", () => {
       expect(health.protocolVersion).toEqual({
         expected: EXPECTED_ACTION_PROTOCOL_VERSION,
         backend: null,
+        compatible: false,
       });
     });
   });
@@ -196,6 +205,25 @@ describe("ArinovaClient", () => {
       await refresh;
       expect(manifestCalls).toBe(2);
       expect(c.inFlightCount).toBe(0);
+    });
+
+    it("times out a queued semaphore waiter", async () => {
+      const c = new ArinovaClient(makeConfig({
+        maxConcurrentActions: 1,
+        actionQueueLimit: 1,
+        actionQueueWaitMs: 5,
+      }));
+      await c.connect();
+      installFetchMock(async () => new Promise((resolve) => setTimeout(
+        () => resolve(jsonResponse({ id: "c1", action: "test", status: "success" })),
+        30,
+      )));
+      const first = c.callAction("test", {});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await expect(c.callAction("test", {})).rejects.toMatchObject({
+        code: "QUEUE_TIMEOUT",
+      });
+      await first;
     });
   });
 
@@ -314,6 +342,19 @@ describe("ArinovaClient", () => {
         "connection state is disconnected",
       );
     });
+
+    it("aborts an in-flight HTTP request", async () => {
+      await client.connect();
+      installFetchMock(async (_input, init) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(
+          Object.assign(new Error("aborted"), { name: "AbortError" }),
+        ));
+      }));
+      const call = client.callAction("test", {});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      client.disconnect();
+      await expect(call).rejects.toMatchObject({ code: "ABORTED" });
+    });
   });
 
   describe("connection state", () => {
@@ -335,6 +376,37 @@ describe("ArinovaClient", () => {
       await client.connect();
 
       await expect(client.callAction("test", {})).rejects.toThrow("Unauthorized");
+    });
+
+    it("preserves structured backend error fields", async () => {
+      installFetchMock(async () => jsonResponse({
+        error: {
+          code: "TOKEN_EXPIRED",
+          message: "Token expired",
+          details: { expiredAt: "2026-08-01T00:00:00Z" },
+        },
+      }, { status: 401 }));
+      await client.connect();
+      await expect(client.callAction("test", {}, { callId: "call-error" }))
+        .rejects.toMatchObject({
+          code: "TOKEN_EXPIRED",
+          message: "Token expired",
+          statusCode: 401,
+          details: { expiredAt: "2026-08-01T00:00:00Z" },
+          callId: "call-error",
+        });
+    });
+
+    it("does not stringify non-string error messages", async () => {
+      installFetchMock(async () => jsonResponse({ message: { nested: true } }, {
+        status: 400,
+      }));
+      await client.connect();
+      await expect(client.callAction("test", {})).rejects.toMatchObject({
+        code: "HTTP_ACTION_CALL_FAILED",
+        message: "HTTP action call failed (400)",
+        statusCode: 400,
+      });
     });
 
     it("maps aborted HTTP action call to TIMEOUT", async () => {
@@ -491,6 +563,74 @@ describe("ArinovaClient", () => {
         message: "bad gateway",
       });
     });
+
+    it("does not reuse taskId as messageId and generates a UUID call id", async () => {
+      let payload: Record<string, unknown> | undefined;
+      installFetchMock(async (_input, init) => {
+        payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse({ action: "test", status: "success" });
+      });
+      await client.connect();
+      const result = await client.callAction("test", {}, { taskId: "task-1" });
+      expect(payload?.messageId).toBeNull();
+      expect(payload?.id).toMatch(/^mcp_[0-9a-f-]{36}$/);
+      expect(result.callId).toBe(payload?.id);
+    });
+
+    it("enforces maxArgumentsBytes against the full wire envelope", async () => {
+      let actionFetches = 0;
+      installFetchMock(async () => {
+        actionFetches++;
+        return jsonResponse({ id: "fixed", action: "test", status: "success" });
+      });
+      await client.connect();
+      await expect(client.callAction(
+        "test",
+        {},
+        { callId: "fixed" },
+        10,
+      )).rejects.toMatchObject({ code: "ARGUMENTS_TOO_LARGE", callId: "fixed" });
+      expect(actionFetches).toBe(0);
+    });
+
+    it("maps an unknown backend status to error", async () => {
+      installFetchMock(async () => jsonResponse({
+        id: "call-future",
+        action: "test",
+        status: "future_status",
+      }));
+      await client.connect();
+      await expect(client.callAction("test", {})).resolves.toMatchObject({
+        callId: "call-future",
+        status: "error",
+      });
+    });
+  });
+
+  it("recovers from a 304 without cache and negotiates manifest version", async () => {
+    const calls: RequestInit[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_input, init) => {
+      calls.push(init ?? {});
+      if (calls.length === 1) return new Response(null, { status: 304 });
+      if (calls.length === 2) return jsonResponse({
+        manifestVersion: EXPECTED_ACTION_PROTOCOL_VERSION,
+        actions: [],
+      }, { headers: { ETag: '"fresh"' } });
+      return new Response(null, { status: 304 });
+    }));
+    const c = new ArinovaClient(makeConfig());
+    await c.loadManifest();
+    await c.loadManifest();
+    expect(calls).toHaveLength(3);
+    expect((calls[1].headers as Record<string, string>)["If-None-Match"])
+      .toBeUndefined();
+    expect((calls[2].headers as Record<string, string>)["If-None-Match"])
+      .toBe('"fresh"');
+    expect(c.getHealthData().protocolVersion).toEqual({
+      expected: EXPECTED_ACTION_PROTOCOL_VERSION,
+      backend: EXPECTED_ACTION_PROTOCOL_VERSION,
+      compatible: true,
+    });
   });
 });
 
@@ -502,19 +642,19 @@ describe("ArinovaMcpServer", () => {
     };
   }
 
+  it("reports the package.json version to MCP clients", () => {
+    expect(PACKAGE_VERSION).toBe(packageJson.version);
+  });
+
   it("loads action tools before returning the first tool list", async () => {
-    const dynamicTool = {
-      name: "arinova_message_send",
-      description: "Arinova action: arinova.message.send.",
-      inputSchema: {
-        type: "object",
-        properties: { conversationId: { type: "string" } },
-      },
-      actionName: "arinova.message.send",
-    };
+    const dynamicTool = mapManifestToTools({
+      manifestVersion: "1",
+      actions: [{ name: "arinova.message.send", version: "1", inputSchema: {
+        type: "object", properties: { conversationId: { type: "string" } },
+      } }],
+    }).tools[0];
     const mapping = {
       tools: [dynamicTool],
-      toolToAction: new Map([[dynamicTool.name, dynamicTool.actionName]]),
       skippedActions: [],
     };
     const fakeClient = {
@@ -546,8 +686,8 @@ describe("ArinovaMcpServer", () => {
   it("does not register arinova_upload_file before the backend upload bridge exists", async () => {
     const fakeClient = {
       connect: vi.fn(async () => {}),
-      getToolMapping: vi.fn(() => ({ tools: [], toolToAction: new Map(), skippedActions: [] })),
-      loadManifest: vi.fn(async () => ({ tools: [], toolToAction: new Map(), skippedActions: [] })),
+      getToolMapping: vi.fn(() => ({ tools: [], skippedActions: [] })),
+      loadManifest: vi.fn(async () => ({ tools: [], skippedActions: [] })),
       getHealthData: vi.fn(() => ({})),
       getManifestInfo: vi.fn(() => ({})),
       callAction: vi.fn(),
@@ -579,13 +719,10 @@ describe("ArinovaMcpServer", () => {
   });
 
   it("maps registered tool calls to action calls with max execution timeout", async () => {
-    const dynamicTool = {
-      name: "arinova_message_send",
-      description: "Arinova action: arinova.message.send.",
-      inputSchema: { type: "object", properties: {} },
-      actionName: "arinova.message.send",
-      maxExecutionMs: 1234,
-    };
+    const dynamicTool = mapManifestToTools({
+      manifestVersion: "1",
+      actions: [{ name: "arinova.message.send", version: "1", maxExecutionMs: 1234 }],
+    }).tools[0];
     const fakeClient = {
       getHealthData: vi.fn(() => ({})),
       getManifestInfo: vi.fn(() => ({})),
@@ -602,7 +739,8 @@ describe("ArinovaMcpServer", () => {
       makeConfig(),
       fakeClient as unknown as ArinovaClient,
     );
-    (server as unknown as { dynamicTools: unknown[] }).dynamicTools = [dynamicTool];
+    (server as unknown as { dynamicTools: Map<string, unknown> }).dynamicTools =
+      new Map([[dynamicTool.name, dynamicTool]]);
 
     const result = await (server as unknown as {
       handleToolCall: (
@@ -615,6 +753,7 @@ describe("ArinovaMcpServer", () => {
       "arinova.message.send",
       { content: "hello" },
       { timeoutMs: 1234 },
+      undefined,
     );
     expect(parseTextResult(result)).toEqual({
       body: {
@@ -628,7 +767,7 @@ describe("ArinovaMcpServer", () => {
     });
   });
 
-  it("rejects unknown tools and oversized arguments before calling the client", async () => {
+  it("rejects unknown tools and schema-invalid arguments before calling the client", async () => {
     const fakeClient = {
       getHealthData: vi.fn(() => ({})),
       getManifestInfo: vi.fn(() => ({})),
@@ -640,13 +779,16 @@ describe("ArinovaMcpServer", () => {
       makeConfig(),
       fakeClient as unknown as ArinovaClient,
     );
-    (server as unknown as { dynamicTools: unknown[] }).dynamicTools = [{
-      name: "arinova_small",
-      description: "Small args",
-      inputSchema: { type: "object", properties: {} },
-      actionName: "arinova.small",
-      maxArgumentsBytes: 8,
-    }];
+    const dynamicTool = mapManifestToTools({
+      manifestVersion: "1",
+      actions: [{ name: "arinova.small", version: "1", inputSchema: {
+        type: "object",
+        required: ["value"],
+        properties: { value: { type: "string", maxLength: 3 } },
+      } }],
+    }).tools[0];
+    (server as unknown as { dynamicTools: Map<string, unknown> }).dynamicTools =
+      new Map([[dynamicTool.name, dynamicTool]]);
 
     const unknown = await (server as unknown as {
       handleToolCall: (
@@ -654,7 +796,7 @@ describe("ArinovaMcpServer", () => {
         args: Record<string, unknown>,
       ) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
     }).handleToolCall("missing_tool", {});
-    const oversized = await (server as unknown as {
+    const invalid = await (server as unknown as {
       handleToolCall: (
         name: string,
         args: Record<string, unknown>,
@@ -665,10 +807,10 @@ describe("ArinovaMcpServer", () => {
       body: { error: { code: "UNKNOWN_TOOL" } },
       isError: true,
     });
-    expect(parseTextResult(oversized)).toMatchObject({
+    expect(parseTextResult(invalid)).toMatchObject({
       body: {
         action: "arinova.small",
-        error: { code: "ARGUMENTS_TOO_LARGE" },
+        error: { code: "INVALID_ARGUMENTS" },
       },
       isError: true,
     });
@@ -676,12 +818,10 @@ describe("ArinovaMcpServer", () => {
   });
 
   it("detects and announces same-count tool-to-action rebindings", async () => {
-    const oldTool = {
-      name: "arinova_same_tool",
-      description: "Old action",
-      inputSchema: { type: "object", properties: {} },
-      actionName: "arinova.same.tool",
-    };
+    const oldTool = mapManifestToTools({
+      manifestVersion: "1",
+      actions: [{ name: "arinova.same.tool", version: "1", description: "Old action" }],
+    }).tools[0];
     const newTool = {
       ...oldTool,
       description: "New action",
@@ -689,7 +829,6 @@ describe("ArinovaMcpServer", () => {
     };
     const mapping = {
       tools: [newTool],
-      toolToAction: new Map([[newTool.name, newTool.actionName]]),
       skippedActions: [],
     };
     const fakeClient = {
@@ -709,7 +848,8 @@ describe("ArinovaMcpServer", () => {
       makeConfig(),
       fakeClient as unknown as ArinovaClient,
     );
-    (server as unknown as { dynamicTools: unknown[] }).dynamicTools = [oldTool];
+    (server as unknown as { dynamicTools: Map<string, unknown> }).dynamicTools =
+      new Map([[oldTool.name, oldTool]]);
     const sendToolListChanged = vi.fn(async () => {});
     (
       server as unknown as {
@@ -736,6 +876,139 @@ describe("ArinovaMcpServer", () => {
       "arinova_same_tool",
       {},
       { timeoutMs: undefined },
+      undefined,
     );
+  });
+
+  it("serves list and call handlers through a real MCP transport", async () => {
+    const mapping = mapManifestToTools({
+      manifestVersion: "1",
+      actions: [{ name: "arinova.message.send", version: "1", inputSchema: {
+        type: "object",
+        required: ["content"],
+        properties: { content: { type: "string" } },
+      } }],
+    });
+    const fakeClient = {
+      connect: vi.fn(async () => {}),
+      getToolMapping: vi.fn(() => mapping),
+      loadManifest: vi.fn(async () => mapping),
+      getHealthData: vi.fn(() => ({ connection: "connected" })),
+      getManifestInfo: vi.fn(() => ({})),
+      callAction: vi.fn(async (action: string) => ({
+        callId: "call-real",
+        action,
+        status: "success" as const,
+        result: { sent: true },
+      })),
+      drain: vi.fn(),
+      disconnect: vi.fn(),
+    };
+    const server = new ArinovaMcpServer(
+      makeConfig(),
+      fakeClient as unknown as ArinovaClient,
+    );
+    const client = new McpClient({ name: "vitest", version: "1" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      server.connectTransport(serverTransport),
+      client.connect(clientTransport),
+    ]);
+
+    const listed = await client.listTools();
+    expect(listed.tools.map((tool) => tool.name)).toContain("arinova_message_send");
+    const called = await client.callTool({
+      name: "arinova_message_send",
+      arguments: {
+        content: "hello",
+        _arinova: {
+          callId: "call-option",
+          taskId: "task-1",
+          conversationId: "conversation-1",
+          messageId: "message-1",
+          parentCallId: "parent-1",
+          reason: "integration test",
+          metadata: { source: "vitest" },
+          dryRun: true,
+          timeoutMs: 222,
+        },
+      },
+    });
+    expect(JSON.parse((called.content[0] as { text: string }).text)).toMatchObject({
+      ok: true,
+      callId: "call-real",
+      result: { sent: true },
+    });
+    expect(fakeClient.callAction).toHaveBeenCalledWith(
+      "arinova.message.send",
+      { content: "hello" },
+      {
+        callId: "call-option",
+        taskId: "task-1",
+        conversationId: "conversation-1",
+        messageId: "message-1",
+        parentCallId: "parent-1",
+        reason: "integration test",
+        metadata: { source: "vitest" },
+        dryRun: true,
+        timeoutMs: 222,
+      },
+      undefined,
+    );
+    await client.close();
+    await server.shutdown();
+  });
+
+  it("registers handlers on the real stdio transport without logger stdout writes", async () => {
+    const mapping = mapManifestToTools({ manifestVersion: "1", actions: [] });
+    const fakeClient = {
+      connect: vi.fn(async () => {}),
+      getToolMapping: vi.fn(() => mapping),
+      loadManifest: vi.fn(async () => mapping),
+      getHealthData: vi.fn(() => ({ connection: "connected" })),
+      getManifestInfo: vi.fn(() => ({})),
+      callAction: vi.fn(),
+      drain: vi.fn(async () => {}),
+      disconnect: vi.fn(),
+    };
+    const server = new ArinovaMcpServer(
+      makeConfig(),
+      fakeClient as unknown as ArinovaClient,
+    );
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const messages: Array<Record<string, unknown>> = [];
+    let buffered = "";
+    output.on("data", (chunk) => {
+      buffered += chunk.toString();
+      const lines = buffered.split("\n");
+      buffered = lines.pop() ?? "";
+      for (const line of lines) if (line) messages.push(JSON.parse(line));
+    });
+    await server.connectTransport(new StdioServerTransport(input, output));
+    input.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "stdio-vitest", version: "1" },
+      },
+    })}\n`);
+    await vi.waitFor(() => expect(messages.some((message) => message.id === 1)).toBe(true));
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })}\n`);
+    await vi.waitFor(() => expect(messages.some((message) => message.id === 2)).toBe(true));
+    const listed = messages.find((message) => message.id === 2) as {
+      result: { tools: Array<{ name: string }> };
+    };
+    expect(listed.result.tools.map((tool) => tool.name)).toEqual([
+      "arinova_health",
+      "arinova_refresh_manifest",
+    ]);
+    expect(stdout).not.toHaveBeenCalled();
+    await server.shutdown();
   });
 });

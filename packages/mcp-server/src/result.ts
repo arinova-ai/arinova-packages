@@ -6,6 +6,8 @@ export interface McpActionResponse {
   action: string;
   callId: string;
   traceId?: string;
+  actionVersion?: string;
+  dryRun?: boolean;
   result?: Record<string, unknown> | null;
   error?: { code: string; message: string; details?: Record<string, unknown> } | null;
   confirmation?: {
@@ -17,7 +19,8 @@ export interface McpActionResponse {
 }
 
 export function normalizeResult(result: ActionCallResult): McpActionResponse {
-  const ok = result.status === "success";
+  const ok =
+    result.status === "success" || !isTerminalStatus(result.status);
 
   return {
     ok,
@@ -26,6 +29,8 @@ export function normalizeResult(result: ActionCallResult): McpActionResponse {
     callId: result.callId,
     ...(result.traceId && { traceId: result.traceId }),
     ...(ok && result.result !== undefined && { result: result.result }),
+    ...(result.actionVersion && { actionVersion: result.actionVersion }),
+    ...(result.dryRun !== undefined && { dryRun: result.dryRun }),
     ...(result.error && { error: result.error }),
     ...(result.confirmation && { confirmation: result.confirmation }),
   };
@@ -41,5 +46,5 @@ export function isTerminalStatus(status: string): boolean {
 }
 
 export function shouldReportAsError(response: McpActionResponse): boolean {
-  return !response.ok;
+  return response.status === "error" || response.status === "cancelled";
 }

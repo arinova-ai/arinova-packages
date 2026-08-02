@@ -29,9 +29,11 @@ describe("parseConfig", () => {
     delete process.env.ARINOVA_API_URL;
     delete process.env.ARINOVA_MCP_TRANSPORT;
     delete process.env.ARINOVA_ACTION_TIMEOUT_MS;
+    delete process.env.ARINOVA_MANIFEST_TIMEOUT_MS;
     delete process.env.ARINOVA_STARTUP_MODE;
     delete process.env.ARINOVA_MAX_CONCURRENT_ACTIONS;
     delete process.env.ARINOVA_ACTION_QUEUE_LIMIT;
+    delete process.env.ARINOVA_ACTION_QUEUE_WAIT_MS;
     delete process.env.ARINOVA_LOG_LEVEL;
   });
 
@@ -93,6 +95,28 @@ describe("parseConfig", () => {
 
     expect(parseConfig(["--log-level", "debug"]).logLevel).toBe("debug");
     expect(parseConfig(["--log-level", "verbose"]).logLevel).toBe("error");
+    expect(parseConfig(["--log-level", "--token", "ari_cli"]).botToken).toBe(
+      "ari_cli",
+    );
+  });
+
+  it("does not treat the next flag as a value", () => {
+    process.env.ARINOVA_BOT_TOKEN = "ari_env";
+    process.env.ARINOVA_SERVER_URL = "wss://env.example.com";
+    const config = parseConfig(["--token", "--strict-startup"]);
+    expect(config.botToken).toBe("ari_env");
+    expect(config.startupMode).toBe("strict");
+  });
+
+  it("rejects malformed URLs and unsupported schemes", () => {
+    process.env.ARINOVA_BOT_TOKEN = "ari_test";
+    process.env.ARINOVA_API_URL = "api.example.com";
+    expect(() => parseConfig([])).toThrow("valid absolute URL");
+    process.env.ARINOVA_API_URL = "ftp://api.example.com";
+    expect(() => parseConfig([])).toThrow("http or https");
+    process.env.ARINOVA_API_URL = "https://api.example.com";
+    process.env.ARINOVA_SERVER_URL = "https://chat.example.com";
+    expect(() => parseConfig([])).toThrow("ws or wss");
   });
 
   it("strips trailing slashes from URLs", () => {
@@ -156,12 +180,16 @@ describe("parseConfig", () => {
     process.env.ARINOVA_ACTION_TIMEOUT_MS = "1500";
     process.env.ARINOVA_MAX_CONCURRENT_ACTIONS = "8";
     process.env.ARINOVA_ACTION_QUEUE_LIMIT = "64";
+    process.env.ARINOVA_MANIFEST_TIMEOUT_MS = "2500";
+    process.env.ARINOVA_ACTION_QUEUE_WAIT_MS = "3000";
 
     const config = parseConfig([]);
 
     expect(config.actionTimeoutMs).toBe(1500);
     expect(config.maxConcurrentActions).toBe(8);
     expect(config.actionQueueLimit).toBe(64);
+    expect(config.manifestTimeoutMs).toBe(2500);
+    expect(config.actionQueueWaitMs).toBe(3000);
   });
 
   it("parses valid log level from env", () => {
@@ -201,9 +229,11 @@ describe("parseConfig", () => {
       apiUrlDerived: true,
       transport: "stdio",
       actionTimeoutMs: 60000,
+      manifestTimeoutMs: 15000,
       startupMode: "strict",
       maxConcurrentActions: 4,
       actionQueueLimit: 32,
+      actionQueueWaitMs: 30000,
       logLevel: "info",
       botToken: "***",
     });

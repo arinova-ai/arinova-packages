@@ -10,8 +10,12 @@ import type { McpToolDefinition, ToolMapping } from "./tool-mapping.js";
 import { normalizeResult, shouldReportAsError } from "./result.js";
 import { ActionExecutionError } from "./errors.js";
 import { logger } from "./logger.js";
+import { BUILTIN_TOOLS } from "./builtins.js";
+import type { ActionCallOptions } from "./action-types.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import packageJson from "../package.json" with { type: "json" };
 
-const PACKAGE_VERSION = "0.0.19-staging.4";
+export const PACKAGE_VERSION = packageJson.version;
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -47,14 +51,40 @@ function textResult(data: unknown, isError = false) {
   };
 }
 
+function errorResult(
+  code: string,
+  message: string,
+  options: {
+    action?: string;
+    callId?: string;
+    statusCode?: number;
+    details?: Record<string, unknown>;
+  } = {},
+) {
+  return textResult(
+    {
+      ok: false,
+      status: "error",
+      ...(options.action && { action: options.action }),
+      ...(options.callId && { callId: options.callId }),
+      error: {
+        code,
+        message,
+        ...(options.statusCode && { statusCode: options.statusCode }),
+        ...(options.details && { details: options.details }),
+      },
+    },
+    true,
+  );
+}
+
 export class ArinovaMcpServer {
   private server: Server;
   private client: ArinovaClient;
   private config: McpServerConfig;
-  private dynamicTools: McpToolDefinition[] = [];
+  private dynamicTools = new Map<string, McpToolDefinition>();
   private toolsLoaded = false;
   private toolLoadPromise: Promise<void> | null = null;
-  private initialized = false;
 
   constructor(config: McpServerConfig, client: ArinovaClient) {
     this.config = config;
@@ -88,24 +118,9 @@ export class ArinovaMcpServer {
   }
 
   private getToolList() {
-    const staticTools = [
-      {
-        name: "arinova_health",
-        description:
-          "Reports MCP process health, Arinova connection state, manifest status, queue depth, and last error. Does not invoke any platform action.",
-        inputSchema: { type: "object" as const, properties: {} },
-      },
-      {
-        name: "arinova_refresh_manifest",
-        description:
-          "Refreshes the Arinova action manifest and reports the current version and action count. Clients are notified when exposed tools or their action bindings change.",
-        inputSchema: { type: "object" as const, properties: {} },
-      },
-    ];
-
     return [
-      ...staticTools,
-      ...this.dynamicTools.map((t) => ({
+      ...BUILTIN_TOOLS.map(({ handler: _handler, ...tool }) => tool),
+      ...[...this.dynamicTools.values()].map((t) => ({
         name: t.name,
         description: t.description,
         inputSchema: t.inputSchema,
@@ -114,10 +129,11 @@ export class ArinovaMcpServer {
   }
 
   private async handleToolCall(name: string, args: Record<string, unknown>) {
-    switch (name) {
-      case "arinova_health":
+    const builtin = BUILTIN_TOOLS.find((tool) => tool.name === name);
+    switch (builtin?.handler) {
+      case "health":
         return this.handleHealth();
-      case "arinova_refresh_manifest":
+      case "refresh_manifest":
         return this.handleRefreshManifest();
       default:
         return this.handleActionCall(name, args);
@@ -151,12 +167,16 @@ export class ArinovaMcpServer {
 
   private applyToolMapping(mapping: ToolMapping, notify = true): boolean {
     const changed =
-      toolMappingFingerprint(this.dynamicTools)
+      toolMappingFingerprint([...this.dynamicTools.values()])
       !== toolMappingFingerprint(mapping.tools);
-    this.dynamicTools = mapping.tools;
+    this.dynamicTools = new Map(mapping.tools.map((tool) => [tool.name, tool]));
     this.toolsLoaded = true;
     if (changed && notify) {
-      this.server.sendToolListChanged().catch(() => {});
+      this.server.sendToolListChanged().catch((err) => {
+        logger.warn(
+          `Failed to notify MCP client about tool list change: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
     }
     return changed;
   }
@@ -165,46 +185,56 @@ export class ArinovaMcpServer {
     toolName: string,
     args: Record<string, unknown>,
   ) {
-    const toolDef = this.dynamicTools.find((t) => t.name === toolName);
+    const toolDef = this.resolveTool(toolName);
     if (!toolDef) {
-      return textResult(
-        {
-          ok: false,
-          status: "error",
-          error: {
-            code: "UNKNOWN_TOOL",
-            message: `Tool "${toolName}" is not registered. Call arinova_refresh_manifest to update the tool list.`,
-          },
-        },
-        true,
+      return errorResult(
+        "UNKNOWN_TOOL",
+        `Tool "${toolName}" is not registered. Call arinova_refresh_manifest to update the tool list.`,
       );
     }
 
-    if (toolDef.maxArgumentsBytes) {
-      const argSize = Buffer.byteLength(JSON.stringify(args), "utf8");
-      if (argSize > toolDef.maxArgumentsBytes) {
-        return textResult(
-          {
-            ok: false,
-            status: "error",
-            action: toolDef.actionName,
-            error: {
-              code: "ARGUMENTS_TOO_LARGE",
-              message: `Arguments size ${argSize} exceeds limit ${toolDef.maxArgumentsBytes}`,
-            },
-          },
-          true,
-        );
-      }
+    const { actionArgs, options } = splitActionInput(args);
+    const validationError = this.validateArgs(toolDef, actionArgs);
+    if (validationError) {
+      return errorResult("INVALID_ARGUMENTS", validationError.message, {
+        action: toolDef.actionName,
+        details: validationError.details,
+      });
     }
+
+    return this.dispatchAction(toolDef, actionArgs, options);
+  }
+
+  private resolveTool(toolName: string): McpToolDefinition | undefined {
+    return this.dynamicTools.get(toolName);
+  }
+
+  private validateArgs(
+    toolDef: McpToolDefinition,
+    args: Record<string, unknown>,
+  ): { message: string; details: Record<string, unknown> } | undefined {
+    if (toolDef.validateArguments(args)) return undefined;
+    const errors = toolDef.validateArguments.errors ?? [];
+    return {
+      message: `Arguments do not match the input schema for ${toolDef.actionName}`,
+      details: { validationErrors: errors },
+    };
+  }
+
+  private async dispatchAction(
+    toolDef: McpToolDefinition,
+    args: Record<string, unknown>,
+    options: Partial<ActionCallOptions>,
+  ) {
 
     const startTime = Date.now();
     logger.info(`Action call start: ${toolDef.actionName}`);
 
     try {
       const result = await this.client.callAction(toolDef.actionName, args, {
-        timeoutMs: toolDef.maxExecutionMs,
-      });
+        ...options,
+        timeoutMs: toolDef.maxExecutionMs ?? options.timeoutMs,
+      }, toolDef.maxArgumentsBytes);
 
       const elapsed = Date.now() - startTime;
       const response = normalizeResult(result);
@@ -223,15 +253,13 @@ export class ArinovaMcpServer {
         `Action call error: ${toolDef.actionName} code=${code} elapsed=${elapsed}ms error=${message}`,
       );
 
-      return textResult(
-        {
-          ok: false,
-          status: "error",
-          action: toolDef.actionName,
-          error: { code, message },
-        },
-        true,
-      );
+      return errorResult(code, message, {
+        action: toolDef.actionName,
+        callId: err instanceof ActionExecutionError ? err.callId : undefined,
+        statusCode:
+          err instanceof ActionExecutionError ? err.statusCode : undefined,
+        details: err instanceof ActionExecutionError ? err.details : undefined,
+      });
     }
   }
 
@@ -259,7 +287,7 @@ export class ArinovaMcpServer {
 
   async start(): Promise<void> {
     const transport = new StdioServerTransport();
-    await this.server.connect(transport);
+    await this.connectTransport(transport);
     logger.info("MCP stdio server started");
 
     if (this.config.startupMode === "strict") {
@@ -268,7 +296,10 @@ export class ArinovaMcpServer {
       this.initializeLazy();
     }
 
-    this.initialized = true;
+  }
+
+  async connectTransport(transport: Transport): Promise<void> {
+    await this.server.connect(transport);
   }
 
   private async initializeStrict(): Promise<void> {
@@ -303,4 +334,32 @@ export class ArinovaMcpServer {
     this.client.disconnect();
     await this.server.close();
   }
+}
+
+const ACTION_OPTION_KEYS = new Set<keyof ActionCallOptions>([
+  "callId",
+  "taskId",
+  "conversationId",
+  "messageId",
+  "parentCallId",
+  "reason",
+  "metadata",
+  "dryRun",
+  "timeoutMs",
+]);
+
+function splitActionInput(args: Record<string, unknown>): {
+  actionArgs: Record<string, unknown>;
+  options: Partial<ActionCallOptions>;
+} {
+  const { _arinova, ...actionArgs } = args;
+  if (!_arinova || typeof _arinova !== "object" || Array.isArray(_arinova)) {
+    return { actionArgs, options: {} };
+  }
+  const options = Object.fromEntries(
+    Object.entries(_arinova as Record<string, unknown>).filter(([key]) =>
+      ACTION_OPTION_KEYS.has(key as keyof ActionCallOptions),
+    ),
+  ) as Partial<ActionCallOptions>;
+  return { actionArgs, options };
 }

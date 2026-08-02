@@ -1,238 +1,142 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fetchManifest } from "../src/manifest.js";
 
+function response(body: unknown, init: ResponseInit = {}): Response {
+  return new Response(
+    typeof body === "string" ? body : JSON.stringify(body),
+    { status: 200, ...init },
+  );
+}
+
 describe("fetchManifest", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
+  beforeEach(() => vi.restoreAllMocks());
 
-  it("fetches and parses a valid manifest", async () => {
-    const mockManifest = {
+  it("fetches a valid manifest and reads Headers case-insensitively", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
       manifestVersion: "1.0.0",
-      actions: [
-        {
-          name: "arinova.test.action",
-          version: "1.0.0",
-          description: "A test action",
-          inputSchema: { type: "object", properties: {} },
-          maxExecutionMs: 30000,
-        },
-      ],
-    };
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Map([["etag", '"v1"']]),
-        json: () => Promise.resolve(mockManifest),
-      }),
-    );
+      actions: [{
+        name: "arinova.test.action",
+        version: "1.0.0",
+        inputSchema: { type: "object" },
+        maxExecutionMs: 30_000,
+      }],
+    }, { headers: new Headers({ ETag: '"v1"' }) })));
 
     const result = await fetchManifest("https://api.example.com", "ari_test");
-
     expect(result).not.toBe("not_modified");
     if (result === "not_modified") return;
-
-    expect(result.manifest.manifestVersion).toBe("1.0.0");
-    expect(result.manifest.actions).toHaveLength(1);
-    expect(result.manifest.actions[0].name).toBe("arinova.test.action");
-    expect(result.manifest.actions[0].maxExecutionMs).toBe(30000);
+    expect(result.etag).toBe('"v1"');
+    expect(result.manifest.actions[0]).toMatchObject({
+      name: "arinova.test.action",
+      maxExecutionMs: 30_000,
+    });
   });
 
-  it("sends Authorization header", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Map(),
-      json: () =>
-        Promise.resolve({ manifestVersion: "1", actions: [] }),
-    });
+  it("sends Authorization and If-None-Match headers", async () => {
+    const mockFetch = vi.fn().mockResolvedValue(new Response(null, { status: 304 }));
     vi.stubGlobal("fetch", mockFetch);
 
-    await fetchManifest("https://api.example.com", "ari_secret");
-
+    await expect(fetchManifest(
+      "https://api.example.com",
+      "ari_secret",
+      '"v1"',
+    )).resolves.toBe("not_modified");
     expect(mockFetch).toHaveBeenCalledWith(
       "https://api.example.com/api/v1/actions/agent-manifest",
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: "Bearer ari_secret",
-        }),
-      }),
+      expect.objectContaining({ headers: expect.objectContaining({
+        Authorization: "Bearer ari_secret",
+        "If-None-Match": '"v1"',
+      }) }),
     );
   });
 
-  it("sends If-None-Match header when etag provided", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 304,
-      headers: new Map(),
-    });
-    vi.stubGlobal("fetch", mockFetch);
+  it("maps non-OK and network failures", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response("Invalid token", {
+      status: 401,
+      statusText: "Unauthorized",
+    })));
+    await expect(fetchManifest("https://api.example.com", "bad"))
+      .rejects.toThrow("Manifest fetch failed: HTTP 401");
 
-    const result = await fetchManifest(
-      "https://api.example.com",
-      "ari_test",
-      '"v1"',
-    );
-
-    expect(result).toBe("not_modified");
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          "If-None-Match": '"v1"',
-        }),
-      }),
-    );
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+    await expect(fetchManifest("https://api.example.com", "ari_test"))
+      .rejects.toThrow("Failed to reach manifest endpoint");
   });
 
-  it("throws on non-OK response", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-        statusText: "Unauthorized",
-        text: () => Promise.resolve("Invalid token"),
-        headers: new Map(),
+  it("times out a stalled request", async () => {
+    vi.stubGlobal("fetch", vi.fn((_url, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => reject(
+          Object.assign(new Error("aborted"), { name: "AbortError" }),
+        ));
       }),
-    );
-
-    await expect(
-      fetchManifest("https://api.example.com", "bad_token"),
-    ).rejects.toThrow("Manifest fetch failed: HTTP 401");
+    ));
+    await expect(fetchManifest("https://api.example.com", "ari_test", undefined, {
+      timeoutMs: 5,
+    })).rejects.toThrow("timed out after 5ms");
   });
 
-  it("throws on network error", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new Error("ECONNREFUSED")),
-    );
+  it("rejects invalid JSON and malformed top-level fields", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response("not-json")));
+    await expect(fetchManifest("https://api.example.com", "ari_test"))
+      .rejects.toThrow("not valid JSON");
 
-    await expect(
-      fetchManifest("https://api.example.com", "ari_test"),
-    ).rejects.toThrow("Failed to reach manifest endpoint");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ actions: [] })));
+    await expect(fetchManifest("https://api.example.com", "ari_test"))
+      .rejects.toThrow("missing manifestVersion");
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
+      manifestVersion: "1",
+      actions: null,
+    })));
+    await expect(fetchManifest("https://api.example.com", "ari_test"))
+      .rejects.toThrow("missing actions array");
   });
 
-  it("throws on invalid JSON", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Map(),
-        json: () => Promise.reject(new Error("invalid json")),
-      }),
-    );
+  it("caps both declared and chunked response bodies", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response("x", {
+      headers: { "content-length": String(11 * 1024 * 1024) },
+    })));
+    await expect(fetchManifest("https://api.example.com", "ari_test"))
+      .rejects.toThrow("exceeds 10485760 byte limit");
 
-    await expect(
-      fetchManifest("https://api.example.com", "ari_test"),
-    ).rejects.toThrow("not valid JSON");
+    const chunk = new Uint8Array(6 * 1024 * 1024);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(chunk);
+          controller.enqueue(chunk);
+          controller.close();
+        },
+      }),
+    )));
+    await expect(fetchManifest("https://api.example.com", "ari_test"))
+      .rejects.toThrow("exceeds 10485760 byte limit");
   });
 
-  it("throws on missing manifestVersion", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Map(),
-        json: () => Promise.resolve({ actions: [] }),
-      }),
-    );
-
-    await expect(
-      fetchManifest("https://api.example.com", "ari_test"),
-    ).rejects.toThrow("missing manifestVersion");
-  });
-
-  it("throws on missing actions array", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Map(),
-        json: () => Promise.resolve({ manifestVersion: "1", actions: null }),
-      }),
-    );
-
-    await expect(
-      fetchManifest("https://api.example.com", "ari_test"),
-    ).rejects.toThrow("missing actions array");
-  });
-
-  it("throws before parsing manifests that exceed the size limit", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Map([["content-length", String(11 * 1024 * 1024)]]),
-        json: vi.fn(),
-      }),
-    );
-
-    await expect(
-      fetchManifest("https://api.example.com", "ari_test"),
-    ).rejects.toThrow("Manifest too large");
-  });
-
-  it("skips actions without name", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Map(),
-        json: () =>
-          Promise.resolve({
-            manifestVersion: "1",
-            actions: [{ version: "1.0.0" }, { name: "valid", version: "1.0.0" }],
-          }),
-      }),
-    );
-
+  it("skips unnamed actions and normalizes optional fields", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
+      manifestVersion: "1",
+      actions: [
+        { version: "1.0.0" },
+        {
+          name: "arinova.optional",
+          description: 123,
+          promptSummary: "Summary",
+          inputSchema: { type: "object" },
+          outputSchema: { type: "object" },
+          confirmation: "user-confirm",
+          maxExecutionMs: "fast",
+          maxArgumentsBytes: 2048,
+          deprecated: true,
+          replacementAction: "arinova.replacement",
+          removed: true,
+        },
+      ],
+    })));
     const result = await fetchManifest("https://api.example.com", "ari_test");
-    if (result === "not_modified") throw new Error("unexpected");
+    if (result === "not_modified") throw new Error("unexpected 304");
     expect(result.manifest.actions).toHaveLength(1);
-    expect(result.manifest.actions[0].name).toBe("valid");
-  });
-
-  it("normalizes optional action fields and defaults version", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Map(),
-        json: () =>
-          Promise.resolve({
-            manifestVersion: "1",
-            actions: [
-              {
-                name: "arinova.optional",
-                description: 123,
-                promptSummary: "Summary",
-                inputSchema: { type: "object" },
-                outputSchema: { type: "object" },
-                confirmation: "user-confirm",
-                maxExecutionMs: "fast",
-                maxArgumentsBytes: 2048,
-                deprecated: true,
-                replacementAction: "arinova.replacement",
-                removed: true,
-              },
-            ],
-          }),
-      }),
-    );
-
-    const result = await fetchManifest("https://api.example.com", "ari_test");
-    if (result === "not_modified") throw new Error("unexpected");
-
     expect(result.manifest.actions[0]).toEqual({
       name: "arinova.optional",
       version: "0.0.0",
