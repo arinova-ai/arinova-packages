@@ -158,11 +158,10 @@ describe("setup-openclaw command", () => {
     const configPath = await writeOpenclawConfig({});
     const program = createProgram();
 
-    await program.parseAsync(["node", "arinova", "setup-openclaw", "--workspace", configPath]);
+    await expect(program.parseAsync([
+      "node", "arinova", "setup-openclaw", "--workspace", configPath,
+    ])).rejects.toThrow("No API key configured");
 
-    expect(mocks.printError).toHaveBeenCalledWith(expect.objectContaining({
-      message: "No API key configured. Please run `arinova auth login` first",
-    }));
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 

@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { listProfiles, removeProfile, getEndpoint, getEnvironmentLabel, resolveProfileName, getProfile } from "../config.js";
-import { printResult, printError, printSuccess, printNote, table } from "../output.js";
+import { printResult, printSuccess, printNote, table } from "../output.js";
 
 export function registerProfile(program: Command): void {
   const profile = program
@@ -62,7 +62,7 @@ Remove a profile:
       if (removeProfile(name)) {
         printSuccess(`Profile '${name}' removed.`);
       } else {
-        printError(new Error(`Profile '${name}' not found.`));
+        throw new Error(`Profile '${name}' not found.`);
       }
     });
 
@@ -73,14 +73,14 @@ Remove a profile:
       const profileFlag = program.optsWithGlobals().profile as string | undefined;
 
       if (!profileFlag) {
-        printError(new Error("--profile <name> is required."));
+        throw new Error("--profile <name> is required.");
         return;
       }
       const activeName = profileFlag;
 
       const match = getProfile(activeName);
       if (!match) {
-        printError(new Error(`Profile '${activeName}' not found. Run 'arinova profile list'.`));
+        throw new Error(`Profile '${activeName}' not found. Run 'arinova profile list'.`);
         return;
       }
 

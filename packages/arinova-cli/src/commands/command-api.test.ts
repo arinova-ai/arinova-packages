@@ -341,15 +341,14 @@ describe("CLI command API request shapes", () => {
     const program = createProgram(registerCommunity);
 
     await program.parseAsync(["node", "arinova", "community", "add-agent", "community-1", "agent-1"]);
-    await program.parseAsync(["node", "arinova", "lounge", "unpublish", "lounge-1"]);
+    await expect(program.parseAsync([
+      "node", "arinova", "lounge", "unpublish", "lounge-1",
+    ])).rejects.toMatchObject({ code: "UNSUPPORTED_COMMAND" });
 
     expect(mocks.post).toHaveBeenCalledWith("/api/v1/communities/community-1/agents", {
       agentId: "agent-1",
     });
     expect(mocks.put).not.toHaveBeenCalled();
-    expect(mocks.printError).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "UNSUPPORTED_COMMAND" }),
-    );
   });
 
   it("community list/show/update use the current v1 routes and PUT update", async () => {
@@ -482,19 +481,16 @@ describe("CLI command API request shapes", () => {
     await writeFile(manifest, "{\"name\":\"dark\"}");
     const program = createProgram(registerTheme);
 
-    await program.parseAsync([
+    await expect(program.parseAsync([
       "node",
       "arinova",
       "theme",
       "upload",
       manifest,
       join(dir, "missing.zip"),
-    ]);
+    ])).rejects.toThrow("File not found");
 
     expect(mocks.uploadMultipart).not.toHaveBeenCalled();
-    expect(mocks.printError).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining("File not found"),
-    }));
   });
 
   it("theme upload rejects invalid manifest JSON before uploading", async () => {
@@ -504,12 +500,11 @@ describe("CLI command API request shapes", () => {
     await writeFile(manifest, "{not json");
     const program = createProgram(registerTheme);
 
-    await program.parseAsync(["node", "arinova", "theme", "upload", manifest]);
+    await expect(program.parseAsync([
+      "node", "arinova", "theme", "upload", manifest,
+    ])).rejects.toThrow("Invalid theme manifest JSON");
 
     expect(mocks.uploadMultipart).not.toHaveBeenCalled();
-    expect(mocks.printError).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining("Invalid theme manifest JSON"),
-    }));
   });
 
   it("theme update uses PUT multipart and reports API errors", async () => {
@@ -521,12 +516,13 @@ describe("CLI command API request shapes", () => {
     mocks.uploadMultipart.mockRejectedValueOnce(error);
     const program = createProgram(registerTheme);
 
-    await program.parseAsync(["node", "arinova", "theme", "update", "theme-1", manifest]);
+    await expect(program.parseAsync([
+      "node", "arinova", "theme", "update", "theme-1", manifest,
+    ])).rejects.toThrow("upload failed");
 
     expect(mocks.uploadMultipart).toHaveBeenCalledWith("/api/v1/themes/theme-1", {
       manifest: expect.any(Blob),
     }, "PUT");
-    expect(mocks.printError).toHaveBeenCalledWith(error);
   });
 
   it("theme publish and unpublish patch status", async () => {
@@ -765,9 +761,12 @@ describe("CLI command API request shapes", () => {
 
   it("sticker publish shortcuts fail closed instead of bypassing review", async () => {
     const program = createProgram(registerSticker);
-    await program.parseAsync(["node", "arinova", "sticker", "publish", "pack-1"]);
-    await program.parseAsync(["node", "arinova", "sticker", "unpublish", "pack-1"]);
-    expect(mocks.printError).toHaveBeenCalledTimes(2);
+    await expect(program.parseAsync([
+      "node", "arinova", "sticker", "publish", "pack-1",
+    ])).rejects.toMatchObject({ code: "UNSUPPORTED_COMMAND" });
+    await expect(program.parseAsync([
+      "node", "arinova", "sticker", "unpublish", "pack-1",
+    ])).rejects.toMatchObject({ code: "UNSUPPORTED_COMMAND" });
     expect(mocks.patch).not.toHaveBeenCalled();
     expect(mocks.post).not.toHaveBeenCalled();
   });

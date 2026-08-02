@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { loadConfig, saveConfig, setProfile, removeProfile, getEndpoint, getEnvironmentLabel, resolveApiKey, resolveProfileName, getProfile, listProfiles } from "../config.js";
-import { printResult, printError, printSuccess, printNote } from "../output.js";
+import { printResult, printSuccess, printNote } from "../output.js";
 import { ApiClient } from "../client.js";
 
 const LOGIN_TIMEOUT_MS = 120_000;
@@ -75,7 +75,7 @@ export function registerAuth(program: Command): void {
     .action(async function (this: Command, opts: { port: string }) {
       const port = Number(opts.port);
       if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-        printError(new Error("Callback port must be an integer from 1 to 65535"));
+        throw new Error("Callback port must be an integer from 1 to 65535");
         return;
       }
       const apiEndpoint = getEndpoint();
@@ -145,7 +145,7 @@ export function registerAuth(program: Command): void {
       } catch (err) {
         callbackController.abort();
         await keyPromise.catch(() => undefined);
-        printError(err);
+        throw err;
       }
     });
 
@@ -169,11 +169,11 @@ export function registerAuth(program: Command): void {
       const profileFlag = program.optsWithGlobals().profile as string | undefined;
       const profileName = profileFlag ?? process.env.ARINOVA_PROFILE;
       if (!profileName) {
-        printError(new Error("Must specify --profile <name> when setting a bot token.\nExample: arinova --profile linda auth set-token ari_xxx"));
+        throw new Error("Must specify --profile <name> when setting a bot token.\nExample: arinova --profile linda auth set-token ari_xxx");
         return;
       }
       if (!key.startsWith("ari_")) {
-        printError(new Error("Invalid key format. Expected key starting with ari_"));
+        throw new Error("Invalid key format. Expected key starting with ari_");
         return;
       }
       const name = profileName;
@@ -190,7 +190,7 @@ export function registerAuth(program: Command): void {
       console.error("Warning: 'set-key' is deprecated. Use 'arinova --profile <name> auth set-token <key>' instead.\n");
       const profileFlag = program.optsWithGlobals().profile as string | undefined;
       if (!key.startsWith("ari_")) {
-        printError(new Error("Invalid key format. Expected key starting with ari_"));
+        throw new Error("Invalid key format. Expected key starting with ari_");
         return;
       }
       const name = profileFlag ?? process.env.ARINOVA_PROFILE ?? "default";
@@ -202,54 +202,50 @@ export function registerAuth(program: Command): void {
     .command("whoami")
     .description("Show current identity and environment")
     .action(async () => {
+      const profileFlag = program.optsWithGlobals().profile as string | undefined;
+      const tokenFlag = program.optsWithGlobals().token as string | undefined;
+      const endpointFlag = program.optsWithGlobals().apiUrl as string | undefined;
+      const { apiKey, profileName, source } = resolveApiKey({ token: tokenFlag, profile: profileFlag });
+      const env = getEnvironmentLabel();
+      const endpoint = (endpointFlag ?? getEndpoint()).replace(/\/+$/, "");
+
+      const identity: Record<string, unknown> = {
+        profile: profileName,
+        source,
+        environment: env,
+        endpoint,
+        key: "<redacted>",
+      };
+
+      // Try to resolve actual identity from server
+      // Try bot endpoint first
       try {
-        const profileFlag = program.optsWithGlobals().profile as string | undefined;
-        const tokenFlag = program.optsWithGlobals().token as string | undefined;
-        const endpointFlag = program.optsWithGlobals().apiUrl as string | undefined;
-        const { apiKey, profileName, source } = resolveApiKey({ token: tokenFlag, profile: profileFlag });
-        const env = getEnvironmentLabel();
-        const endpoint = (endpointFlag ?? getEndpoint()).replace(/\/+$/, "");
-
-        const identity: Record<string, unknown> = {
-          profile: profileName,
-          source,
-          environment: env,
+        const bot = (await new ApiClient({
           endpoint,
-          key: "<redacted>",
-        };
-
-        // Try to resolve actual identity from server
-        // Try bot endpoint first
-        try {
-          const bot = (await new ApiClient({
-            endpoint,
-            token: apiKey,
-          }).get("/api/agent/me")) as Record<string, unknown>;
-          identity.identityType = "bot";
-          identity.agentName = bot.name;
-          identity.agentId = bot.id;
-          printResult(identity);
-          return;
-        } catch { /* fall through */ }
-
-        // Try user endpoint
-        try {
-          const user = (await new ApiClient({
-            endpoint,
-            token: apiKey,
-          }).get("/api/v1/creator/api-keys/whoami")) as Record<string, unknown>;
-          identity.identityType = "user";
-          identity.userName = user.name ?? user.username;
-          identity.userId = user.id ?? user.userId;
-          printResult(identity);
-          return;
-        } catch { /* fall through */ }
-
-        identity.status = "unauthorized — token may be expired or revoked";
+          token: apiKey,
+        }).get("/api/agent/me")) as Record<string, unknown>;
+        identity.identityType = "bot";
+        identity.agentName = bot.name;
+        identity.agentId = bot.id;
         printResult(identity);
-      } catch (err) {
-        printError(err);
-      }
+        return;
+      } catch { /* fall through */ }
+
+      // Try user endpoint
+      try {
+        const user = (await new ApiClient({
+          endpoint,
+          token: apiKey,
+        }).get("/api/v1/creator/api-keys/whoami")) as Record<string, unknown>;
+        identity.identityType = "user";
+        identity.userName = user.name ?? user.username;
+        identity.userId = user.id ?? user.userId;
+        printResult(identity);
+        return;
+      } catch { /* fall through */ }
+
+      identity.status = "unauthorized — token may be expired or revoked";
+      printResult(identity);
     });
 
   const config = program.command("config").description("Configuration commands");
@@ -259,15 +255,15 @@ export function registerAuth(program: Command): void {
     .description("Set a config value (endpoint)")
     .action((key: string, value: string) => {
       if (key !== "endpoint") {
-        printError(new Error(`Unknown config key: ${key}. Supported: endpoint`));
+        throw new Error(`Unknown config key: ${key}. Supported: endpoint`);
         return;
       }
       try { new URL(value); } catch {
-        printError(new Error("Invalid URL format"));
+        throw new Error("Invalid URL format");
         return;
       }
       if (!value.startsWith("https://") && !value.startsWith("http://localhost")) {
-        printError(new Error("Endpoint must use HTTPS (or http://localhost for dev)"));
+        throw new Error("Endpoint must use HTTPS (or http://localhost for dev)");
         return;
       }
       const cfg = loadConfig();

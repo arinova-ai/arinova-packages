@@ -87,10 +87,11 @@ describe("auth command", () => {
   it("set-token rejects invalid key formats before saving", async () => {
     const program = createProgram();
 
-    await program.parseAsync(["node", "arinova", "--profile", "agent-a", "auth", "set-token", "bad-token"]);
+    await expect(program.parseAsync([
+      "node", "arinova", "--profile", "agent-a", "auth", "set-token", "bad-token",
+    ])).rejects.toThrow("Invalid key format");
 
     expect(mocks.setProfile).not.toHaveBeenCalled();
-    expect(mocks.printError).toHaveBeenCalledWith(new Error("Invalid key format. Expected key starting with ari_"));
   });
 
   it("whoami checks bot identity with bearer auth first", async () => {
@@ -180,12 +181,11 @@ describe("auth command", () => {
     });
 
     const program = createProgram();
-    await program.parseAsync([
+    await expect(program.parseAsync([
       "node", "arinova", "auth", "login", "--port", String(port),
-    ]);
+    ])).rejects.toThrow("401");
 
     expect(mocks.setProfile).not.toHaveBeenCalled();
-    expect(mocks.printError).toHaveBeenCalled();
   });
 
   it("reports an HTML registration failure without an opaque JSON parse error", async () => {
@@ -194,10 +194,9 @@ describe("auth command", () => {
       headers: { "content-type": "text/html" },
     }));
     const program = createProgram();
-    await program.parseAsync(["node", "arinova", "auth", "login", "--port", "31001"]);
-    expect(mocks.printError).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining("502"),
-    }));
+    await expect(program.parseAsync([
+      "node", "arinova", "auth", "login", "--port", "31001",
+    ])).rejects.toThrow("502");
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { get, UnsupportedCommandError } from "../client.js";
-import { printResult, printError, table } from "../output.js";
+import { printResult, table } from "../output.js";
 
 const VALID_TYPES = ["theme", "expert", "sticker", "lounge", "community", "space"] as const;
 type ListType = (typeof VALID_TYPES)[number];
@@ -81,30 +81,26 @@ export function registerList(program: Command): void {
     .action(async (opts: { type: string }) => {
       const t = opts.type.toLowerCase() as ListType;
       if (!VALID_TYPES.includes(t)) {
-        printError(new Error(`Invalid type "${opts.type}". Must be one of: ${VALID_TYPES.join(", ")}`));
+        throw new Error(`Invalid type "${opts.type}". Must be one of: ${VALID_TYPES.join(", ")}`);
         return;
       }
 
       const config = TYPE_MAP[t];
-      try {
-        if (config.unsupported) {
-          throw new UnsupportedCommandError(config.unsupported);
-        }
-        if (!config.endpoint) {
-          throw new UnsupportedCommandError(`No endpoint configured for ${t}.`);
-        }
-        const data = await get(config.endpoint);
-        const items =
-          (data as Record<string, unknown>)[config.extractKey] ??
-          (data as Record<string, unknown>).agents ??
-          data;
-        if (Array.isArray(items)) {
-          table(items as Record<string, unknown>[], config.columns);
-        } else {
-          printResult(data);
-        }
-      } catch (err) {
-        printError(err);
+      if (config.unsupported) {
+        throw new UnsupportedCommandError(config.unsupported);
+      }
+      if (!config.endpoint) {
+        throw new UnsupportedCommandError(`No endpoint configured for ${t}.`);
+      }
+      const data = await get(config.endpoint);
+      const items =
+        (data as Record<string, unknown>)[config.extractKey] ??
+        (data as Record<string, unknown>).agents ??
+        data;
+      if (Array.isArray(items)) {
+        table(items as Record<string, unknown>[], config.columns);
+      } else {
+        printResult(data);
       }
     });
 }

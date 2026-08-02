@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { get, buildQuery } from "../client.js";
-import { printResult, printError } from "../output.js";
+import { printResult } from "../output.js";
 
 export function registerStats(program: Command): void {
   const stats = program.command("stats").description("Dashboard statistics");
@@ -9,12 +9,8 @@ export function registerStats(program: Command): void {
     .command("overview")
     .description("Show dashboard overview")
     .action(async () => {
-      try {
-        const data = await get("/api/v1/creator/dashboard");
-        printResult(data);
-      } catch (err) {
-        printError(err);
-      }
+      const data = await get("/api/v1/creator/dashboard");
+      printResult(data);
     });
 
   stats
@@ -22,11 +18,7 @@ export function registerStats(program: Command): void {
     .description("Show revenue breakdown")
     .option("--period <period>", "Period (7d, 30d, 90d)", "30d")
     .action(async (opts: { period: string }) => {
-      try {
-        const data = await get(`/api/v1/creator/revenue${buildQuery({ period: opts.period })}`);
-        printResult(data);
-      } catch (err) {
-        printError(err);
-      }
+      const data = await get(`/api/v1/creator/revenue${buildQuery({ period: opts.period })}`);
+      printResult(data);
     });
 }
