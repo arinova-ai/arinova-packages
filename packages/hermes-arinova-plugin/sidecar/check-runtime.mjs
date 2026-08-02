@@ -7,6 +7,8 @@ import {
   createControlServer,
   intEnv,
   listen,
+  nonNegativeIntEnv,
+  positiveIntEnv,
   postAdapter,
   readJson,
   requiredEnv
@@ -32,6 +34,18 @@ assert.throws(
 assert.throws(
   () => intEnv({ ARINOVA_SIDECAR_PORT: "0x2259" }, "ARINOVA_SIDECAR_PORT"),
   /must be a non-negative integer/
+);
+assert.equal(nonNegativeIntEnv({ ARINOVA_MAX_QUEUED_TASKS: "0" }, "ARINOVA_MAX_QUEUED_TASKS"), 0);
+assert.equal(nonNegativeIntEnv({ ARINOVA_MAX_QUEUED_TASKS: "7" }, "ARINOVA_MAX_QUEUED_TASKS"), 7);
+assert.equal(nonNegativeIntEnv({}, "ARINOVA_MAX_QUEUED_TASKS"), undefined);
+assert.throws(
+  () => nonNegativeIntEnv({ ARINOVA_MAX_QUEUED_TASKS: "-1" }, "ARINOVA_MAX_QUEUED_TASKS"),
+  /must be a non-negative integer/
+);
+assert.equal(positiveIntEnv({ ARINOVA_PING_INTERVAL_MS: "250" }, "ARINOVA_PING_INTERVAL_MS"), 250);
+assert.throws(
+  () => positiveIntEnv({ ARINOVA_PING_INTERVAL_MS: "0" }, "ARINOVA_PING_INTERVAL_MS"),
+  /must be a positive integer/
 );
 
 assert.deepEqual(
@@ -278,6 +292,28 @@ assert.throws(
     env: { ARINOVA_CONCURRENCY_MODE: "serial" }
   }),
   /must be one of/
+);
+assert.equal(
+  buildAgentOptions({
+    serverUrl: "ws://example",
+    botToken: "token",
+    env: { ARINOVA_MAX_QUEUED_TASKS: "0" }
+  }).maxQueuedTasks,
+  0
+);
+assert.throws(
+  () => buildAgentOptions({
+    serverUrl: "ws://example",
+    botToken: "token",
+    env: { ARINOVA_PING_INTERVAL_MS: "0" }
+  }),
+  /ARINOVA_PING_INTERVAL_MS must be a positive integer/
+);
+assert.throws(
+  () => buildControlServerOptions({
+    env: { ARINOVA_CONTROL_MAX_BODY_BYTES: "0" }
+  }),
+  /ARINOVA_CONTROL_MAX_BODY_BYTES must be a positive integer/
 );
 
 assert.deepEqual(

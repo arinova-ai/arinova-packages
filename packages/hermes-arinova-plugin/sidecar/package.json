@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Node sidecar that bridges Hermes Agent to Arinova Chat via @arinova-ai/agent-sdk",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node index.mjs",

@@ -6,7 +6,7 @@ The plugin does not patch Hermes source. It registers a `arinova` gateway
 platform through `ctx.register_platform()` and runs a small Node sidecar that
 uses `@arinova-ai/agent-sdk`.
 
-The sidecar requires Node.js 20 or newer.
+The sidecar requires Node.js 22 or newer.
 
 ## Install
 
@@ -855,7 +855,7 @@ Hermes' platform listing and tool resolver, index every Arinova tool under the
 schemas through Hermes' `model_tools` enabled-toolset filtering, and pass
 SDK-native camelCase alias fields through those schemas while passing
 `check_requirements()`, configured SDK runtime options, and the
-sidecar's Node.js 20+ runtime requirement. It also verifies copied-install
+sidecar's Node.js 22+ runtime requirement. It also verifies copied-install
 sidecar environment propagation plus Python adapter runtime controls such as
 sidecar post timeout, connect timeout, attachment download limits, autostart,
 and bot-sender policy, with the copied SDK install checked

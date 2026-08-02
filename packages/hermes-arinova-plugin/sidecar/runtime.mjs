@@ -15,7 +15,7 @@ const CONTROL_ENDPOINTS = new Set([
   "/error",
   "/shutdown"
 ]);
-const DEFAULT_CONTROL_MAX_BODY_BYTES = 1024 * 1024;
+const DEFAULT_CONTROL_MAX_BODY_BYTES = 128 * 1024 * 1024;
 const DEFAULT_ADAPTER_POST_TIMEOUT_MS = 10_000;
 const MAX_PENDING_TASK_OUTPUTS = 256;
 export function intEnv(env, name) {
@@ -36,6 +36,12 @@ export function positiveIntEnv(env, name) {
   const value = intEnv(env, name);
   if (value === 0) throw new Error(`${name} must be a positive integer`);
   return value;
+}
+
+// For settings where 0 has a defined meaning (e.g. maxQueuedTasks: 0 means
+// "never queue" in the SDK).
+export function nonNegativeIntEnv(env, name) {
+  return intEnv(env, name);
 }
 
 export function requiredEnv(env, name) {
@@ -96,7 +102,7 @@ export function buildAgentOptions({ serverUrl, botToken, env = process.env }) {
   if (pingTimeout !== undefined) options.pingTimeout = pingTimeout;
   const maxConsecutive = positiveIntEnv(env, "ARINOVA_MAX_CONSECUTIVE_PER_CONVERSATION");
   if (maxConsecutive !== undefined) options.maxConsecutivePerConversation = maxConsecutive;
-  const maxQueuedTasks = positiveIntEnv(env, "ARINOVA_MAX_QUEUED_TASKS");
+  const maxQueuedTasks = nonNegativeIntEnv(env, "ARINOVA_MAX_QUEUED_TASKS");
   if (maxQueuedTasks !== undefined) options.maxQueuedTasks = maxQueuedTasks;
 
   const concurrencyMode = env.ARINOVA_CONCURRENCY_MODE || env.ARINOVA_AGENT_CONCURRENCY_MODE || "per-conversation";

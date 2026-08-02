@@ -31,6 +31,15 @@ def _csv(value):
     return str(value)
 
 
+def _env_if_unset(name: str, value) -> None:
+    if value is None or os.getenv(name):
+        return
+    normalized = _csv(value).strip()
+    if not normalized:
+        return
+    os.environ[name] = normalized
+
+
 def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
     extra = {}
     key_map = {
@@ -69,6 +78,16 @@ def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
         if yaml_key in platform_cfg:
             extra[extra_key] = platform_cfg[yaml_key]
 
+    # Bridge YAML-only deployments into the env vars Hermes actually reads:
+    # register() resolves authorization via ARINOVA_ALLOWED_USERS /
+    # ARINOVA_ALLOW_ALL_USERS, cron delivery reads ARINOVA_HOME_CONVERSATION,
+    # and the sidecar launcher reads ARINOVA_NODE_BIN. Env vars that are
+    # already set always win.
+    yaml_token = platform_cfg.get("bot_token") or platform_cfg.get("token")
+    _env_if_unset("ARINOVA_SERVER_URL", platform_cfg.get("server_url"))
+    _env_if_unset("ARINOVA_BOT_TOKEN", yaml_token)
+    _env_if_unset("ARINOVA_NODE_BIN", platform_cfg.get("node_bin"))
+
     if "agent_skills_json" in platform_cfg:
         extra["agent_skills_json"] = platform_cfg["agent_skills_json"]
     elif "agent_skills" in platform_cfg:
@@ -81,8 +100,16 @@ def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
         name = home.get("name")
         if chat_id:
             extra["home_channel"] = {"chat_id": str(chat_id), "name": str(name or "Arinova Chat")}
+            _env_if_unset("ARINOVA_HOME_CONVERSATION", chat_id)
+        if name:
+            _env_if_unset("ARINOVA_HOME_CONVERSATION_NAME", name)
     elif home:
         extra["home_channel"] = {"chat_id": str(home), "name": "Arinova Chat"}
+        _env_if_unset("ARINOVA_HOME_CONVERSATION", home)
+
+    _env_if_unset("ARINOVA_ALLOWED_USERS", platform_cfg.get("allowed_users") or platform_cfg.get("allow_from"))
+    _env_if_unset("ARINOVA_ALLOW_ALL_USERS", platform_cfg.get("allow_all_users"))
+    _env_if_unset("ARINOVA_ALLOW_BOTS", platform_cfg.get("allow_bots"))
 
     return extra or None
 
@@ -297,7 +324,7 @@ def _on_post_tool_call(**kwargs: Any) -> None:
     try:
         _report_post_tool_call(**kwargs)
     except Exception as exc:
-        logger.debug("Arinova: post_tool_call hook failed: %s", exc, exc_info=True)
+        logger.warning("Arinova: post_tool_call hook failed: %s", exc, exc_info=True)
 
 
 def register(ctx):

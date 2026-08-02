@@ -74,7 +74,7 @@ DEFAULT_ATTACHMENT_TOTAL_MAX_BYTES = 64 * 1024 * 1024
 DEFAULT_ATTACHMENT_TOTAL_TIMEOUT_MS = 30_000
 DEFAULT_CONNECT_TIMEOUT_MS = 30_000
 DEFAULT_SIDECAR_POST_TIMEOUT_MS = 10_000
-DEFAULT_CONTROL_MAX_BODY_BYTES = 1024 * 1024
+DEFAULT_CONTROL_MAX_BODY_BYTES = 128 * 1024 * 1024
 SIDECAR_DIR = Path(__file__).parent / "sidecar"
 DEFAULT_SDK_ROOT = Path(__file__).resolve().parent.parent / "agent-sdk"
 SDK_DIST_FILES = (
@@ -202,16 +202,23 @@ POSITIVE_INT_SETTINGS = (
     ("ARINOVA_PING_INTERVAL_MS", "ping_interval_ms"),
     ("ARINOVA_PING_TIMEOUT_MS", "ping_timeout_ms"),
     ("ARINOVA_MAX_CONSECUTIVE_PER_CONVERSATION", "max_consecutive_per_conversation"),
-    ("ARINOVA_MAX_QUEUED_TASKS", "max_queued_tasks"),
     ("ARINOVA_CONNECT_TIMEOUT_MS", "connect_timeout_ms"),
     ("ARINOVA_ADAPTER_POST_TIMEOUT_MS", "adapter_post_timeout_ms"),
     ("ARINOVA_SIDECAR_POST_TIMEOUT_MS", "sidecar_post_timeout_ms"),
-    ("ARINOVA_ATTACHMENT_MAX_BYTES", "attachment_max_bytes"),
-    ("ARINOVA_ATTACHMENT_MAX_COUNT", "attachment_max_count"),
-    ("ARINOVA_ATTACHMENT_TOTAL_MAX_BYTES", "attachment_total_max_bytes"),
     ("ARINOVA_ATTACHMENT_TOTAL_TIMEOUT_MS", "attachment_total_timeout_ms"),
     ("ARINOVA_CONTROL_MAX_BODY_BYTES", "control_max_body_bytes"),
 )
+# Settings where 0 has a defined meaning: attachment_max_count=0 and
+# attachment_max_bytes=0 (and a 0 aggregate byte budget) disable attachment
+# downloads, and the SDK explicitly supports maxQueuedTasks=0 (never queue).
+NONNEGATIVE_INT_SETTINGS = (
+    ("ARINOVA_MAX_QUEUED_TASKS", "max_queued_tasks"),
+    ("ARINOVA_ATTACHMENT_MAX_BYTES", "attachment_max_bytes"),
+    ("ARINOVA_ATTACHMENT_MAX_COUNT", "attachment_max_count"),
+    ("ARINOVA_ATTACHMENT_TOTAL_MAX_BYTES", "attachment_total_max_bytes"),
+)
+INT_SETTINGS = POSITIVE_INT_SETTINGS + NONNEGATIVE_INT_SETTINGS
+_ZERO_ALLOWED_INT_ENV_NAMES = frozenset(env_name for env_name, _ in NONNEGATIVE_INT_SETTINGS)
 
 
 def _resolve_public_http_url(url: str) -> tuple[urllib.parse.SplitResult, str, int]:
@@ -300,26 +307,30 @@ class _PinnedHTTPHandler(urllib.request.HTTPHandler):
 class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
     handler_order = 100
 
+    def __init__(self, context: ssl.SSLContext | None = None):
+        # Hostname checking must be configured on the SSLContext itself:
+        # Python 3.12 removed HTTPSHandler._check_hostname and
+        # http.client.HTTPSConnection no longer accepts check_hostname.
+        if context is None:
+            context = ssl.create_default_context()
+        super().__init__(context=context)
+
     def https_open(self, req):
         _, pinned_ip, _ = _resolve_public_http_url(req.full_url)
         return self.do_open(
             lambda host, **kwargs: _PinnedHTTPSConnection(host, pinned_ip=pinned_ip, **kwargs),
             req,
             context=self._context,
-            check_hostname=self._check_hostname,
         )
 
 
 class _AttachmentRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         target = urllib.parse.urljoin(req.full_url, newurl)
-        hostname = urllib.parse.urlsplit(target).hostname
-        try:
-            literal_ip = ipaddress.ip_address(hostname or "")
-        except ValueError:
-            literal_ip = None
-        if literal_ip is not None and not literal_ip.is_global:
-            raise ValueError("attachment URL resolves to a non-public address")
+        scheme = urllib.parse.urlsplit(target).scheme
+        if scheme not in {"http", "https"}:
+            raise ValueError("attachment redirect must use an http(s) URL")
+        _validate_public_http_url(target)
         return super().redirect_request(req, fp, code, msg, headers, target)
 
 
@@ -390,18 +401,24 @@ def _parse_nonnegative_int(value: Any) -> int | None:
     return parsed if parsed >= 0 else None
 
 
-def _parse_positive_int(value: Any) -> int | None:
+def _zero_allowed_for(name: str) -> bool:
+    return name in _ZERO_ALLOWED_INT_ENV_NAMES
+
+
+def _parse_int_setting(value: Any, *, allow_zero: bool) -> int | None:
     parsed = _parse_nonnegative_int(value)
-    return parsed if parsed is not None and parsed > 0 else None
+    if parsed is None or (parsed == 0 and not allow_zero):
+        return None
+    return parsed
 
 
 def _int_env(name: str, default: int) -> int:
-    value = _parse_positive_int(os.getenv(name, ""))
+    value = _parse_int_setting(os.getenv(name, ""), allow_zero=_zero_allowed_for(name))
     return default if value is None else value
 
 
 def _int_setting(name: str, extra_value: Any, default: int) -> int:
-    extra_default = _parse_positive_int(extra_value)
+    extra_default = _parse_int_setting(extra_value, allow_zero=_zero_allowed_for(name))
     if extra_default is None:
         extra_default = default
     return _int_env(name, extra_default)
@@ -409,22 +426,23 @@ def _int_setting(name: str, extra_value: Any, default: int) -> int:
 
 def _optional_int_setting(name: str, extra_value: Any) -> int | None:
     raw = os.getenv(name) if name in os.environ else extra_value
-    return _parse_positive_int(raw)
+    return _parse_int_setting(raw, allow_zero=_zero_allowed_for(name))
 
 
-def _valid_positive_int_value(value: Any) -> bool:
+def _valid_int_setting_value(value: Any, *, allow_zero: bool) -> bool:
     if value in (None, "") or isinstance(value, bool):
         return value in (None, "")
-    return _parse_positive_int(value) is not None
+    return _parse_int_setting(value, allow_zero=allow_zero) is not None
 
 
-def _valid_positive_int_settings(extra: dict[str, Any]) -> bool:
-    for env_name, extra_key in POSITIVE_INT_SETTINGS:
+def _valid_int_settings(extra: dict[str, Any]) -> bool:
+    for env_name, extra_key in INT_SETTINGS:
+        allow_zero = _zero_allowed_for(env_name)
         if env_name in os.environ:
-            if not _valid_positive_int_value(os.getenv(env_name)):
+            if not _valid_int_setting_value(os.getenv(env_name), allow_zero=allow_zero):
                 return False
             continue
-        if extra_key in extra and not _valid_positive_int_value(extra.get(extra_key)):
+        if extra_key in extra and not _valid_int_setting_value(extra.get(extra_key), allow_zero=allow_zero):
             return False
     return True
 
@@ -1064,7 +1082,7 @@ def _node_version_supported(node_bin: str) -> bool:
         major = int(version.split(".", 1)[0])
     except (TypeError, ValueError):
         return False
-    return major >= 20
+    return major >= 22
 
 
 def validate_config(cfg: PlatformConfig) -> bool:
@@ -1077,7 +1095,7 @@ def validate_config(cfg: PlatformConfig) -> bool:
         and bot_token
         and concurrency_mode in CONCURRENCY_MODES
         and _valid_agent_skills_setting(extra)
-        and _valid_positive_int_settings(extra)
+        and _valid_int_settings(extra)
     )
 
 
@@ -1746,7 +1764,7 @@ class ArinovaAdapter(BasePlatformAdapter):
         if not shutil.which(self.node_bin):
             raise RuntimeError(f"Node executable not found for Arinova sidecar: {self.node_bin}")
         if not _node_version_supported(self.node_bin):
-            raise RuntimeError(f"Arinova sidecar requires Node >=20: {self.node_bin}")
+            raise RuntimeError(f"Arinova sidecar requires Node >=22: {self.node_bin}")
         dependency_error = _sidecar_dependency_error(self.node_bin, self.agent_sdk_root)
         if dependency_error:
             raise RuntimeError(dependency_error)
@@ -2217,12 +2235,21 @@ class ArinovaAdapter(BasePlatformAdapter):
         return cached.path, cached.media_type, cached.context_note(), len(data)
 
     def _attachment_urlopen(self, req: urllib.request.Request, *, timeout: float):
-        opener = urllib.request.build_opener(
+        # Build the opener from an explicit safe handler list only. Never use
+        # build_opener() here: it installs default FileHandler/FTPHandler/
+        # DataHandler entries, which would let file:///ftp:/data: attachment
+        # URLs or redirects read local files.
+        opener = urllib.request.OpenerDirector()
+        for handler in (
             urllib.request.ProxyHandler({}),
+            urllib.request.UnknownHandler(),
+            urllib.request.HTTPDefaultErrorHandler(),
             _PinnedHTTPHandler(),
             _PinnedHTTPSHandler(context=ssl.create_default_context()),
             _AttachmentRedirectHandler(),
-        )
+            urllib.request.HTTPErrorProcessor(),
+        ):
+            opener.add_handler(handler)
         return opener.open(req, timeout=timeout)
 
     def _download_attachment_bytes(
@@ -2235,6 +2262,7 @@ class ArinovaAdapter(BasePlatformAdapter):
         byte_limit = self.attachment_max_bytes if max_bytes is None else max_bytes
         if byte_limit <= 0 or timeout_seconds <= 0:
             raise ValueError("attachment download budget exhausted")
+        _validate_public_http_url(url)
         req = urllib.request.Request(
             url,
             headers={"User-Agent": "Hermes-Arinova-Plugin/0.1"},

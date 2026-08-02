@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -1357,8 +1358,46 @@ def assert_yaml_bridge(entry) -> None:
             {"id": "memo", "name": "Memo", "description": "Use memos"}
         ]:
             raise RuntimeError(f"copied plugin YAML bridge did not encode agent skills: {seeded}")
-        if any(os.environ.get(key) is not None for key in env_keys):
-            raise RuntimeError("copied plugin YAML bridge mutated process environment")
+        expected_bridge_env = {
+            "ARINOVA_SERVER_URL": "wss://clean-yaml.example",
+            "ARINOVA_BOT_TOKEN": "ari_clean_yaml",
+            "ARINOVA_ALLOWED_USERS": "user-1,user-2",
+            "ARINOVA_ALLOW_ALL_USERS": "False",
+            "ARINOVA_ALLOW_BOTS": "all",
+            "ARINOVA_NODE_BIN": None,
+            "ARINOVA_HOME_CONVERSATION": "conv-clean-yaml",
+            "ARINOVA_HOME_CONVERSATION_NAME": "Clean YAML Home",
+            "ARINOVA_AGENT_SKILLS_JSON": None,
+            "ARINOVA_AGENT_SKILLS": None,
+        }
+        bridge_env = {key: os.environ.get(key) for key in env_keys}
+        if bridge_env != expected_bridge_env:
+            raise RuntimeError(f"copied plugin YAML bridge did not seed unset env from YAML config: {bridge_env}")
+
+        preset_env = {
+            "ARINOVA_SERVER_URL": "wss://clean-preset.example",
+            "ARINOVA_BOT_TOKEN": "ari_clean_preset",
+            "ARINOVA_ALLOWED_USERS": "preset-user",
+            "ARINOVA_ALLOW_ALL_USERS": "true",
+            "ARINOVA_HOME_CONVERSATION": "conv-clean-preset",
+            "ARINOVA_HOME_CONVERSATION_NAME": "Clean Preset Home",
+        }
+        for key in env_keys:
+            os.environ.pop(key, None)
+        os.environ.update(preset_env)
+        entry.apply_yaml_config_fn(
+            {},
+            {
+                "server_url": "wss://clean-yaml.example",
+                "bot_token": "ari_clean_yaml",
+                "allowed_users": ["user-1", "user-2"],
+                "allow_all_users": False,
+                "home_conversation": {"chat_id": "conv-clean-yaml", "name": "Clean YAML Home"},
+            },
+        )
+        overridden = {key: os.environ.get(key) for key in preset_env if os.environ.get(key) != preset_env[key]}
+        if overridden:
+            raise RuntimeError(f"copied plugin YAML bridge overrode pre-set env values: {overridden}")
 
         for key in env_keys:
             os.environ.pop(key, None)
@@ -1371,8 +1410,8 @@ def assert_yaml_bridge(entry) -> None:
         )
         if token_alias_seeded.get("bot_token") != "ari_clean_token_alias":
             raise RuntimeError(f"copied plugin YAML bridge did not accept token alias: {token_alias_seeded}")
-        if any(os.environ.get(key) is not None for key in env_keys):
-            raise RuntimeError("copied plugin token alias mutated process environment")
+        if os.environ.get("ARINOVA_BOT_TOKEN") != "ari_clean_token_alias":
+            raise RuntimeError("copied plugin YAML bridge did not seed ARINOVA_BOT_TOKEN from token alias")
 
         for key in env_keys:
             os.environ.pop(key, None)
@@ -1389,8 +1428,12 @@ def assert_yaml_bridge(entry) -> None:
             "name": "Clean Home Alias",
         }:
             raise RuntimeError(f"copied plugin YAML bridge did not accept home_channel alias: {home_alias_seeded}")
-        if any(os.environ.get(key) is not None for key in env_keys):
-            raise RuntimeError("copied plugin home alias mutated process environment")
+        if os.environ.get("ARINOVA_HOME_CONVERSATION") != "conv-clean-home-alias":
+            raise RuntimeError("copied plugin YAML bridge did not seed ARINOVA_HOME_CONVERSATION from home_channel alias")
+        if os.environ.get("ARINOVA_HOME_CONVERSATION_NAME") != "Clean Home Alias":
+            raise RuntimeError(
+                "copied plugin YAML bridge did not seed ARINOVA_HOME_CONVERSATION_NAME from home_channel alias"
+            )
     finally:
         for key, value in old_env.items():
             if value is None:
@@ -1617,8 +1660,20 @@ def main() -> int:
         assert_registry_schemas(registry, loaded.module, expected_tools)
         asyncio.run(assert_registry_dispatches(registry, loaded.module))
         try:
-            assert_agent_runtime_invokes_enabled_toolset(loaded.module)
-        except (ImportError, TypeError) as error:
+            from agent import agent_runtime_helpers as runtime_helpers
+
+            # Deterministic capability probe, not a TypeError catch: when the
+            # Hermes checkout supports skip_tool_request_middleware the
+            # assertion runs unguarded, so a genuine TypeError from a
+            # signature bug fails this check instead of being swallowed.
+            if "skip_tool_request_middleware" not in inspect.signature(runtime_helpers.invoke_tool).parameters:
+                print(
+                    "clean install agent runtime integration skipped for incompatible checkout: "
+                    "invoke_tool lacks skip_tool_request_middleware"
+                )
+            else:
+                assert_agent_runtime_invokes_enabled_toolset(loaded.module)
+        except ImportError as error:
             print(f"clean install agent runtime integration skipped for incompatible checkout: {error}")
         sidecar_package = json.loads((plugin_dir / "sidecar/package.json").read_text(encoding="utf-8"))
         assert_sidecar_check_script(sidecar_package)

@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -491,7 +492,7 @@ def main() -> int:
             "name": "hermes-arinova-sidecar",
             "version": "0.1.0",
             "dependencies": {"@arinova-ai/agent-sdk": "0.0.19"},
-            "engines": {"node": ">=20"},
+            "engines": {"node": ">=22"},
         }
         (fake_sidecar / "package.json").write_text(json.dumps(fake_sidecar_package), encoding="utf-8")
 
@@ -778,7 +779,7 @@ def main() -> int:
             try:
                 adapter._start_sidecar()
             except RuntimeError as exc:
-                if "requires Node >=20" not in str(exc):
+                if "requires Node >=22" not in str(exc):
                     raise RuntimeError(f"_start_sidecar failed with unexpected Node version error: {exc}") from exc
             else:
                 raise RuntimeError("_start_sidecar passed with unsupported Node version")
@@ -929,6 +930,50 @@ def main() -> int:
         or float_numeric_adapter.sidecar_post_timeout_ms != loaded.module.adapter.DEFAULT_SIDECAR_POST_TIMEOUT_MS
     ):
         raise RuntimeError("adapter accepted float YAML numeric config for required integer settings")
+
+    zero_numeric_adapter = loaded.module.ArinovaAdapter(
+        PlatformConfig(
+            enabled=True,
+            token="ari_test",
+            extra={
+                "server_url": "ws://example",
+                "max_queued_tasks": 0,
+                "attachment_max_bytes": 0,
+                "attachment_max_count": 0,
+                "attachment_total_max_bytes": 0,
+                "connect_timeout_ms": 0,
+                "sidecar_post_timeout_ms": 0,
+                "control_max_body_bytes": 0,
+                "sidecar_port": 0,
+            },
+        )
+    )
+    if (
+        zero_numeric_adapter.max_queued_tasks != 0
+        or zero_numeric_adapter.attachment_max_bytes != 0
+        or zero_numeric_adapter.attachment_max_count != 0
+        or zero_numeric_adapter.attachment_total_max_bytes != 0
+    ):
+        raise RuntimeError(
+            "adapter did not preserve zero for settings where zero is meaningful: "
+            f"queued={zero_numeric_adapter.max_queued_tasks} "
+            f"bytes={zero_numeric_adapter.attachment_max_bytes} "
+            f"count={zero_numeric_adapter.attachment_max_count} "
+            f"total={zero_numeric_adapter.attachment_total_max_bytes}"
+        )
+    if (
+        zero_numeric_adapter.connect_timeout_ms != loaded.module.adapter.DEFAULT_CONNECT_TIMEOUT_MS
+        or zero_numeric_adapter.sidecar_post_timeout_ms != loaded.module.adapter.DEFAULT_SIDECAR_POST_TIMEOUT_MS
+        or zero_numeric_adapter.control_max_body_bytes != loaded.module.adapter.DEFAULT_CONTROL_MAX_BODY_BYTES
+        or zero_numeric_adapter.sidecar_port != loaded.module.adapter.DEFAULT_SIDECAR_PORT
+    ):
+        raise RuntimeError("adapter accepted zero YAML config for strictly-positive settings")
+    zero_numeric_env = zero_numeric_adapter._sidecar_env()
+    if zero_numeric_env.get("ARINOVA_MAX_QUEUED_TASKS") != "0":
+        raise RuntimeError(
+            "zero max_queued_tasks did not propagate to sidecar env: "
+            f"{zero_numeric_env.get('ARINOVA_MAX_QUEUED_TASKS')!r}"
+        )
 
     plus_numeric_env = {
         "ARINOVA_SIDECAR_PORT": "+1",
@@ -2752,26 +2797,43 @@ def main() -> int:
     adapter.download_attachments = True
 
     adapter._download_attachment_media = original_download_attachment_media
-    asyncio.run(
-        adapter._handle_arinova_task(
-            {
-                "taskId": "task-media-invalid-url",
-                "conversationId": "conv-media-invalid-url",
-                "conversationType": "direct",
-                "content": "see invalid file",
-                "senderUserId": "user-1",
-                "attachments": [
-                    {
-                        "id": "att-invalid",
-                        "fileName": "invalid.txt",
-                        "fileType": "text/plain",
-                        "fileSize": 3,
-                        "url": "file:///tmp/invalid.txt",
-                    }
-                ],
-            }
+    # Use a file:// URL that points at a file that really EXISTS so this only
+    # passes when the scheme itself is blocked by URL validation, not because
+    # the target happens to be missing.
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
+        handle.write("local secret that must never be readable via attachments")
+        local_attachment_path = Path(handle.name)
+    try:
+        local_file_url = local_attachment_path.as_uri()
+        try:
+            adapter._download_attachment_bytes(local_file_url)
+        except ValueError as exc:
+            if "must be an absolute http(s) URL" not in str(exc):
+                raise RuntimeError(f"file:// attachment URL failed with unexpected error: {exc}") from exc
+        else:
+            raise RuntimeError("file:// attachment URL pointing at an existing file was accepted")
+        asyncio.run(
+            adapter._handle_arinova_task(
+                {
+                    "taskId": "task-media-invalid-url",
+                    "conversationId": "conv-media-invalid-url",
+                    "conversationType": "direct",
+                    "content": "see invalid file",
+                    "senderUserId": "user-1",
+                    "attachments": [
+                        {
+                            "id": "att-invalid",
+                            "fileName": "invalid.txt",
+                            "fileType": "text/plain",
+                            "fileSize": 3,
+                            "url": local_file_url,
+                        }
+                    ],
+                }
+            )
         )
-    )
+    finally:
+        local_attachment_path.unlink(missing_ok=True)
     invalid_event = captured_events[-1]
     if invalid_event.media_urls or invalid_event.media_types or invalid_event.message_type.name != "TEXT":
         raise RuntimeError(
@@ -2819,7 +2881,9 @@ def main() -> int:
     attachment_requests: list[tuple] = []
 
     def fake_public_getaddrinfo(host, port, **_kwargs):
-        return [(loaded.module.adapter.socket.AF_INET, loaded.module.adapter.socket.SOCK_STREAM, 6, "", ("203.0.113.10", port))]
+        # A genuinely global address: the TEST-NET documentation ranges are
+        # rejected by ipaddress.ip_address(...).is_global.
+        return [(loaded.module.adapter.socket.AF_INET, loaded.module.adapter.socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
 
     def fake_attachment_urlopen(req, *, timeout=0):
         attachment_requests.append((req, timeout))
@@ -2883,7 +2947,104 @@ def main() -> int:
     else:
         raise RuntimeError("redirect to private address was accepted")
 
+    for non_http_redirect in ("ftp://files.example/pub.txt", "file:///etc/hosts", "data:text/plain,hi"):
+        try:
+            redirect_handler.redirect_request(
+                urllib.request.Request("https://files.example/start"),
+                None,
+                302,
+                "Found",
+                {},
+                non_http_redirect,
+            )
+        except ValueError as exc:
+            if "http(s)" not in str(exc):
+                raise RuntimeError(f"non-http redirect failed unexpectedly: {non_http_redirect}: {exc}") from exc
+        else:
+            raise RuntimeError(f"redirect to non-http scheme was accepted: {non_http_redirect}")
+
+    def fake_private_getaddrinfo(host, port, **_kwargs):
+        return [(loaded.module.adapter.socket.AF_INET, loaded.module.adapter.socket.SOCK_STREAM, 6, "", ("10.9.8.7", port))]
+
+    loaded.module.adapter.socket.getaddrinfo = fake_private_getaddrinfo
+    try:
+        redirect_handler.redirect_request(
+            urllib.request.Request("https://files.example/start"),
+            None,
+            302,
+            "Found",
+            {},
+            "https://internal.example/private",
+        )
+    except ValueError as exc:
+        if "non-public address" not in str(exc):
+            raise RuntimeError(f"private-hostname redirect failed unexpectedly: {exc}") from exc
+    else:
+        raise RuntimeError("redirect to hostname resolving to a private address was accepted")
+    finally:
+        loaded.module.adapter.socket.getaddrinfo = original_getaddrinfo
+
     loaded.module.adapter.socket.getaddrinfo = fake_public_getaddrinfo
+    redirected_request = redirect_handler.redirect_request(
+        urllib.request.Request("https://files.example/start"),
+        None,
+        302,
+        "Found",
+        {},
+        "https://files.example/moved.txt",
+    )
+    if redirected_request is None or redirected_request.full_url != "https://files.example/moved.txt":
+        raise RuntimeError(f"public https redirect was not followed: {redirected_request}")
+
+    # Exercise the real pinned HTTPS handler wiring (not the monkey-patched
+    # _attachment_urlopen): https_open must build the pinned connection through
+    # an ssl.SSLContext only. Passing the removed check_hostname argument or
+    # reading the removed HTTPSHandler._check_hostname attribute fails here.
+    pinned_https_handler = loaded.module.adapter._PinnedHTTPSHandler()
+    handler_do_open_calls = []
+
+    def fake_handler_do_open(http_class, handler_req, **http_conn_kwargs):
+        connection = http_class("files.example", timeout=7, **http_conn_kwargs)
+        handler_do_open_calls.append((connection, handler_req, http_conn_kwargs))
+        return LimitedAttachmentResponse()
+
+    pinned_https_handler.do_open = fake_handler_do_open
+    pinned_https_handler.https_open(urllib.request.Request("https://files.example/pinned.txt"))
+    if len(handler_do_open_calls) != 1:
+        raise RuntimeError(f"pinned HTTPS handler did not call do_open exactly once: {handler_do_open_calls}")
+    pinned_connection, pinned_req, pinned_kwargs = handler_do_open_calls[-1]
+    if not isinstance(pinned_connection, loaded.module.adapter._PinnedHTTPSConnection):
+        raise RuntimeError(f"pinned HTTPS handler built unexpected connection type: {type(pinned_connection)}")
+    if pinned_connection._pinned_ip != "93.184.216.34" or pinned_connection.host != "files.example":
+        raise RuntimeError(
+            f"pinned HTTPS connection target drifted: ip={pinned_connection._pinned_ip} host={pinned_connection.host}"
+        )
+    if pinned_req.full_url != "https://files.example/pinned.txt":
+        raise RuntimeError(f"pinned HTTPS handler mutated request target: {pinned_req.full_url}")
+    if set(pinned_kwargs) != {"context"}:
+        raise RuntimeError(
+            f"pinned HTTPS handler passed unsupported connection arguments: {sorted(pinned_kwargs)}"
+        )
+    pinned_context = pinned_kwargs["context"]
+    if not isinstance(pinned_context, ssl.SSLContext):
+        raise RuntimeError(f"pinned HTTPS handler did not pass an SSLContext: {pinned_context!r}")
+    if pinned_context.check_hostname is not True or pinned_context.verify_mode != ssl.CERT_REQUIRED:
+        raise RuntimeError(
+            "pinned HTTPS handler SSLContext dropped hostname/certificate verification: "
+            f"check_hostname={pinned_context.check_hostname} verify_mode={pinned_context.verify_mode}"
+        )
+
+    # The real attachment opener must not install file/ftp/data handlers, so
+    # non-http(s) schemes die with "unknown url type" even when validation is
+    # bypassed.
+    for unsafe_scheme_url in ("file:///etc/hosts", "ftp://files.example/pub.txt", "data:text/plain,hi"):
+        try:
+            adapter._attachment_urlopen(urllib.request.Request(unsafe_scheme_url), timeout=5)
+        except urllib.error.URLError as exc:
+            if "unknown url type" not in str(exc):
+                raise RuntimeError(f"unsafe scheme failed unexpectedly: {unsafe_scheme_url}: {exc}") from exc
+        else:
+            raise RuntimeError(f"attachment opener accepted unsafe scheme: {unsafe_scheme_url}")
 
     def assert_attachment_download_error(fake_urlopen_fn, expected_error: str, failure_label: str) -> None:
         adapter._attachment_urlopen = fake_urlopen_fn
@@ -3426,6 +3587,12 @@ def main() -> int:
         "ARINOVA_AGENT_SKILLS",
         "ARINOVA_RECONNECT_INTERVAL_MS",
         "ARINOVA_CONNECT_TIMEOUT_MS",
+        "ARINOVA_CONTROL_MAX_BODY_BYTES",
+        "ARINOVA_SIDECAR_PORT",
+        "ARINOVA_MAX_QUEUED_TASKS",
+        "ARINOVA_ATTACHMENT_MAX_BYTES",
+        "ARINOVA_ATTACHMENT_MAX_COUNT",
+        "ARINOVA_ATTACHMENT_TOTAL_MAX_BYTES",
     ]
     old_config_callback_env = {key: os.environ.get(key) for key in config_callback_env_keys}
     for key in config_callback_env_keys:
@@ -3697,6 +3864,64 @@ def main() -> int:
             raise RuntimeError("Arinova platform callbacks accepted invalid env numeric option")
         os.environ.pop("ARINOVA_CONNECT_TIMEOUT_MS", None)
 
+        for strict_zero_env_name in (
+            "ARINOVA_CONNECT_TIMEOUT_MS",
+            "ARINOVA_CONTROL_MAX_BODY_BYTES",
+            "ARINOVA_SIDECAR_PORT",
+        ):
+            os.environ[strict_zero_env_name] = "0"
+            if loaded.module.validate_config(env_config) or loaded.module.is_connected(env_config):
+                raise RuntimeError(f"Arinova module callbacks accepted zero for {strict_zero_env_name}")
+            if platform_entry.validate_config(env_config) or platform_entry.is_connected(env_config):
+                raise RuntimeError(f"Arinova platform callbacks accepted zero for {strict_zero_env_name}")
+            os.environ.pop(strict_zero_env_name, None)
+
+        for zero_env_name in (
+            "ARINOVA_MAX_QUEUED_TASKS",
+            "ARINOVA_ATTACHMENT_MAX_BYTES",
+            "ARINOVA_ATTACHMENT_MAX_COUNT",
+            "ARINOVA_ATTACHMENT_TOTAL_MAX_BYTES",
+        ):
+            os.environ[zero_env_name] = "0"
+            if not loaded.module.validate_config(env_config) or not loaded.module.is_connected(env_config):
+                raise RuntimeError(f"Arinova module callbacks rejected zero for {zero_env_name}")
+            if not platform_entry.validate_config(env_config) or not platform_entry.is_connected(env_config):
+                raise RuntimeError(f"Arinova platform callbacks rejected zero for {zero_env_name}")
+            os.environ.pop(zero_env_name, None)
+
+        zero_meaningful_config = PlatformConfig(
+            enabled=True,
+            extra={
+                "server_url": "wss://extra.example",
+                "bot_token": "ari_extra",
+                "max_queued_tasks": 0,
+                "attachment_max_bytes": 0,
+                "attachment_max_count": 0,
+                "attachment_total_max_bytes": 0,
+            },
+        )
+        if not loaded.module.validate_config(zero_meaningful_config) or not loaded.module.is_connected(
+            zero_meaningful_config
+        ):
+            raise RuntimeError("Arinova module callbacks rejected YAML zero for zero-meaningful settings")
+        if not platform_entry.validate_config(zero_meaningful_config) or not platform_entry.is_connected(
+            zero_meaningful_config
+        ):
+            raise RuntimeError("Arinova platform callbacks rejected YAML zero for zero-meaningful settings")
+
+        zero_strict_config = PlatformConfig(
+            enabled=True,
+            extra={
+                "server_url": "wss://extra.example",
+                "bot_token": "ari_extra",
+                "connect_timeout_ms": 0,
+            },
+        )
+        if loaded.module.validate_config(zero_strict_config) or loaded.module.is_connected(zero_strict_config):
+            raise RuntimeError("Arinova module callbacks accepted YAML zero for a strictly-positive setting")
+        if platform_entry.validate_config(zero_strict_config) or platform_entry.is_connected(zero_strict_config):
+            raise RuntimeError("Arinova platform callbacks accepted YAML zero for a strictly-positive setting")
+
         boolean_numeric_config = PlatformConfig(
             enabled=True,
             extra={
@@ -3844,8 +4069,50 @@ def main() -> int:
             raise RuntimeError(f"YAML bridge did not JSON-encode agent skills: {seeded}")
         if seeded.get("allowed_users") != ["user-1", "user-2"] or seeded.get("allow_all_users") is not False:
             raise RuntimeError(f"YAML bridge did not preserve allowlist config: {seeded}")
-        if any(os.environ.get(key) is not None for key in env_keys):
-            raise RuntimeError("YAML bridge mutated process environment")
+        expected_bridge_env = {
+            "ARINOVA_SERVER_URL": "wss://yaml.example",
+            "ARINOVA_BOT_TOKEN": "ari_yaml",
+            "ARINOVA_ALLOWED_USERS": "user-1,user-2",
+            "ARINOVA_ALLOW_ALL_USERS": "False",
+            "ARINOVA_ALLOW_BOTS": "all",
+            "ARINOVA_NODE_BIN": "/usr/local/bin/node-custom",
+            "ARINOVA_HOME_CONVERSATION": "conv-yaml",
+            "ARINOVA_HOME_CONVERSATION_NAME": "YAML Home",
+            "ARINOVA_AGENT_SKILLS_JSON": None,
+            "ARINOVA_AGENT_SKILLS": None,
+        }
+        bridge_env = {key: os.environ.get(key) for key in env_keys}
+        if bridge_env != expected_bridge_env:
+            raise RuntimeError(f"YAML bridge did not seed unset env from YAML config: {bridge_env}")
+
+        preset_env = {
+            "ARINOVA_SERVER_URL": "wss://preset.example",
+            "ARINOVA_BOT_TOKEN": "ari_preset",
+            "ARINOVA_ALLOWED_USERS": "preset-user",
+            "ARINOVA_ALLOW_ALL_USERS": "true",
+            "ARINOVA_ALLOW_BOTS": "none",
+            "ARINOVA_NODE_BIN": "/usr/bin/node-preset",
+            "ARINOVA_HOME_CONVERSATION": "conv-preset",
+            "ARINOVA_HOME_CONVERSATION_NAME": "Preset Home",
+        }
+        for key in env_keys:
+            os.environ.pop(key, None)
+        os.environ.update(preset_env)
+        platform_entry.apply_yaml_config_fn(
+            {},
+            {
+                "server_url": "wss://yaml.example",
+                "bot_token": "ari_yaml",
+                "allowed_users": ["user-1", "user-2"],
+                "allow_all_users": False,
+                "allow_bots": "all",
+                "node_bin": "/usr/local/bin/node-custom",
+                "home_conversation": {"chat_id": "conv-yaml", "name": "YAML Home"},
+            },
+        )
+        overridden = {key: os.environ.get(key) for key in preset_env if os.environ.get(key) != preset_env[key]}
+        if overridden:
+            raise RuntimeError(f"YAML bridge overrode pre-set env values: {overridden}")
 
         for key in env_keys:
             os.environ.pop(key, None)
@@ -3858,8 +4125,8 @@ def main() -> int:
         )
         if token_alias_seeded.get("bot_token") != "ari_yaml_token_alias":
             raise RuntimeError(f"YAML bridge did not accept token alias: {token_alias_seeded}")
-        if os.environ.get("ARINOVA_BOT_TOKEN") is not None:
-            raise RuntimeError("YAML bridge mutated ARINOVA_BOT_TOKEN from token alias")
+        if os.environ.get("ARINOVA_BOT_TOKEN") != "ari_yaml_token_alias":
+            raise RuntimeError("YAML bridge did not seed ARINOVA_BOT_TOKEN from token alias")
 
         for key in env_keys:
             os.environ.pop(key, None)
@@ -4584,9 +4851,14 @@ def main() -> int:
     from agent import agent_runtime_helpers
     import model_tools
 
+    # Deterministic capability probe, not an exception catch: when the Hermes
+    # checkout supports skip_tool_request_middleware the runtime integration
+    # below runs unguarded, so a genuine TypeError from a signature bug fails
+    # this check instead of being reported as a pass.
     if "skip_tool_request_middleware" not in inspect.signature(agent_runtime_helpers.invoke_tool).parameters:
         print(
-            "Hermes plugin load OK: runtime integration skipped for incompatible checkout; "
+            "Hermes plugin load OK: runtime integration skipped for incompatible checkout "
+            "(invoke_tool lacks skip_tool_request_middleware); "
             f"platforms={sorted(manager._plugin_platform_names)} tools={len(loaded.tools_registered)}"
         )
         return 0
