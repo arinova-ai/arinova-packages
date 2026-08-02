@@ -25,11 +25,18 @@ review_cadence = "monthly"
 #
 # A trailing ([^a-z]|$) bound also lets a compound handle through
 # (`bitchboy`, `systemadmin`), so terms whose only false positives are
-# a handful of real words drop the trailing bound and list those words
-# in `except` instead: the consumer removes every `except` occurrence
-# from the username before matching, so `bitchute` stays free while
-# `bitchboy` is blocked. Keep `except` lists short and literal — they
-# are exemptions from a safety rule, not a spellcheck dictionary.
+# a handful of real words name those words in `except` instead: the
+# consumer removes every `except` occurrence from the username before
+# matching, so `bitchute` stays free while `bitchboy` is blocked. Keep
+# `except` lists short and literal — they are exemptions from a safety
+# rule, not a spellcheck dictionary.
+#
+# `except` is also what promotes a term to a plain `key`: once the
+# innocent words are enumerable, substring matching is safe and closes
+# the prefix hole a leading (^|[^a-z]) bound leaves open (`xxcunt`).
+# Terms whose innocent compounds are open-ended (`system` → systemd,
+# ecosystem, …) stay boundary patterns, since no finite `except` list
+# would cover them.
 
 # ── reserved-handle ─────────────────────────────────────────────────
 
@@ -131,9 +138,11 @@ applies  = ["username.input"]
 note     = "substring anywhere — brand squatting"
 
 # ── profanity (EN) ──────────────────────────────────────────────────
-# Substring-safe terms as keys; boundary-sensitive terms as token
-# patterns (therapist / grapefruit / analyst / sussex / peacock /
-# dickens / cucumber / shiitake all stay usable).
+# Substring-safe terms as keys — including the three whose innocent
+# words are enumerable and carved out via `except` (scunthorpe /
+# bitchute / penistone); boundary-sensitive terms as token patterns
+# (therapist / grapefruit / analyst / sussex / peacock / dickens /
+# cucumber / shiitake all stay usable).
 
 [[entries]]
 key      = "fuck"
@@ -155,13 +164,14 @@ severity = "block"
 applies  = ["username.input"]
 
 [[entries]]
-pattern  = '(^|[^a-z])cunt'
+key      = "cunt"
+except   = ["scunthorpe"]
 category = "profanity-en"
 severity = "block"
 applies  = ["username.input"]
 
 [[entries]]
-pattern  = '(^|[^a-z])bitch'
+key      = "bitch"
 except   = ["bitchute"]
 category = "profanity-en"
 severity = "block"
@@ -259,7 +269,7 @@ severity = "block"
 applies  = ["username.input"]
 
 [[entries]]
-pattern  = '(^|[^a-z])penis'
+key      = "penis"
 except   = ["penistone"]
 category = "profanity-en"
 severity = "block"

@@ -52,8 +52,6 @@ const FIXTURES = new Map<string, { match: string; reject: string }>([
   ["(^|[^a-z])root([^a-z]|$)", { match: "root_1", reject: "rootbeer" }],
   ["(^|[^a-z])superuser", { match: "superuser_1", reject: "superman" }],
   ["(^|[^a-z])verif", { match: "verified_user", reject: "very_good" }],
-  ["(^|[^a-z])cunt", { match: "cunt_1", reject: "scunthorpe" }],
-  ["(^|[^a-z])bitch", { match: "bitch_1", reject: "bitchute" }],
   ["(^|[^a-z])shit", { match: "shit_user", reject: "shiitake" }],
   ["(^|[^a-z])whore", { match: "whore_1", reject: "shoreline" }],
   ["(^|[^a-z])slut", { match: "slut_1", reject: "salute" }],
@@ -64,7 +62,6 @@ const FIXTURES = new Map<string, { match: string; reject: string }>([
   ["(^|[^a-z])cock([^a-z]|$)", { match: "cock_1", reject: "peacock" }],
   ["(^|[^a-z])dick([^a-z]|$)", { match: "dick_1", reject: "dickens" }],
   ["(^|[^a-z])cum([^a-z]|$)", { match: "cum_1", reject: "cucumber" }],
-  ["(^|[^a-z])penis", { match: "penis_1", reject: "penistone" }],
   ["(^|[^a-z])vagina", { match: "vagina_1", reject: "vanilla" }],
   ["(^|[^a-z])nazi([^a-z]|$)", { match: "nazi_1", reject: "nazir" }],
   ["(^|[^a-z])jiba([^a-z]|$)", { match: "jiba_1", reject: "jibade" }],
@@ -104,6 +101,16 @@ describe("moderation regex behavior", () => {
     const guards = entries("username_guard.toml");
     const blocked = (value: string) => guards.some((entry) => entryBlocks(entry, value));
     for (const handle of ["cuntface", "bitchboy", "penishead", "systemadmin", "systemsupport"]) {
+      expect(blocked(handle), `${handle} must be blocked`).toBe(true);
+    }
+  });
+
+  it("blocks except-guarded terms that a bare prefix used to hide", () => {
+    const guards = entries("username_guard.toml");
+    const blocked = (value: string) => guards.some((entry) => entryBlocks(entry, value));
+    // An except word frees only its own occurrence, and substring matching
+    // leaves no room for a prefix to smuggle the term past a leading bound.
+    for (const handle of ["scunthorpecunt", "xxcunt", "mybitch", "hispenis"]) {
       expect(blocked(handle), `${handle} must be blocked`).toBe(true);
     }
   });
