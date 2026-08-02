@@ -7,6 +7,7 @@ import { setLogLevel, logger } from "./logger.js";
 import { ConfigError } from "./errors.js";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import { realpathSync } from "node:fs";
 
 export interface ShutdownRuntime {
   on(event: "SIGTERM" | "SIGINT", listener: () => void): unknown;
@@ -72,11 +73,22 @@ export async function main(
   await server.start();
 }
 
+function toCanonicalPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
 export function isDirectExecution(
   moduleUrl = import.meta.url,
   entrypoint = process.argv[1],
 ): boolean {
-  return Boolean(entrypoint) && fileURLToPath(moduleUrl) === resolve(entrypoint);
+  if (!entrypoint) return false;
+  // npm bin entrypoints are symlinks (.bin/arinova-mcp -> dist/cli.js), so
+  // both sides must be resolved to their real paths before comparing.
+  return toCanonicalPath(fileURLToPath(moduleUrl)) === toCanonicalPath(resolve(entrypoint));
 }
 
 export function reportFatalError(err: unknown): void {
@@ -87,5 +99,11 @@ export function reportFatalError(err: unknown): void {
 }
 
 if (isDirectExecution()) {
-  main().catch(reportFatalError);
+  main().catch((err) => {
+    reportFatalError(err);
+    // The stdio transport keeps the event loop alive after a fatal startup
+    // error; exit explicitly so the host does not see a zombie that later
+    // closes stdin and exits 0.
+    process.exit(1);
+  });
 }

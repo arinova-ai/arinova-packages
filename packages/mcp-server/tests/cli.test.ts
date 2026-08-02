@@ -34,6 +34,24 @@ describe("CLI entrypoint", () => {
     expect(isDirectExecution("file:///tmp/cli.js", undefined)).toBe(false);
   });
 
+  it("recognizes execution through an npm-style bin symlink", async () => {
+    const { mkdtempSync, writeFileSync, symlinkSync, rmSync, mkdirSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { pathToFileURL } = await import("node:url");
+    const dir = mkdtempSync(join(tmpdir(), "arinova-mcp-bin-"));
+    try {
+      const real = join(dir, "dist", "cli.js");
+      mkdirSync(join(dir, "dist"));
+      writeFileSync(real, "// stub\n");
+      const bin = join(dir, "arinova-mcp");
+      symlinkSync(real, bin);
+      expect(isDirectExecution(pathToFileURL(real).href, bin)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("reports fatal startup errors and sets exit code 1", () => {
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     reportFatalError(new Error("startup failed"));

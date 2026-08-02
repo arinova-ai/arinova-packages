@@ -207,11 +207,13 @@ export class ArinovaClient {
       parentCallId: options.parentCallId ?? null,
     };
     const bodyText = JSON.stringify(payload);
-    const requestBytes = Buffer.byteLength(bodyText, "utf8");
-    if (maxRequestBytes && requestBytes > maxRequestBytes) {
+    // The manifest's maxArgumentsBytes limits the action arguments, not the
+    // whole envelope — envelope overhead must not eat into the caller's budget.
+    const argumentBytes = Buffer.byteLength(JSON.stringify(args ?? {}), "utf8");
+    if (maxRequestBytes && argumentBytes > maxRequestBytes) {
       throw new ActionExecutionError(
         "ARGUMENTS_TOO_LARGE",
-        `Action call envelope size ${requestBytes} exceeds limit ${maxRequestBytes}`,
+        `Action arguments size ${argumentBytes} exceeds limit ${maxRequestBytes}`,
         { callId },
       );
     }
@@ -363,9 +365,10 @@ export class ArinovaClient {
       inFlightActions: this.inFlight,
       protocolVersion: {
         expected: EXPECTED_ACTION_PROTOCOL_VERSION,
-        backend: this.manifest?.manifestVersion ?? null,
-        compatible:
-          this.manifest?.manifestVersion === EXPECTED_ACTION_PROTOCOL_VERSION,
+        // The backend manifest carries a content hash (manifestVersion), not a
+        // protocol version, so compatibility cannot be determined from it.
+        backend: null,
+        compatible: null,
       },
       lastError: this.lastError,
     };

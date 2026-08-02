@@ -96,7 +96,7 @@ describe("ArinovaClient", () => {
       expect(health.protocolVersion).toEqual({
         expected: EXPECTED_ACTION_PROTOCOL_VERSION,
         backend: null,
-        compatible: false,
+        compatible: null,
       });
     });
   });
@@ -577,7 +577,7 @@ describe("ArinovaClient", () => {
       expect(result.callId).toBe(payload?.id);
     });
 
-    it("enforces maxArgumentsBytes against the full wire envelope", async () => {
+    it("enforces maxArgumentsBytes against the arguments, not the envelope", async () => {
       let actionFetches = 0;
       installFetchMock(async () => {
         actionFetches++;
@@ -586,11 +586,17 @@ describe("ArinovaClient", () => {
       await client.connect();
       await expect(client.callAction(
         "test",
-        {},
+        { a: "0123456789" },
         { callId: "fixed" },
         10,
       )).rejects.toMatchObject({ code: "ARGUMENTS_TOO_LARGE", callId: "fixed" });
       expect(actionFetches).toBe(0);
+
+      // Envelope overhead (callId, null option fields, …) must not eat into
+      // the caller's argument budget: tiny args pass even with a tiny limit.
+      await expect(client.callAction("test", {}, { callId: "fixed" }, 10))
+        .resolves.toMatchObject({ status: "success" });
+      expect(actionFetches).toBe(1);
     });
 
     it("maps an unknown backend status to error", async () => {
@@ -628,8 +634,8 @@ describe("ArinovaClient", () => {
       .toBe('"fresh"');
     expect(c.getHealthData().protocolVersion).toEqual({
       expected: EXPECTED_ACTION_PROTOCOL_VERSION,
-      backend: EXPECTED_ACTION_PROTOCOL_VERSION,
-      compatible: true,
+      backend: null,
+      compatible: null,
     });
   });
 });

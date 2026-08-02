@@ -92,4 +92,4 @@ node packages/mcp-server/dist/cli.js --token ari_xxx --api-url https://...
 
 Expected protocol version: `2026-05-05`.
 
-The `arinova_health` tool reports `protocolVersion.expected`, the backend manifest version in `protocolVersion.backend`, and whether they are compatible.
+The `arinova_health` tool reports `protocolVersion.expected` alongside the backend's `manifestVersion` (a content hash of the action catalog). The backend does not advertise a protocol version, so `protocolVersion.backend`/`compatible` are reported as `null`.
