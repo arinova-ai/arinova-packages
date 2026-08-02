@@ -71,6 +71,7 @@ export function registerSlideCommands(program: Command): void {
         title: opts.title,
         content: parseJsonOption(opts.content),
         speakerNotes: opts.speakerNotes,
+        afterSlideId: opts.afterSlideId,
       },
     )));
   item.command("update").argument("<deck-id>").argument("<slide-id>")
