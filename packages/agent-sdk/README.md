@@ -57,6 +57,10 @@ Creates a new agent instance.
 | `botToken` | `string` | Yes | -- | Bot token from the Arinova dashboard |
 | `reconnectInterval` | `number` | No | `5000` | Milliseconds to wait before reconnecting after a disconnect |
 | `pingInterval` | `number` | No | `30000` | Milliseconds between keep-alive pings |
+| `pingTimeout` | `number` | No | `2 * pingInterval` | Milliseconds without a pong before reconnecting |
+| `maxInboundFrameBytes` | `number` | No | `1048576` | Maximum inbound WebSocket frame size |
+| `concurrencyMode` | `"agent-wide" \| "per-conversation" \| "unbounded"` | No | `"agent-wide"` | Task scheduler mode |
+| `maxQueuedTasks` | `number` | No | `100` | Maximum queued tasks across conversations; `0` disables queueing |
 | `logger` | `Pick<Console, "warn" \| "info" \| "error">` | No | `console` | Injectable diagnostics logger; use no-op methods to silence output |
 
 ### `agent.onTask(handler)`
@@ -80,9 +84,11 @@ Subscribes to lifecycle events.
 | `"error"` | `(error: Error) => void` | Fired on authentication failure, connection errors, or message parse errors |
 | `"auth_failed"` | `() => void` | Fired after five non-retryable authentication failures |
 
+Registering the same listener twice is idempotent. Use `agent.off(event, listener)` to unsubscribe it. Listener exceptions are isolated and reported through the configured logger.
+
 ### `agent.connect()`
 
-Connects to the server and authenticates with the bot token. Returns a `Promise<void>` that resolves on successful authentication or rejects on auth failure.
+Connects to the server and authenticates with the bot token. Concurrent calls share one in-flight promise. It resolves on successful authentication and rejects on terminal auth failure or an explicit `disconnect()`.
 
 ```ts
 try {
@@ -113,7 +119,7 @@ The object passed to your `onTask` handler.
 | `raw` | `Readonly<Record<string, unknown>>` | Complete server task payload, including forward-compatible metadata |
 | `taskId` | `string` | Unique task ID assigned by the server |
 | `conversationId` | `string \| undefined` | Conversation ID; absent for platform wakeups |
-| `content` | `string` | The user's message text |
+| `content` | `string \| undefined` | The user's message text; absent for cron/trigger wakeups |
 | `availableSkills` | `InstalledSkill[] \| undefined` | Installed skills supplied with this task |
 | `sendChunk(chunk)` | `(chunk: string) => void` | Send a streaming text chunk to the user |
 | `sendComplete(content)` | `(content: string) => void` | Mark the task as complete with the full response |
@@ -128,6 +134,8 @@ Send a proactive message to a conversation. Uses WebSocket if connected, otherwi
 ```ts
 await agent.sendMessage("conv-id", "Hello from the agent!");
 ```
+
+The HTTP path resolves after the server response. The authenticated WebSocket path resolves after the frame is written; it does not currently wait for a server acknowledgement.
 
 All HTTP methods reject with `ArinovaApiError`, which exposes the numeric
 `status` and parsed JSON or text `body` without requiring message regexes.

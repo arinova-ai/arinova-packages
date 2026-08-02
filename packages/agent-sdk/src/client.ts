@@ -6,34 +6,6 @@ import type {
   TaskHandler,
   AgentEvent,
   AgentEventListener,
-  UploadResult,
-  FetchHistoryOptions,
-  FetchHistoryResult,
-  Note,
-  ListNotesOptions,
-  ListNotesResult,
-  CreateNoteBody,
-  UpdateNoteBody,
-  KanbanBoard,
-  KanbanColumn,
-  KanbanCard,
-  CreateBoardBody,
-  UpdateBoardBody,
-  CreateCardBody,
-  UpdateCardBody,
-  CreateColumnBody,
-  UpdateColumnBody,
-  AddCommitBody,
-  CardCommit,
-  CardNote,
-  ArchivedCardsResult,
-  KanbanLabel,
-  CreateLabelBody,
-  UpdateLabelBody,
-  QueryMemoryOptions,
-  MemoryEntry,
-  MemoryOrigin,
-  SkillPrompt,
   ToolCallReport,
   TaskUpdateData,
   ActionCallOptions,
@@ -41,7 +13,16 @@ import type {
   ActionProgressOptions,
   OnboardingSeed,
 } from "./types.js";
-import { createRequire } from "node:module";
+import packageJson from "../package.json" with { type: "json" };
+import {
+  decodeWebSocketFrame,
+  normalizeWebSocketBaseUrl,
+  reconnectDelayMs,
+  WS_OPEN,
+} from "./transport.js";
+import { taskConversationKey, validateTaskFrame } from "./scheduler.js";
+import { ArinovaRestClient } from "./rest/client.js";
+export { ArinovaApiError } from "./rest/client.js";
 
 const DEFAULT_RECONNECT_INTERVAL = 5_000;
 const DEFAULT_PING_INTERVAL = 30_000;
@@ -49,38 +30,18 @@ const TASK_HEARTBEAT_INTERVAL = 60_000;
 const ACTION_PROTOCOL_VERSION = "2026-05-05";
 // Read the SDK version from package.json (single source of truth) so the
 // version reported in agent_auth never drifts from the published package.
-const SDK_VERSION: string = (
-  createRequire(import.meta.url)("../package.json") as { version: string }
-).version;
+const SDK_VERSION = packageJson.version;
 const DEFAULT_ACTION_TIMEOUT = 60_000;
-const WS_OPEN = 1;
-const MAX_QUEUE_SIZE = 10;
 const DEFAULT_MAX_QUEUED_TASKS = 100;
 const DEFAULT_MAX_INBOUND_FRAME_BYTES = 1024 * 1024;
 const MAX_PENDING_CHUNK_EVENTS = 1_000;
 const MAX_PENDING_TERMINAL_EVENTS = 1_000;
 const MAX_PENDING_CHUNK_AGE_MS = 60_000;
 
-/**
- * Scheduler key for a task. Platform wakeups (cron/trigger) have no
- * conversationId — group them all under one sentinel so per-conversation
- * Maps never key on undefined.
- */
-function taskConvKey(data: Record<string, unknown>): string {
-  return (data.conversationId as string | undefined) ?? "__no_conversation__";
-}
-
 function noConversationError(api: string, taskKind: string | undefined): Error {
   return new Error(
     `${api} is unavailable: this task (taskKind=${taskKind ?? "unknown"}) is not bound to a conversation`,
   );
-}
-
-function encodePathSegment(value: string, label: string): string {
-  if (!value || value === "." || value === "..") {
-    throw new TypeError(`${label} must be a non-empty URL path segment`);
-  }
-  return encodeURIComponent(value);
 }
 
 /**
@@ -113,21 +74,7 @@ const AUTH_ERROR_MAX_RETRIES = 5;
 const AUTH_ERROR_BASE_DELAY = 5_000; // 5s, 10s, 20s, 40s, 60s cap
 const AUTH_ERROR_MAX_DELAY = 60_000;
 
-export class ArinovaApiError extends Error {
-  readonly status: number;
-  readonly body: unknown;
-
-  constructor(message: string, status: number, body: unknown) {
-    super(message);
-    this.name = "ArinovaApiError";
-    this.status = status;
-    this.body = body;
-  }
-}
-
-export class ArinovaAgent {
-  private readonly serverUrl: string;
-  private botToken: string;
+export class ArinovaAgent extends ArinovaRestClient {
   private readonly skills: AgentSkill[];
   private readonly reconnectInterval: number;
   private readonly pingInterval: number;
@@ -143,12 +90,15 @@ export class ArinovaAgent {
   private lastPongAt: number | null = null;
   private commandHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempt = 0;
   private authRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
   private stoppedReason: string | null = null;
   private authErrorCount = 0;
   private authRetryAttempt = 0;
   private isAuthRetrying = false;
+  private authenticated = false;
+  private tearingDown = false;
   private agentId: string | null = null;
   // Server-authored first-touch seed from the most recent permanent-token
   // `auth_ok` (OB-11 §5.7). Null on every connection except a genuine first
@@ -188,10 +138,10 @@ export class ArinovaAgent {
   // Used to resolve/reject the connect() promise on first auth
   private connectResolve: (() => void) | null = null;
   private connectReject: ((err: Error) => void) | null = null;
+  private connectPromise: Promise<void> | null = null;
 
   constructor(options: ArinovaAgentOptions) {
-    this.serverUrl = options.serverUrl.replace(/\/$/, "");
-    this.botToken = options.botToken;
+    super(normalizeWebSocketBaseUrl(options.serverUrl), options.botToken);
     this.skills = options.skills ?? [];
     this.reconnectInterval = options.reconnectInterval ?? DEFAULT_RECONNECT_INTERVAL;
     this.pingInterval = options.pingInterval ?? DEFAULT_PING_INTERVAL;
@@ -217,7 +167,16 @@ export class ArinovaAgent {
 
   /** Register an event listener. */
   on<T extends AgentEvent>(event: T, listener: AgentEventListener<T>): this {
-    this.listeners[event]?.push(listener as (...args: unknown[]) => void);
+    const typed = listener as (...args: unknown[]) => void;
+    if (!this.listeners[event]?.includes(typed)) this.listeners[event]?.push(typed);
+    return this;
+  }
+
+  /** Remove a previously registered event listener. */
+  off<T extends AgentEvent>(event: T, listener: AgentEventListener<T>): this {
+    const listeners = this.listeners[event];
+    const index = listeners?.indexOf(listener as (...args: unknown[]) => void) ?? -1;
+    if (index >= 0) listeners.splice(index, 1);
     return this;
   }
 
@@ -239,69 +198,27 @@ export class ArinovaAgent {
     return this.onboardingSeed;
   }
 
-  private get httpUrl(): string {
-    return this.serverUrl.replace(/^ws:/, "http:").replace(/^wss:/, "https:");
-  }
-
-  private async request<T>(
-    method: string,
-    path: string,
-    options: {
-      body?: unknown;
-      headers?: Record<string, string>;
-      response?: "json" | "void";
-      errorLabel?: string;
-    } = {},
-  ): Promise<T> {
-    const isForm = typeof FormData !== "undefined" && options.body instanceof FormData;
-    const response = await fetch(`${this.httpUrl}${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${this.botToken}`,
-        ...(!isForm && options.body !== undefined ? { "Content-Type": "application/json" } : {}),
-        ...options.headers,
-      },
-      ...(options.body !== undefined
-        ? { body: isForm ? options.body as FormData : JSON.stringify(options.body) }
-        : {}),
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      let body: unknown = text;
-      if (text) {
-        try {
-          body = JSON.parse(text);
-        } catch {
-          // Preserve non-JSON bodies as text.
-        }
-      }
-      const detail = typeof body === "string" ? body : JSON.stringify(body);
-      throw new ArinovaApiError(
-        `${options.errorLabel ?? "Request"} failed (${response.status})${detail ? `: ${detail}` : ""}`,
-        response.status,
-        body,
-      );
-    }
-    if (options.response === "void" || response.status === 204) return undefined as T;
-    return await response.json() as T;
-  }
-
   /**
    * Connect to the Arinova server.
    * Returns a promise that resolves on successful auth, or rejects on auth failure.
    */
   connect(): Promise<void> {
+    if (this.authenticated && this.ws?.readyState === WS_OPEN) {
+      return Promise.resolve();
+    }
+    if (this.connectPromise) return this.connectPromise;
     this.stopped = false;
     this.stoppedReason = null;
     this.authErrorCount = 0;
     this.authRetryAttempt = 0;
     this.isAuthRetrying = false;
     if (this.authRetryTimer) { clearTimeout(this.authRetryTimer); this.authRetryTimer = null; }
-    return new Promise<void>((resolve, reject) => {
+    this.connectPromise = new Promise<void>((resolve, reject) => {
       this.connectResolve = resolve;
       this.connectReject = reject;
       this.doConnect();
     });
+    return this.connectPromise;
   }
 
   /** Disconnect and stop reconnecting. */
@@ -317,8 +234,8 @@ export class ArinovaAgent {
    */
   async sendMessage(conversationId: string, content: string): Promise<void> {
     // Try WebSocket first
-    if (this.ws && this.ws.readyState === WS_OPEN) {
-      this.send({ type: "agent_send", conversationId, content });
+    if (this.authenticated && this.ws && this.ws.readyState === WS_OPEN) {
+      this.sendOrThrow({ type: "agent_send", conversationId, content });
       return;
     }
 
@@ -393,7 +310,7 @@ export class ArinovaAgent {
     args: Record<string, unknown>,
     options: ActionCallOptions = {},
   ): Promise<ActionCallResult> {
-    if (!this.ws || this.ws.readyState !== WS_OPEN) {
+    if (!this.authenticated || !this.ws || this.ws.readyState !== WS_OPEN) {
       return Promise.reject(new Error("action_call requires an active WebSocket connection"));
     }
 
@@ -420,7 +337,7 @@ export class ArinovaAgent {
       }, timeoutMs);
       this.pendingActionCalls.set(callId, { resolve, reject, timer });
       try {
-        this.send(frame);
+        this.sendOrThrow(frame);
       } catch (err) {
         clearTimeout(timer);
         this.pendingActionCalls.delete(callId);
@@ -434,18 +351,39 @@ export class ArinovaAgent {
   private emit(event: "token_claimed", data: { agentId: string | null; permanentToken: string }): void;
   private emit(event: string, ...args: unknown[]): void {
     for (const listener of this.listeners[event] ?? []) {
-      listener(...args);
+      try {
+        listener(...args);
+      } catch (err) {
+        this.logger.error(
+          `[arinova-agent-sdk] ${event} listener failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   }
 
   private send(event: Record<string, unknown>): void {
-    if (this.ws && this.ws.readyState === WS_OPEN) {
+    if (this.authenticated && this.ws && this.ws.readyState === WS_OPEN) {
       this.ws.send(JSON.stringify(event));
     }
   }
 
+  private sendOrThrow(event: Record<string, unknown>): void {
+    if (!this.authenticated || !this.ws || this.ws.readyState !== WS_OPEN) {
+      throw new Error("WebSocket is not authenticated");
+    }
+    this.ws.send(JSON.stringify(event));
+  }
+
+  private sendBeforeAuth(event: Record<string, unknown>): void {
+    if (!this.ws || this.ws.readyState !== WS_OPEN) {
+      throw new Error("WebSocket is not open");
+    }
+    this.ws.send(JSON.stringify(event));
+  }
+
   private sendTerminal(event: Record<string, unknown>): void {
-    if (this.ws && this.ws.readyState === WS_OPEN) {
+    if (this.tearingDown) return;
+    if (this.authenticated && this.ws && this.ws.readyState === WS_OPEN) {
       this.ws.send(JSON.stringify(event));
       return;
     }
@@ -459,7 +397,7 @@ export class ArinovaAgent {
   }
 
   private sendChunkEvent(event: Record<string, unknown>): void {
-    if (this.ws && this.ws.readyState === WS_OPEN) {
+    if (this.authenticated && this.ws && this.ws.readyState === WS_OPEN) {
       this.ws.send(JSON.stringify(event));
       return;
     }
@@ -471,25 +409,47 @@ export class ArinovaAgent {
   }
 
   private flushPendingChunkEvents(): void {
-    if (!this.ws || this.ws.readyState !== WS_OPEN) return;
+    if (!this.authenticated || !this.ws || this.ws.readyState !== WS_OPEN) return;
     const cutoff = Date.now() - MAX_PENDING_CHUNK_AGE_MS;
-    const events = this.pendingChunkEvents
-      .splice(0)
-      .filter((event) => (this.pendingChunkTimes.get(event) ?? 0) >= cutoff);
-    for (const event of events) {
-      this.ws.send(JSON.stringify(event));
+    const events = this.pendingChunkEvents.splice(0);
+    const staleTaskIds = new Set<string>();
+    for (let index = 0; index < events.length; index++) {
+      const event = events[index];
+      if ((this.pendingChunkTimes.get(event) ?? 0) < cutoff) {
+        if (typeof event.taskId === "string") staleTaskIds.add(event.taskId);
+        continue;
+      }
+      try {
+        this.ws.send(JSON.stringify(event));
+      } catch (err) {
+        this.pendingChunkEvents.unshift(...events.slice(index));
+        throw err;
+      }
+    }
+    for (const taskId of staleTaskIds) {
+      this.ws.send(JSON.stringify({
+        type: "agent_stream_gap",
+        taskId,
+        reason: "offline_chunk_buffer_expired",
+      }));
     }
   }
 
   private flushPendingTerminalEvents(): void {
-    if (!this.ws || this.ws.readyState !== WS_OPEN) return;
+    if (!this.authenticated || !this.ws || this.ws.readyState !== WS_OPEN) return;
     const events = this.pendingTerminalEvents.splice(0);
-    for (const event of events) {
-      this.ws.send(JSON.stringify(event));
+    for (let index = 0; index < events.length; index++) {
+      try {
+        this.ws.send(JSON.stringify(events[index]));
+      } catch (err) {
+        this.pendingTerminalEvents.unshift(...events.slice(index));
+        throw err;
+      }
     }
   }
 
   private cleanupConnection(closeSocket = true): void {
+    this.authenticated = false;
     if (this.pingTimer) {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
@@ -517,11 +477,9 @@ export class ArinovaAgent {
     }
   }
 
-  private cleanup(): void {
+  private cleanup(reason = "disconnect"): void {
     this.cleanupConnection();
-    this.pendingChunkEvents = [];
-    this.pendingChunkTimes = new WeakMap();
-    this.pendingTerminalEvents = [];
+    this.tearingDown = true;
     // Clear queues BEFORE aborting — abort triggers markFinished → processNextTask,
     // which would dequeue and start tasks during disconnect if queues aren't empty.
     this.conversationQueues.clear();
@@ -532,7 +490,11 @@ export class ArinovaAgent {
       controller.abort();
     }
     this.taskAbortControllers.clear();
-    this.rejectPendingActionCalls("disconnect");
+    this.pendingChunkEvents = [];
+    this.pendingChunkTimes = new WeakMap();
+    this.pendingTerminalEvents = [];
+    this.tearingDown = false;
+    this.rejectPendingActionCalls(reason);
   }
 
   private cleanupForReconnect(closeSocket = true): void {
@@ -541,19 +503,7 @@ export class ArinovaAgent {
   }
 
   private cleanupAfterAuthFailure(): void {
-    this.cleanupConnection();
-    this.pendingChunkEvents = [];
-    this.pendingChunkTimes = new WeakMap();
-    this.pendingTerminalEvents = [];
-    this.conversationQueues.clear();
-    this.consecutiveTaskCount.clear();
-    this.activeConversationTasks.clear();
-    this.agentWideLock = false;
-    for (const controller of this.taskAbortControllers.values()) {
-      controller.abort();
-    }
-    this.taskAbortControllers.clear();
-    this.rejectPendingActionCalls("auth failure");
+    this.cleanup("auth failure");
   }
 
   private rejectPendingActionCalls(reason: string): void {
@@ -568,6 +518,21 @@ export class ArinovaAgent {
     this.stopped = true;
     this.stoppedReason = reason;
     this.logger.warn(`[arinova-agent-sdk] stopped: ${reason}`);
+    this.rejectConnect(new Error(`Connection stopped: ${reason}`));
+  }
+
+  private rejectConnect(error: Error): void {
+    this.connectReject?.(error);
+    this.connectResolve = null;
+    this.connectReject = null;
+    this.connectPromise = null;
+  }
+
+  private resolveConnect(): void {
+    this.connectResolve?.();
+    this.connectResolve = null;
+    this.connectReject = null;
+    this.connectPromise = null;
   }
 
   private scheduleReconnect(): void {
@@ -575,7 +540,8 @@ export class ArinovaAgent {
       this.logger.warn(`[arinova-agent-sdk] reconnect skipped: stopped (${this.stoppedReason ?? "unknown"})`);
       return;
     }
-    this.logger.info(`[arinova-agent-sdk] scheduling reconnect in ${this.reconnectInterval}ms`);
+    const delay = reconnectDelayMs(this.reconnectInterval, this.reconnectAttempt++);
+    this.logger.info(`[arinova-agent-sdk] scheduling reconnect in ${delay}ms`);
     this.reconnectTimer = setTimeout(() => {
       if (this.stopped) {
         this.logger.warn(`[arinova-agent-sdk] reconnect timer fired but agent is stopped (${this.stoppedReason ?? "unknown"})`);
@@ -583,7 +549,7 @@ export class ArinovaAgent {
       }
       this.logger.info("[arinova-agent-sdk] reconnect timer fired");
       this.doConnect();
-    }, this.reconnectInterval);
+    }, delay);
   }
 
   private doConnect(): void {
@@ -591,6 +557,7 @@ export class ArinovaAgent {
       this.logger.warn(`[arinova-agent-sdk] connect skipped: stopped (${this.stoppedReason ?? "unknown"})`);
       return;
     }
+    this.isAuthRetrying = false;
     this.cleanupForReconnect();
     this.lastPongAt = null;
 
@@ -631,44 +598,32 @@ export class ArinovaAgent {
       if (this.skills.length > 0) {
         authMsg.skills = this.skills;
       }
-      this.send(authMsg);
+      this.sendBeforeAuth(authMsg);
 
       this.pingTimer = setInterval(() => {
         if (this.lastPongAt !== null && Date.now() - this.lastPongAt > this.pingTimeout) {
           this.logger.warn("[arinova-agent-sdk] pong timeout, forcing reconnect");
-          this.ws?.close();
+          this.cleanupForReconnect(false);
+          try { socket.close(); } catch {}
+          this.emit("disconnected");
+          this.scheduleReconnect();
           return;
         }
-        this.send({ type: "ping" });
+        this.sendBeforeAuth({ type: "ping" });
       }, this.pingInterval);
     };
 
     this.ws.onmessage = async (event) => {
       try {
-        let raw: string;
-        let byteLength: number;
-        if (typeof event.data === "string") {
-          raw = event.data;
-          byteLength = new TextEncoder().encode(raw).byteLength;
-        } else if (event.data instanceof ArrayBuffer) {
-          byteLength = event.data.byteLength;
-          raw = new TextDecoder().decode(event.data);
-        } else if (typeof Blob !== "undefined" && event.data instanceof Blob) {
-          byteLength = event.data.size;
-          if (byteLength > this.maxInboundFrameBytes) {
-            throw new RangeError("inbound WebSocket frame exceeds configured limit");
-          }
-          raw = await event.data.text();
-        } else {
-          throw new TypeError("unsupported inbound WebSocket frame type");
-        }
-        if (byteLength > this.maxInboundFrameBytes) {
-          throw new RangeError("inbound WebSocket frame exceeds configured limit");
-        }
-        const data = JSON.parse(raw);
+        const decoded = decodeWebSocketFrame(
+          event.data,
+          this.maxInboundFrameBytes,
+        );
+        const data = decoded instanceof Promise ? await decoded : decoded;
 
         if (data.type === "auth_ok") {
-          this.agentId = data.agentId ?? null;
+          this.authenticated = true;
+          this.agentId = typeof data.agentId === "string" ? data.agentId : null;
 
           // OB-11 AC8.7: surface the server-authored first-touch seed (if any)
           // before connect() resolves below, so a consumer reading it right
@@ -678,7 +633,7 @@ export class ArinovaAgent {
 
           // Retained for forward compatibility. The current server only sends
           // permanentToken on claim_ok, never auth_ok.
-          if (data.permanentToken) {
+          if (typeof data.permanentToken === "string" && data.permanentToken) {
             this.botToken = data.permanentToken;
             this.emit("token_claimed", { agentId: this.agentId, permanentToken: data.permanentToken });
           }
@@ -709,13 +664,10 @@ export class ArinovaAgent {
           this.authErrorCount = 0;
           this.authRetryAttempt = 0;
           this.isAuthRetrying = false;
+          this.reconnectAttempt = 0;
 
           // Resolve the connect() promise on first successful auth
-          if (this.connectResolve) {
-            this.connectResolve();
-            this.connectResolve = null;
-            this.connectReject = null;
-          }
+          this.resolveConnect();
           this.flushPendingChunkEvents();
           this.flushPendingTerminalEvents();
           return;
@@ -733,9 +685,10 @@ export class ArinovaAgent {
           // exchange only, and connect() must stay pending until the real
           // `auth_ok` so a consumer reading getOnboardingSeed() after it sees the
           // populated (or cleared) value from that frame.
-          if (data.permanentToken) {
+          if (typeof data.permanentToken === "string" && data.permanentToken) {
             this.botToken = data.permanentToken;
-            this.agentId = data.agentId ?? this.agentId;
+            this.agentId =
+              typeof data.agentId === "string" ? data.agentId : this.agentId;
             this.emit("token_claimed", {
               agentId: this.agentId,
               permanentToken: data.permanentToken,
@@ -771,8 +724,14 @@ export class ArinovaAgent {
           for (const [convId, queue] of this.conversationQueues) {
             const idx = queue.findIndex((t) => t.taskId === taskId);
             if (idx !== -1) {
-              queue.splice(idx, 1);
+              const [cancelled] = queue.splice(idx, 1);
               if (queue.length === 0) this.conversationQueues.delete(convId);
+              this.sendTerminal({
+                type: "agent_error",
+                taskId: cancelled.taskId,
+                error: "cancelled",
+                reason: "cancelled",
+              });
               return;
             }
           }
@@ -788,7 +747,7 @@ export class ArinovaAgent {
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         this.emit("error", error);
-        if (error instanceof RangeError || error instanceof TypeError) {
+        if (error instanceof RangeError) {
           socket.close();
         }
       }
@@ -842,11 +801,7 @@ export class ArinovaAgent {
     } else if (this.authErrorCount >= AUTH_ERROR_MAX_RETRIES) {
       this.logger.warn(`[arinova-agent-sdk] auth failure limit reached (${this.authErrorCount}/${AUTH_ERROR_MAX_RETRIES})`);
       this.emit("auth_failed");
-      if (this.connectReject) {
-        this.connectReject(error);
-        this.connectResolve = null;
-        this.connectReject = null;
-      }
+      this.rejectConnect(error);
       if (this.authRetryTimer) {
         clearTimeout(this.authRetryTimer);
         this.authRetryTimer = null;
@@ -938,460 +893,36 @@ export class ArinovaAgent {
     });
   }
 
-  /**
-   * Upload a file to R2 storage via the agent upload endpoint.
-   * @param conversationId - The conversation this upload belongs to.
-   * @param file - File data as Buffer or Uint8Array.
-   * @param fileName - Original file name (used for extension detection).
-   * @param fileType - Optional MIME type (derived from extension if omitted).
-   */
-  async uploadFile(
-    conversationId: string,
-    file: Uint8Array,
-    fileName: string,
-    fileType?: string,
-  ): Promise<UploadResult> {
-    const mime = fileType || mimeFromFileName(fileName);
-    const formData = new FormData();
-    formData.append("conversationId", conversationId);
-    const blob = new Blob([new Uint8Array(file) as unknown as ArrayBuffer], { type: mime });
-    formData.append("file", blob, fileName);
-
-    return this.request<UploadResult>("POST", "/api/v1/files/upload", {
-      body: formData,
-      errorLabel: "Upload",
-    });
-  }
-
-  /**
-   * Fetch conversation history via the agent messages endpoint.
-   * @param conversationId - The conversation to fetch messages from.
-   * @param options - Pagination options (before, after, around, limit).
-   */
-  async fetchHistory(
-    conversationId: string,
-    options?: FetchHistoryOptions,
-  ): Promise<FetchHistoryResult> {
-    const params = new URLSearchParams();
-    if (options?.before) params.set("before", options.before);
-    if (options?.after) params.set("after", options.after);
-    if (options?.around) params.set("around", options.around);
-    if (options?.limit != null) params.set("limit", String(options.limit));
-
-    const qs = params.toString();
-    return this.request<FetchHistoryResult>(
-      "GET",
-      `/api/v1/messages/${encodePathSegment(conversationId, "conversationId")}${qs ? `?${qs}` : ""}`,
-      { errorLabel: "fetchHistory" },
-    );
-  }
-
-  /** List notes in the authenticated owner's notebook. */
-  async listNotes(options?: ListNotesOptions): Promise<ListNotesResult> {
-    const params = new URLSearchParams();
-    if (options?.before) params.set("before", options.before);
-    if (options?.limit != null) params.set("limit", String(options.limit));
-    if (options?.offset != null) params.set("offset", String(options.offset));
-    if (options?.tags?.length) params.set("tags", options.tags.join(","));
-    if (options?.archived) params.set("archived", "true");
-
-    const qs = params.toString();
-    return this.request<ListNotesResult>(
-      "GET",
-      `/api/v1/notes${qs ? `?${qs}` : ""}`,
-      { errorLabel: "listNotes" },
-    );
-  }
-
-  /** Create a note in the authenticated owner's notebook. */
-  async createNote(body: CreateNoteBody): Promise<Note> {
-    return this.request<Note>("POST", "/api/v1/notes", {
-      body,
-      errorLabel: "createNote",
-    });
-  }
-
-  /** Update a note in the authenticated owner's notebook. */
-  async updateNote(noteId: string, body: UpdateNoteBody): Promise<Note> {
-    return this.request<Note>("PATCH", `/api/v1/notes/${encodePathSegment(noteId, "noteId")}`, {
-      body,
-      errorLabel: "updateNote",
-    });
-  }
-
-  /** Delete a note from the authenticated owner's notebook. */
-  async deleteNote(noteId: string): Promise<void> {
-    await this.request<void>("DELETE", `/api/v1/notes/${encodePathSegment(noteId, "noteId")}`, {
-      response: "void",
-      errorLabel: "deleteNote",
-    });
-  }
-
-  // ── Kanban API ────────────────────────────────────────────────
-
-  /**
-   * List the owner's kanban boards.
-   * Returns an array of boards with id, name, and createdAt.
-   */
-  async listBoards(): Promise<KanbanBoard[]> {
-    return this.request<KanbanBoard[]>("GET", "/api/v1/kanban/boards", {
-      errorLabel: "listBoards",
-    });
-  }
-
-  /**
-   * Create a kanban card on the owner's board.
-   * The card is automatically assigned to the calling agent.
-   * @param body - Card title and optional description, priority, column.
-   */
-  async createCard(body: CreateCardBody): Promise<KanbanCard> {
-    return this.request<KanbanCard>("POST", "/api/v1/kanban/cards", {
-      body,
-      errorLabel: "createCard",
-    });
-  }
-
-  /**
-   * Update a kanban card.
-   * @param cardId - The card ID to update.
-   * @param body - Fields to update (title, description, priority, columnId, sortOrder).
-   */
-  async updateCard(cardId: string, body: UpdateCardBody): Promise<KanbanCard> {
-    return this.request<KanbanCard>("PATCH", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}`, {
-      body,
-      errorLabel: "updateCard",
-    });
-  }
-
-  /**
-   * Create a new kanban board.
-   * @param body - Board name and optional initial columns.
-   */
-  async createBoard(body: CreateBoardBody): Promise<KanbanBoard> {
-    return this.request<KanbanBoard>("POST", "/api/v1/kanban/boards", {
-      body,
-      errorLabel: "createBoard",
-    });
-  }
-
-  /**
-   * Update a kanban board.
-   * @param boardId - The board ID to update.
-   * @param body - Fields to update.
-   */
-  async updateBoard(boardId: string, body: UpdateBoardBody): Promise<KanbanBoard> {
-    return this.request<KanbanBoard>("PATCH", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}`, {
-      body,
-      errorLabel: "updateBoard",
-    });
-  }
-
-  /**
-   * Archive a kanban board.
-   * @param boardId - The board ID to archive.
-   */
-  async archiveBoard(boardId: string): Promise<void> {
-    await this.request<void>("POST", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/archive`, {
-      response: "void",
-      errorLabel: "archiveBoard",
-    });
-  }
-
-  /**
-   * List columns for a board.
-   * @param boardId - The board ID.
-   */
-  async listColumns(boardId: string): Promise<KanbanColumn[]> {
-    return this.request<KanbanColumn[]>("GET", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/columns`, {
-      errorLabel: "listColumns",
-    });
-  }
-
-  /**
-   * Create a column in a board.
-   * @param boardId - The board ID.
-   * @param body - Column name and optional sort order.
-   */
-  async createColumn(boardId: string, body: CreateColumnBody): Promise<KanbanColumn> {
-    return this.request<KanbanColumn>("POST", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/columns`, {
-      body,
-      errorLabel: "createColumn",
-    });
-  }
-
-  /**
-   * Update a column.
-   * @param columnId - The column ID to update.
-   * @param body - Fields to update (name, sortOrder).
-   */
-  async updateColumn(columnId: string, body: UpdateColumnBody): Promise<KanbanColumn> {
-    return this.request<KanbanColumn>("PATCH", `/api/v1/kanban/columns/${encodePathSegment(columnId, "columnId")}`, {
-      body,
-      errorLabel: "updateColumn",
-    });
-  }
-
-  /**
-   * Delete a column.
-   * @param columnId - The column ID to delete.
-   */
-  async deleteColumn(columnId: string): Promise<void> {
-    await this.request<void>("DELETE", `/api/v1/kanban/columns/${encodePathSegment(columnId, "columnId")}`, {
-      response: "void",
-      errorLabel: "deleteColumn",
-    });
-  }
-
-  /**
-   * Reorder columns in a board.
-   * @param boardId - The board ID.
-   * @param columnIds - Ordered array of column IDs.
-   */
-  async reorderColumns(boardId: string, columnIds: string[]): Promise<void> {
-    await this.request<void>("POST", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/columns/reorder`, {
-      body: { columnIds },
-      response: "void",
-      errorLabel: "reorderColumns",
-    });
-  }
-
-  /**
-   * List kanban cards for the agent's owner.
-   * @param options - Pagination and search options.
-   */
-  async listCards(options?: {
-    search?: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<KanbanCard[]> {
-    const params = new URLSearchParams();
-    if (options?.search) params.set("search", options.search);
-    if (options?.limit != null) params.set("limit", String(options.limit));
-    if (options?.offset != null) params.set("offset", String(options.offset));
-    const qs = params.toString();
-
-    return this.request<KanbanCard[]>("GET", `/api/v1/kanban/cards${qs ? `?${qs}` : ""}`, {
-      errorLabel: "listCards",
-    });
-  }
-
-  /**
-   * Mark a card as complete (moves it to the Done column).
-   * @param cardId - The card ID to complete.
-   */
-  async completeCard(cardId: string): Promise<KanbanCard> {
-    return this.request<KanbanCard>("POST", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/complete`, {
-      errorLabel: "completeCard",
-    });
-  }
-
-  /**
-   * List archived cards for a board.
-   * @param boardId - The board ID.
-   * @param options - Pagination options (page, limit).
-   */
-  async listArchivedCards(
-    boardId: string,
-    options?: { page?: number; limit?: number },
-  ): Promise<ArchivedCardsResult> {
-    const params = new URLSearchParams();
-    if (options?.page != null) params.set("page", String(options.page));
-    if (options?.limit != null) params.set("limit", String(options.limit));
-
-    const qs = params.toString();
-    return this.request<ArchivedCardsResult>(
-      "GET",
-      `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/archived-cards${qs ? `?${qs}` : ""}`,
-      { errorLabel: "listArchivedCards" },
-    );
-  }
-
-  /**
-   * Add a commit link to a card.
-   * @param cardId - The card ID.
-   * @param body - Commit hash and optional message.
-   */
-  async addCardCommit(cardId: string, body: AddCommitBody): Promise<CardCommit> {
-    return this.request<CardCommit>("POST", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/commits`, {
-      body,
-      errorLabel: "addCardCommit",
-    });
-  }
-
-  /**
-   * List commits linked to a card.
-   * @param cardId - The card ID.
-   */
-  async listCardCommits(cardId: string): Promise<CardCommit[]> {
-    return this.request<CardCommit[]>("GET", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/commits`, {
-      errorLabel: "listCardCommits",
-    });
-  }
-
-  /**
-   * Link a note to a card.
-   * @param cardId - The card ID.
-   * @param noteId - The note ID to link.
-   */
-  async linkCardNote(cardId: string, noteId: string): Promise<void> {
-    await this.request<void>("POST", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/notes`, {
-      body: { noteId },
-      response: "void",
-      errorLabel: "linkCardNote",
-    });
-  }
-
-  /**
-   * Unlink a note from a card.
-   * @param cardId - The card ID.
-   * @param noteId - The note ID to unlink.
-   */
-  async unlinkCardNote(cardId: string, noteId: string): Promise<void> {
-    await this.request<void>("DELETE", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/notes/${encodePathSegment(noteId, "noteId")}`, {
-      response: "void",
-      errorLabel: "unlinkCardNote",
-    });
-  }
-
-  /**
-   * List notes linked to a card.
-   * @param cardId - The card ID.
-   */
-  async listCardNotes(cardId: string): Promise<CardNote[]> {
-    return this.request<CardNote[]>("GET", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/notes`, {
-      errorLabel: "listCardNotes",
-    });
-  }
-
-  // ── Label API ────────────────────────────────────────────────
-
-  /**
-   * List labels for a board.
-   * @param boardId - The board ID.
-   */
-  async listLabels(boardId: string): Promise<KanbanLabel[]> {
-    return this.request<KanbanLabel[]>("GET", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/labels`, {
-      errorLabel: "listLabels",
-    });
-  }
-
-  /**
-   * Create a label on a board.
-   * @param boardId - The board ID.
-   * @param body - Label name and optional color.
-   */
-  async createLabel(boardId: string, body: CreateLabelBody): Promise<KanbanLabel> {
-    return this.request<KanbanLabel>("POST", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/labels`, {
-      body,
-      errorLabel: "createLabel",
-    });
-  }
-
-  /**
-   * Update a label.
-   * @param labelId - The label ID to update.
-   * @param body - Fields to update (name, color).
-   */
-  async updateLabel(labelId: string, body: UpdateLabelBody): Promise<KanbanLabel> {
-    return this.request<KanbanLabel>("PATCH", `/api/v1/kanban/labels/${encodePathSegment(labelId, "labelId")}`, {
-      body,
-      errorLabel: "updateLabel",
-    });
-  }
-
-  /**
-   * Delete a label.
-   * @param labelId - The label ID to delete.
-   */
-  async deleteLabel(labelId: string): Promise<void> {
-    await this.request<void>("DELETE", `/api/v1/kanban/labels/${encodePathSegment(labelId, "labelId")}`, {
-      response: "void",
-      errorLabel: "deleteLabel",
-    });
-  }
-
-  /**
-   * Add a label to a card.
-   * @param cardId - The card ID.
-   * @param labelId - The label ID to add.
-   */
-  async addCardLabel(cardId: string, labelId: string): Promise<void> {
-    await this.request<void>("POST", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/labels`, {
-      body: { labelId },
-      response: "void",
-      errorLabel: "addCardLabel",
-    });
-  }
-
-  /**
-   * Remove a label from a card.
-   * @param cardId - The card ID.
-   * @param labelId - The label ID to remove.
-   */
-  async removeCardLabel(cardId: string, labelId: string): Promise<void> {
-    await this.request<void>("DELETE", `/api/v1/kanban/cards/${encodePathSegment(cardId, "cardId")}/labels/${encodePathSegment(labelId, "labelId")}`, {
-      response: "void",
-      errorLabel: "removeCardLabel",
-    });
-  }
-
-  // ── Memory API ───────────────────────────────────────────────
-
-  /**
-   * Search agent memories using hybrid search (embedding + keyword + recency).
-   * @param options - Query string and optional limit.
-   */
-  async queryMemory(options: QueryMemoryOptions): Promise<MemoryEntry[]> {
-    const params = new URLSearchParams();
-    params.set("q", options.query);
-    if (options.limit != null) params.set("limit", String(options.limit));
-
-    const raw = await this.request<Array<{
-      id: string;
-      category: string;
-      summary: string;
-      detail: string | null;
-      score: number;
-      source?: string;
-    }>>("GET", `/api/v1/memories/search?${params}`, { errorLabel: "queryMemory" });
-
-    return raw.map((r) => {
-      const entry: MemoryEntry = {
-        content: r.summary + (r.detail ? `\n${r.detail}` : ""),
-        category: r.category,
-        score: r.score,
-      };
-      const origin = normalizeMemoryOrigin(r.source);
-      if (origin !== undefined) {
-        entry.origin = origin;
-      }
-      return entry;
-    });
-  }
-
-  // ── Skill Prompt API ─────────────────────────────────────────
-
-  /**
-   * Fetch the full prompt content for an installed skill by slug.
-   * Use this when the agent decides to trigger a skill from availableSkills.
-   * @param skillSlug - The skill slug (e.g. "draw", "proactive-agent").
-   */
-  async fetchSkillPrompt(skillSlug: string): Promise<SkillPrompt> {
-    return this.request<SkillPrompt>(
-      "GET",
-      `/api/v1/skills/${encodeURIComponent(skillSlug)}/prompt`,
-      { errorLabel: "fetchSkillPrompt" },
-    );
-  }
-
   private handleTask(data: Record<string, unknown>): void {
-    if (!this.taskHandler) return;
+    const validationError = validateTaskFrame(data);
+    if (validationError) {
+      this.send({
+        type: "agent_error",
+        ...(typeof data.taskId === "string" ? { taskId: data.taskId } : {}),
+        error: validationError,
+      });
+      return;
+    }
+    if (!this.taskHandler) {
+      this.send({
+        type: "agent_error",
+        taskId: data.taskId,
+        error: "no_task_handler",
+      });
+      return;
+    }
+
+    const taskId = data.taskId as string;
+    if (this.taskAbortControllers.has(taskId)) return;
+    for (const queue of this.conversationQueues.values()) {
+      if (queue.some((queued) => queued.taskId === taskId)) return;
+    }
 
     // Platform wakeups (cron/trigger) carry no conversationId. They all
     // serialise under one sentinel key so per-conversation mode treats
     // them as a single "platform conversation" instead of keying Maps on
     // undefined.
-    const convKey = taskConvKey(data);
+    const convKey = taskConversationKey(data);
 
     // Unbounded: no serialisation, run every task immediately.
     if (this.concurrencyMode === "unbounded") {
@@ -1435,11 +966,6 @@ export class ArinovaAgent {
         queue = [];
         this.conversationQueues.set(convKey, queue);
       }
-      // Overflow: drop oldest queued task when queue is full
-      if (queue.length >= MAX_QUEUE_SIZE) {
-        const dropped = queue.shift()!;
-        this.send({ type: "agent_error", taskId: dropped.taskId as string, error: "queue_overflow" });
-      }
       queue.push(data);
       // Notify the server that this task has been queued (not yet running).
       // The rust-server side maps this onto its stream_queued broadcast so
@@ -1467,7 +993,7 @@ export class ArinovaAgent {
     const taskId = data.taskId as string;
     const conversationId = data.conversationId as string | undefined;
     const taskKind = data.taskKind as string | undefined;
-    const convKey = taskConvKey(data);
+    const convKey = taskConversationKey(data);
     const abortController = new AbortController();
     this.taskAbortControllers.set(taskId, abortController);
     this.activeConversationTasks.set(convKey, taskId);
@@ -1668,23 +1194,6 @@ export class ArinovaAgent {
   }
 }
 
-const MIME_TYPES: Record<string, string> = {
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  png: "image/png",
-  gif: "image/gif",
-  webp: "image/webp",
-  pdf: "application/pdf",
-  txt: "text/plain",
-  csv: "text/csv",
-  json: "application/json",
-};
-
-function mimeFromFileName(name: string): string {
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  return MIME_TYPES[ext] ?? "application/octet-stream";
-}
-
 function generateCallId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return `call_${crypto.randomUUID().replace(/-/g, "")}`;
@@ -1694,23 +1203,4 @@ function generateCallId(): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * Normalize the rust-server `agent_memories.source` value into a
- * {@link MemoryOrigin}. Returns `undefined` when the input is missing or
- * doesn't match a known pattern, so the caller can leave `origin` off the
- * entry (forward-compat with servers that don't yet surface the column).
- *
- * - `'user'`                  → `'self'`
- * - `'system'`                → `'system'`
- * - `'shared-from-<8-hex>'`  → as-is (8-hex-suffix validated, lowercased)
- */
-function normalizeMemoryOrigin(source: string | undefined): MemoryOrigin | undefined {
-  if (!source) return undefined;
-  if (source === "user") return "self";
-  if (source === "system") return "system";
-  const m = source.match(/^shared-from-([0-9a-fA-F]{8})$/);
-  if (m) return `shared-from-${m[1]!.toLowerCase()}`;
-  return undefined;
 }

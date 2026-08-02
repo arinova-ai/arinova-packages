@@ -49,14 +49,6 @@ export interface ArinovaAgentOptions {
   logger?: Pick<Console, "warn" | "info" | "error">;
 }
 
-/** Runtime capability block sent during agent_auth. */
-export interface AgentRuntimeInfo {
-  name: string;
-  version: string;
-  language?: string;
-  platform?: string;
-}
-
 /** Options for an action_call frame. */
 export interface ActionCallOptions {
   /** Agent-side correlation id. If omitted a random call id is generated. */
@@ -90,7 +82,7 @@ export interface ActionConfirmationPayload {
 export interface ActionCallResult {
   callId: string;
   action: string;
-  status: "success" | "error" | "requires_confirmation" | "cancelled" | "processing" | "received" | "validating";
+  status: "success" | "error" | "requires_confirmation" | "cancelled";
   result?: Record<string, unknown> | null;
   error?: ActionErrorBody | null;
   confirmation?: ActionConfirmationPayload | null;
@@ -123,8 +115,8 @@ export interface TaskContext {
    * conversation-scoped APIs.
    */
   conversationId?: string;
-  /** The user's message content. */
-  content: string;
+  /** The user's message content. Absent for cron/trigger wakeups. */
+  content?: string;
   /** Conversation type: "direct" or "group". */
   conversationType?: string;
   /** User ID of the human who sent the message. */
@@ -346,13 +338,6 @@ export interface UpdateCardBody {
   sortOrder?: number;
 }
 
-/** Result from listBoards(). */
-export interface ListBoardsResult {
-  boards: KanbanBoard[];
-  columns: KanbanColumn[];
-  cards: KanbanCard[];
-}
-
 /** Body for createBoard(). */
 export interface CreateBoardBody {
   name: string;
@@ -510,7 +495,7 @@ export type TaskHandler = (task: TaskContext) => void | Promise<void>;
 
 /** Data emitted when an onboarding claim token is exchanged for a permanent token. */
 export interface TokenClaimedData {
-  agentId: string;
+  agentId: string | null;
   permanentToken: string;
 }
 

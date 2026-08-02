@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import type {
   ActionCallOptions,
   ActionCallResult,
+  TokenClaimedData,
   TaskAttachment,
   TaskContext,
   UploadResult,
@@ -72,6 +73,9 @@ describe("agent SDK type contracts", () => {
     expect(success.result?.messageId).toBe("msg-1");
     expect(failure.error?.details).toEqual({ field: "content" });
     expect(confirmation.confirmation?.confirmationId).toBe("confirm-1");
+    expectTypeOf<ActionCallResult["status"]>().toEqualTypeOf<
+      "success" | "error" | "requires_confirmation" | "cancelled"
+    >();
   });
 
   it("exposes upload metadata and inbound attachment shapes", () => {
@@ -115,5 +119,7 @@ describe("agent SDK type contracts", () => {
       )?,
     ]>();
     expectTypeOf<TaskContext["callAction"]>().returns.resolves.toEqualTypeOf<ActionCallResult>();
+    expectTypeOf<TaskContext["content"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<TokenClaimedData["agentId"]>().toEqualTypeOf<string | null>();
   });
 });
