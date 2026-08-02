@@ -27,6 +27,7 @@ type Entry = {
   category?: string;
   severity?: string;
   applies?: string[];
+  except?: string[];
   audit?: string;
   note?: string;
   source_ref?: number;
