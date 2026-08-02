@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SDK_ROOT = ROOT.parent / "agent-sdk"
 COMMAND_TIMEOUT_SECONDS = 300
 LIVE_SKIP_PREFIX = "live Arinova smoke skipped"
+HERMES_SKIP_PREFIX = "Hermes integration checks skipped"
 PY_COMPILE_FILES = (
     "adapter.py",
     "__init__.py",
@@ -225,6 +226,13 @@ def main() -> int:
         code = run(command)
         if code:
             return code
+    # The Hermes integration stages import the host's `gateway` package, which
+    # only exists in a Hermes checkout. Without one (CI, a fresh clone) they
+    # cannot run at all — skip them explicitly and say so in the summary
+    # rather than failing on ModuleNotFoundError or, worse, passing silently.
+    hermes_available = (hermes_root_path / "gateway").is_dir()
+    if not hermes_available:
+        print(f"{HERMES_SKIP_PREFIX}: no Hermes checkout at {hermes_root}")
     try:
         assert_hermes_source_clean(hermes_root_path, "before Hermes integration checks")
     except RuntimeError as exc:
@@ -245,11 +253,14 @@ def main() -> int:
         return live_code
     live_skipped = LIVE_SKIP_PREFIX in live_output
     fixture_env = env_without_live_credentials()
-    for command in (
+    hermes_commands = (
         [hermes_python, "scripts/check_hermes_plugin_load.py", "--hermes-root", hermes_root],
         [hermes_python, "scripts/check_gateway_config_load.py", "--hermes-root", hermes_root],
         [hermes_python, "scripts/check_user_install.py", "--hermes-root", hermes_root, "--sdk-root", sdk_root],
         [hermes_python, "scripts/check_clean_install.py", "--hermes-root", hermes_root, "--sdk-root", sdk_root],
+    ) if hermes_available else ()
+    for command in (
+        *hermes_commands,
         [sys.executable, "-m", "py_compile", *PY_COMPILE_FILES],
         ["npm", "--prefix", "sidecar", "run", "check"],
     ):
@@ -262,7 +273,11 @@ def main() -> int:
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    source_clean_summary = "Hermes source clean; local agent-sdk source clean"
+    source_clean_summary = (
+        "Hermes source clean; local agent-sdk source clean"
+        if hermes_available
+        else f"Hermes integration checks skipped (no checkout at {hermes_root}); local agent-sdk source clean"
+    )
     if live_skipped:
         print(
             "hermes-arinova local gate OK "
