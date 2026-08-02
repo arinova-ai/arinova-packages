@@ -1,13 +1,10 @@
 import type { Command } from "commander";
 import { buildQuery, del, encodePathSegment, get, patch, post } from "../client.js";
 import { printResult } from "../output.js";
+import { parseJsonOption } from "../json-options.js";
+import { parseCount } from "../pagination.js";
 
 const e = encodePathSegment;
-
-function json(value?: string): unknown {
-  if (value === undefined) return undefined;
-  try { return JSON.parse(value); } catch { throw new Error("Value must be valid JSON"); }
-}
 
 function numbers(value?: string): number[] | undefined {
   return value?.split(",").map((item) => Number(item.trim()));
@@ -19,7 +16,9 @@ export function registerCalendarCommands(program: Command): void {
   calendar.command("create")
     .requiredOption("--name <name>")
     .option("--color <color>")
-    .action(async (opts) => printResult(await post("/api/v1/calendars", opts)));
+    .action(async (opts) => printResult(await post("/api/v1/calendars", {
+      name: opts.name, color: opts.color,
+    })));
   calendar.command("show").argument("<calendar-id>").action(async (id: string) => {
     printResult(await get(`/api/v1/calendars/${e(id)}`));
   });
@@ -28,8 +27,8 @@ export function registerCalendarCommands(program: Command): void {
   event.command("list")
     .requiredOption("--from <datetime>", "Inclusive ISO datetime")
     .requiredOption("--to <datetime>", "Exclusive ISO datetime")
-    .option("--limit <n>")
-    .option("--offset <n>")
+    .option("--limit <n>", "Maximum results", parseCount)
+    .option("--offset <n>", "Results to skip", parseCount)
     .option("--expand")
     .action(async (opts) => {
       printResult(await get(`/api/v1/calendar/events${buildQuery(opts)}`));
@@ -51,8 +50,19 @@ export function registerCalendarCommands(program: Command): void {
     .option("--reminders <minutes>", "Comma-separated reminder minutes")
     .action(async (opts) => {
       printResult(await post("/api/v1/calendar/events", {
-        ...opts,
-        metadata: json(opts.metadata),
+        title: opts.title,
+        timezone: opts.timezone,
+        calendarId: opts.calendarId,
+        description: opts.description,
+        startAt: opts.startAt,
+        endAt: opts.endAt,
+        date: opts.date,
+        allDay: opts.allDay,
+        color: opts.color,
+        location: opts.location,
+        conversationId: opts.conversationId,
+        rrule: opts.rrule,
+        metadata: parseJsonOption(opts.metadata, "--metadata"),
         reminders: numbers(opts.reminders),
       }));
     });
@@ -80,9 +90,19 @@ export function registerCalendarCommands(program: Command): void {
         throw new Error("--all-day must be true or false");
       }
       printResult(await patch(`/api/v1/calendar/events/${e(id)}`, {
-        ...opts,
+        title: opts.title,
+        description: opts.description,
+        startAt: opts.startAt,
+        endAt: opts.endAt,
+        date: opts.date,
+        timezone: opts.timezone,
+        color: opts.color,
+        location: opts.location,
+        conversationId: opts.conversationId,
+        rrule: opts.rrule,
+        updateScope: opts.updateScope,
         allDay: opts.allDay == null ? undefined : opts.allDay === "true",
-        metadata: json(opts.metadata),
+        metadata: parseJsonOption(opts.metadata, "--metadata"),
         reminders: numbers(opts.reminders),
       }));
     });

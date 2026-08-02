@@ -1,7 +1,5 @@
 import type { Command } from "commander";
-import { getOpts } from "../api.js";
 import {
-  ApiClient,
   buildQuery,
   del,
   encodePathSegment,
@@ -9,21 +7,14 @@ import {
   patch,
   post,
   put,
+  resolveClient,
   UnsupportedCommandError,
 } from "../client.js";
 import { printResult } from "../output.js";
+import { parseJsonArray, parseJsonOption } from "../json-options.js";
+import { registerVersionCommands } from "../version-commands.js";
 
 const e = encodePathSegment;
-
-function parse(value?: string): unknown {
-  if (value === undefined) return undefined;
-  try { return JSON.parse(value); } catch { throw new Error("JSON option is invalid"); }
-}
-
-function client(command: Command): ApiClient {
-  const { apiUrl, token } = getOpts(command);
-  return new ApiClient({ endpoint: apiUrl, token });
-}
 
 export function registerSlideCommands(program: Command): void {
   const slide = program.command("slide").description("Slide deck commands");
@@ -43,7 +34,7 @@ export function registerSlideCommands(program: Command): void {
     .action(async (opts) => printResult(await post("/api/v1/slides/decks", {
       title: opts.title,
       description: opts.description,
-      theme: parse(opts.theme),
+      theme: parseJsonOption(opts.theme),
       defaultAspectRatio: opts.aspectRatio,
       templateId: opts.templateId,
       spaceId: opts.spaceId,
@@ -55,7 +46,7 @@ export function registerSlideCommands(program: Command): void {
     .option("--title <title>").option("--description <text>")
     .option("--theme <json>").option("--aspect-ratio <ratio>")
     .action(async (id: string, opts) => printResult(await patch(`/api/v1/slides/decks/${e(id)}`, {
-      title: opts.title, description: opts.description, theme: parse(opts.theme),
+      title: opts.title, description: opts.description, theme: parseJsonOption(opts.theme),
       defaultAspectRatio: opts.aspectRatio,
     })));
   deck.command("delete").argument("<deck-id>").action(async (id: string) => {
@@ -76,14 +67,23 @@ export function registerSlideCommands(program: Command): void {
     .option("--speaker-notes <text>").option("--after-slide-id <id>")
     .action(async (deckId: string, opts) => printResult(await post(
       `/api/v1/slides/decks/${e(deckId)}/slides`,
-      { ...opts, content: parse(opts.content) },
+      {
+        title: opts.title,
+        content: parseJsonOption(opts.content),
+        speakerNotes: opts.speakerNotes,
+      },
     )));
   item.command("update").argument("<deck-id>").argument("<slide-id>")
     .requiredOption("--expected-version <n>")
     .option("--title <title>").option("--content <json>").option("--speaker-notes <text>")
     .action(async (deckId: string, slideId: string, opts) => printResult(await patch(
       `/api/v1/slides/decks/${e(deckId)}/slides/${e(slideId)}`,
-      { ...opts, expectedVersion: Number(opts.expectedVersion), content: parse(opts.content) },
+      {
+        title: opts.title,
+        content: parseJsonOption(opts.content),
+        speakerNotes: opts.speakerNotes,
+        expectedVersion: Number(opts.expectedVersion),
+      },
     )));
   item.command("delete").argument("<deck-id>").argument("<slide-id>")
     .action(async (deckId: string, slideId: string) => printResult(await del(
@@ -92,7 +92,7 @@ export function registerSlideCommands(program: Command): void {
   item.command("duplicate").argument("<deck-id>").argument("<slide-id>")
     .option("--title <title>")
     .action(async (deckId: string, slideId: string, opts) => printResult(await post(
-      `/api/v1/slides/decks/${e(deckId)}/slides/${e(slideId)}/duplicate`, opts,
+      `/api/v1/slides/decks/${e(deckId)}/slides/${e(slideId)}/duplicate`, { title: opts.title },
     )));
   item.command("reorder").argument("<deck-id>")
     .requiredOption("--slide-ids <ids>")
@@ -115,8 +115,7 @@ export function registerSlideCommands(program: Command): void {
   });
   permissions.command("set").argument("<deck-id>").requiredOption("--agents <json>")
     .action(async (id: string, opts: { agents: string }) => {
-      const agents = parse(opts.agents);
-      if (!Array.isArray(agents)) throw new Error("--agents must be a JSON array");
+      const agents = parseJsonArray(opts.agents, "--agents");
       printResult(await put(`/api/v1/slides/decks/${e(id)}/agent-permissions`, { agents }));
     });
 
@@ -141,32 +140,14 @@ export function registerSlideCommands(program: Command): void {
   exportCmd.command("download").argument("<deck-id>").argument("<job-id>")
     .requiredOption("--output <path>").option("--force")
     .action(async (id: string, jobId: string, opts) => {
-      await client(slide).download(
+      await resolveClient(slide).download(
         `/api/v1/slides/decks/${e(id)}/export/${e(jobId)}/download`,
         opts.output, opts.force,
       );
     });
 
-  const version = slide.command("version");
-  version.command("list").argument("<deck-id>").option("--cursor <cursor>").option("--limit <n>")
-    .action(async (id: string, opts) => printResult(await get(
-      `/api/v1/slides/decks/${e(id)}/versions${buildQuery(opts)}`,
-    )));
-  version.command("create").argument("<deck-id>")
-    .option("--label <label>").option("--idempotency-key <key>").option("--expected-head-version-id <id>")
-    .action(async (id: string, opts) => printResult(await post(
-      `/api/v1/slides/decks/${e(id)}/versions`, opts,
-    )));
-  version.command("show").argument("<deck-id>").argument("<version-id>")
-    .action(async (id: string, versionId: string) => printResult(await get(
-      `/api/v1/slides/decks/${e(id)}/versions/${e(versionId)}`,
-    )));
-  for (const name of ["copy", "restore"] as const) {
-    const cmd = version.command(name).argument("<deck-id>").argument("<version-id>")
-      .requiredOption("--idempotency-key <key>").option("--correlation-id <id>");
-    if (name === "restore") cmd.requiredOption("--expected-head-version-id <id>");
-    cmd.action(async (id: string, versionId: string, opts) => printResult(await post(
-      `/api/v1/slides/decks/${e(id)}/versions/${e(versionId)}/${name}`, opts,
-    )));
-  }
+  registerVersionCommands(slide, {
+    resourceArgument: "<deck-id>",
+    basePath: (id) => `/api/v1/slides/decks/${e(id)}`,
+  });
 }

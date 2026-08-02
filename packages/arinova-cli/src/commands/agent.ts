@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { getOpts, apiCall, output } from "../api.js";
 import { encodePathSegment } from "../client.js";
+import { parseJsonOption } from "../json-options.js";
 
 export function registerAgentCommands(program: Command): void {
   const agent = program.command("agent").description("Agent management");
@@ -52,12 +53,7 @@ export function registerAgentCommands(program: Command): void {
     .action(async (opts: {
       id: string; toolName: string; requestId: string; arguments: string; conversationId?: string;
     }) => {
-      let args: unknown;
-      try {
-        args = JSON.parse(opts.arguments);
-      } catch {
-        throw new Error("--arguments must be valid JSON");
-      }
+      const args = parseJsonOption(opts.arguments, "--arguments");
       const { token, apiUrl } = getOpts(agent);
       output(await apiCall({
         method: "POST",

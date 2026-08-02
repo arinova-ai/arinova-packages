@@ -4,6 +4,8 @@ import {
   ConfirmationRequiredError,
   requireNonInteractiveConfirmation,
 } from "./safety.js";
+import { registerCompletion } from "./completion.js";
+import { registerFileCommands } from "./commands/file.js";
 
 function command(name: string, yes = false): Command {
   const root = new Command().name("arinova").option("--yes");
@@ -66,5 +68,16 @@ describe("non-interactive confirmation", () => {
         { isTTY: false },
       ),
     ).toThrow(ConfirmationRequiredError);
+  });
+
+  it("uses the real program tree for completion and the POST file URL leaf", () => {
+    const root = new Command().name("arinova").option("--yes");
+    registerCompletion(root);
+    registerFileCommands(root);
+    const completion = root.commands.find((item) => item.name() === "completion")!;
+    const file = root.commands.find((item) => item.name() === "file")!;
+    const url = file.commands.find((item) => item.name() === "url")!;
+    expect(() => requireNonInteractiveConfirmation(completion, { isTTY: false })).not.toThrow();
+    expect(() => requireNonInteractiveConfirmation(url, { isTTY: false })).toThrow(ConfirmationRequiredError);
   });
 });

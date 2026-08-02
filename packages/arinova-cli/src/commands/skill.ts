@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { buildQuery, del, encodePathSegment, get, patch, post } from "../client.js";
 import { printResult, printSuccess, table } from "../output.js";
+import { parseCount } from "../pagination.js";
 
 const e = encodePathSegment;
 
@@ -147,9 +148,9 @@ export function registerSkill(program: Command): void {
     .option("--runtime <runtime>")
     .option("--sort <sort>")
     .option("--favorited")
-    .option("--page <n>")
-    .option("--limit <n>")
-    .option("--offset <n>")
+    .option("--page <n>", "Page number", parseCount)
+    .option("--limit <n>", "Maximum results", parseCount)
+    .option("--offset <n>", "Results to skip", parseCount)
     .action(async (opts) => {
       printResult(await get(`/api/v1/skill-packages${buildQuery({
         search: opts.search,

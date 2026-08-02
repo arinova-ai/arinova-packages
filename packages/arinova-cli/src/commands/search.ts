@@ -1,18 +1,16 @@
 import type { Command } from "commander";
-import { getOpts, output } from "../api.js";
-import { ApiClient, buildQuery } from "../client.js";
+import { output } from "../api.js";
+import { buildQuery, resolveClient } from "../client.js";
+import { parseCount } from "../pagination.js";
 
-function clientFor(command: Command): ApiClient {
-  const { token, apiUrl } = getOpts(command);
-  return new ApiClient({ endpoint: apiUrl, token });
-}
+const clientFor = resolveClient;
 
 export function registerSearchCommands(program: Command): void {
   const search = program
     .command("search")
     .description("Search Arinova resources")
     .option("-q, --query <keyword>", "Search keyword")
-    .option("--limit <n>", "Max results per category")
+    .option("--limit <n>", "Max results per category", parseCount)
     .action(async (opts: { query?: string; limit?: string }) => {
       if (!opts.query) throw new Error("--query is required");
       output(await clientFor(search).get(`/api/v1/search${buildQuery({

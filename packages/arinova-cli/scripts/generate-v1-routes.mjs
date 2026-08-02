@@ -1,48 +1,20 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const serverRoot = resolve(
-  process.argv[2] ??
-    process.env.ARINOVA_SERVER_ROOT ??
-    join(packageRoot, "../../../arinova-chat-cli-update"),
-);
-const sourceRoot = join(serverRoot, "apps/rust-server/src");
+const configuredServerRoot = process.env.ARINOVA_SERVER_ROOT;
+if (!configuredServerRoot) {
+  throw new Error("ARINOVA_SERVER_ROOT is required and must point to an arinova-chat checkout");
+}
+const serverRoot = resolve(configuredServerRoot);
+const inventoryPath = join(serverRoot, "docs/rust-backend-route-inventory.md");
+if (!existsSync(inventoryPath)) {
+  throw new Error(`Generated route inventory not found: ${inventoryPath}`);
+}
 const outputPath = join(packageRoot, "src/contracts/api-v1-routes.json");
-
-function walk(directory) {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) return walk(path);
-    return entry.name.endsWith(".rs") ? [path] : [];
-  });
-}
-
-function parseRouteCalls(source) {
-  const calls = [];
-  for (let position = 0; ; position += 1) {
-    position = source.indexOf(".route(", position);
-    if (position < 0) return calls;
-    let cursor = position + ".route(".length;
-    let depth = 1;
-    let inString = false;
-    let escaped = false;
-    for (; cursor < source.length && depth > 0; cursor += 1) {
-      const char = source[cursor];
-      if (inString) {
-        if (escaped) escaped = false;
-        else if (char === "\\") escaped = true;
-        else if (char === '"') inString = false;
-      } else if (char === '"') inString = true;
-      else if (char === "(") depth += 1;
-      else if (char === ")") depth -= 1;
-    }
-    calls.push(source.slice(position + ".route(".length, cursor - 1));
-  }
-}
 
 function authKind(path) {
   if (path === "/api/v1/hud") return "websocket";
@@ -84,45 +56,24 @@ function responseMode(path) {
   return "json";
 }
 
-const files = walk(sourceRoot).filter((path) => {
-  const name = relative(sourceRoot, path);
-  return (
-    !name.split("/").some((part) => part === "tests") &&
-    !/(^|[/_])tests?\.rs$/.test(name) &&
-    name !== "router.rs" &&
-    !name.startsWith("middleware/")
-  );
-});
-
 const entries = new Map();
-for (const file of files) {
-  const source = readFileSync(file, "utf8");
-  for (const call of parseRouteCalls(source)) {
-    const match = call.match(
-      /^\s*"(\/api\/v1[^"\\]*)"\s*,([\s\S]*)$/,
-    );
-    if (!match) continue;
-    const [, path, handlers] = match;
-    const methods = [
-      ...new Set(
-        [...handlers.matchAll(/\b(get|post|put|patch|delete)\s*\(/g)].map(
-          (item) => item[1].toUpperCase(),
-        ),
-      ),
-    ];
-    for (const method of methods) {
-      const key = `${method} ${path}`;
-      entries.set(key, {
-        method,
-        path,
-        auth: authKind(path),
-        requestMode: requestMode(method, path),
-        responseMode: responseMode(path),
-        source: relative(sourceRoot, file),
-      });
-    }
-  }
+const inventory = readFileSync(inventoryPath, "utf8");
+for (const line of inventory.split("\n")) {
+  const match = line.match(/^\| `([A-Z]+)` \| `(\/api\/v1[^`]*)` \| [^|]+ \| [^|]+ \| `([^`]+)` \|$/);
+  if (!match) continue;
+  const [, method, path, source] = match;
+  if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)) continue;
+  const key = `${method} ${path}`;
+  entries.set(key, {
+    method,
+    path,
+    auth: authKind(path),
+    requestMode: requestMode(method, path),
+    responseMode: responseMode(path),
+    source,
+  });
 }
+if (entries.size === 0) throw new Error(`No API v1 routes parsed from ${inventoryPath}`);
 
 const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
   cwd: serverRoot,

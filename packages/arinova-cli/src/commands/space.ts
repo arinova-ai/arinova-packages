@@ -11,16 +11,10 @@ import {
   uploadMultipart,
 } from "../client.js";
 import { printResult, printSuccess, table } from "../output.js";
+import { parseJsonOption } from "../json-options.js";
+import { parseCount } from "../pagination.js";
 
 const e = encodePathSegment;
-
-function parseJson(value: string, label: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    throw new Error(`${label} must be valid JSON`);
-  }
-}
 
 function parseTags(value?: string): string[] | undefined {
   return value?.split(",").map((tag) => tag.trim()).filter(Boolean);
@@ -46,8 +40,8 @@ export function registerSpace(program: Command): void {
     .description("List discoverable spaces")
     .option("--search <query>")
     .option("--category <category>")
-    .option("--page <n>")
-    .option("--limit <n>")
+    .option("--page <n>", "Page number", parseCount)
+    .option("--limit <n>", "Maximum results", parseCount)
     .action(async (opts) => {
       printSpaces(await get(`/api/v1/spaces${buildQuery(opts)}`));
     });
@@ -125,7 +119,9 @@ export function registerSpace(program: Command): void {
     .requiredOption("--reason <reason>")
     .option("--detail <detail>")
     .action(async (id: string, opts: { reason: string; detail?: string }) => {
-      printResult(await post(`/api/v1/spaces/${e(id)}/reports`, opts));
+      printResult(await post(`/api/v1/spaces/${e(id)}/reports`, {
+        reason: opts.reason, detail: opts.detail,
+      }));
     });
 
   const storage = space.command("storage")
@@ -145,7 +141,7 @@ export function registerSpace(program: Command): void {
     .requiredOption("--value <json>", "JSON value")
     .action(async (spaceId: string, key: string, opts: { value: string }) => {
       printResult(await put(`/api/v1/spaces/${e(spaceId)}/storage/${e(key)}`, {
-        value: parseJson(opts.value, "--value"),
+        value: parseJsonOption(opts.value, "--value"),
       }));
     });
   storage.command("delete")

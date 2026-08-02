@@ -17,20 +17,20 @@ import {
 } from "./client.js";
 
 const mocks = vi.hoisted(() => ({
-  getApiKey: vi.fn(() => "ari_cli_default"),
+  resolveApiKey: vi.fn(() => ({ apiKey: "ari_cli_default", profileName: "default", source: "profile" })),
   getEndpoint: vi.fn(() => "https://api.example.test"),
   getProfile: vi.fn(),
 }));
 
 vi.mock("./config.js", () => ({
-  getApiKey: mocks.getApiKey,
+  resolveApiKey: mocks.resolveApiKey,
   getEndpoint: mocks.getEndpoint,
   getProfile: mocks.getProfile,
 }));
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  mocks.getApiKey.mockReturnValue("ari_cli_default");
+  mocks.resolveApiKey.mockReturnValue({ apiKey: "ari_cli_default", profileName: "default", source: "profile" });
   mocks.getEndpoint.mockReturnValue("https://api.example.test");
   mocks.getProfile.mockReturnValue(undefined);
   resetClientDefaults();
@@ -82,7 +82,7 @@ describe("CLI client", () => {
   });
 
   it("throws a clear missing-token error before fetch", async () => {
-    mocks.getApiKey.mockReturnValue(undefined as unknown as string);
+    mocks.resolveApiKey.mockImplementation(() => { throw new Error("No API key configured"); });
     const fetchMock = vi.spyOn(globalThis, "fetch");
 
     await expect(del("/api/v1/notes/note-1")).rejects.toThrow(
@@ -99,7 +99,7 @@ describe("CLI client", () => {
     await expect(get("/api/v1/private")).rejects.toMatchObject({
       status: 403,
       body: { error: "Forbidden", code: "NOPE" },
-      message: 'API error 403: {"error":"Forbidden","code":"NOPE"}',
+      message: "API error 403: Forbidden",
     } satisfies Partial<ApiError>);
   });
 
@@ -209,7 +209,7 @@ describe("CLI client", () => {
   });
 
   it("selected runtime profile wins over the legacy first-profile fallback", async () => {
-    mocks.getProfile.mockReturnValue({ type: "user", apiKey: "ari_selected" });
+    mocks.resolveApiKey.mockReturnValue({ apiKey: "ari_selected", profileName: "selected", source: "profile" });
     configureClientDefaults({ profileName: "selected" });
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response("{}", { status: 200 }),
@@ -217,7 +217,7 @@ describe("CLI client", () => {
 
     await get("/api/v1/user/profile");
 
-    expect(mocks.getProfile).toHaveBeenCalledWith("selected");
+    expect(mocks.resolveApiKey).toHaveBeenCalledWith({ profile: "selected" });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.example.test/api/v1/user/profile",
       expect.objectContaining({

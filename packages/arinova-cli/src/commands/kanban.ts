@@ -1,18 +1,10 @@
 import type { Command } from "commander";
 import { getOpts, apiCall, output } from "../api.js";
 import { encodePathSegment, UnsupportedCommandError } from "../client.js";
+import { parseCount } from "../pagination.js";
+import { parseJsonArray } from "../json-options.js";
 
 const e = encodePathSegment;
-
-function parseJsonArray(value: string, label: string): unknown[] {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (Array.isArray(parsed)) return parsed;
-  } catch {
-    // Fall through to the stable validation error.
-  }
-  throw new Error(`${label} must be a JSON array`);
-}
 
 export function registerKanbanCommands(program: Command): void {
   const kanban = program.command("kanban").description("Kanban board commands");
@@ -92,8 +84,8 @@ export function registerKanbanCommands(program: Command): void {
   card.command("list")
     .description("List cards. --search matches ID prefix (4+ hex), title, or description.")
     .option("--search <query>", "Search by ID prefix (4+ hex), title, or description")
-    .option("--limit <n>", "Max cards to return (default 200)", parseInt)
-    .option("--offset <n>", "Skip first N cards (pagination)", parseInt)
+    .option("--limit <n>", "Max cards to return (default 200)", parseCount)
+    .option("--offset <n>", "Skip first N cards (pagination)", parseCount)
     .option("--all", "Fetch all matching cards (paginates internally)")
     .action(async (opts: { search?: string; limit?: number; offset?: number; all?: boolean }) => {
       const { token, apiUrl } = getOpts(card);
@@ -141,7 +133,12 @@ export function registerKanbanCommands(program: Command): void {
     });
   card.command("create").requiredOption("--title <title>", "Card title").option("--board-id <id>", "Board ID").option("--column-name <name>", "Column name").option("--description <desc>", "Description").action(async (opts: { title: string; boardId?: string; columnName?: string; description?: string }) => {
     const { token, apiUrl } = getOpts(card);
-    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/cards`, token, body: opts }));
+    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/cards`, token, body: {
+      title: opts.title,
+      boardId: opts.boardId,
+      columnName: opts.columnName,
+      description: opts.description,
+    } }));
   });
   card.command("update").requiredOption("--card-id <id>", "Card ID").option("--title <text>", "New title").option("--description <text>", "New description").option("--column-id <id>", "Move to column").action(async (opts: { cardId: string; title?: string; description?: string; columnId?: string }) => {
     const { token, apiUrl } = getOpts(card);
@@ -188,11 +185,11 @@ export function registerKanbanCommands(program: Command): void {
     output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}/commits`, token }));
   });
   const comment = card.command("comment").description("Card comments");
-  comment.command("list").requiredOption("--card-id <id>", "Card ID").option("--limit <n>").option("--offset <n>").action(async (opts: { cardId: string; limit?: string; offset?: string }) => {
+  comment.command("list").requiredOption("--card-id <id>", "Card ID").option("--limit <n>", "Maximum results", parseCount).option("--offset <n>", "Results to skip", parseCount).action(async (opts: { cardId: string; limit?: number; offset?: number }) => {
     const { token, apiUrl } = getOpts(comment);
     const qs = new URLSearchParams();
-    if (opts.limit) qs.set("limit", opts.limit);
-    if (opts.offset) qs.set("offset", opts.offset);
+    if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
+    if (opts.offset !== undefined) qs.set("offset", String(opts.offset));
     output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}/comments${qs.size ? `?${qs}` : ""}`, token }));
   });
   comment.command("add").requiredOption("--card-id <id>", "Card ID").requiredOption("--content <text>", "Comment content").action(async (opts: { cardId: string; content: string }) => {
@@ -213,8 +210,8 @@ export function registerKanbanCommands(program: Command): void {
     output(await apiCall({ method: "DELETE", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}/labels/${e(opts.labelId)}`, token }));
   });
   cardLabel.command("list").requiredOption("--card-id <id>", "Card ID").action(async (opts: { cardId: string }) => {
-    const { token, apiUrl } = getOpts(cardLabel);
-    output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}`, token }));
+    void opts;
+    throw new UnsupportedCommandError("kanban card-label list is unavailable because the server has no card-label list route");
   });
   card.command("bulk-move").requiredOption("--moves <json>", "JSON array of {cardId,toColumnId}").action(async (opts: { moves: string }) => {
     const { token, apiUrl } = getOpts(card);

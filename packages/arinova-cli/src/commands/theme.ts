@@ -1,7 +1,6 @@
 import { Command } from "commander";
 import { get, del, patch, uploadMultipart, encodePathSegment } from "../client.js";
-import { resolveApiKey } from "../config.js";
-import { printResult, printError, printSuccess, table } from "../output.js";
+import { printResult, printError, printSuccess, printNote, table } from "../output.js";
 import {
   readFileSync,
   writeFileSync,
@@ -97,18 +96,6 @@ function blobPartFromBuffer(data: Buffer): ArrayBuffer {
 export function registerTheme(program: Command): void {
   const theme = program.command("theme").description("Theme management");
 
-  // Resolve the API key the same way bot-era commands do (api.ts getOpts):
-  // honor --token / --profile. Falling back to client.ts getApiKey() would
-  // silently use the first configured profile regardless of --profile.
-  const resolveKey = (): string => {
-    const opts = program.optsWithGlobals();
-    const { apiKey } = resolveApiKey({
-      token: opts.token as string | undefined,
-      profile: opts.profile as string | undefined,
-    });
-    return apiKey;
-  };
-
   // ── Existing commands ─────────────────────────────────────
 
   theme
@@ -116,7 +103,7 @@ export function registerTheme(program: Command): void {
     .description("List your themes")
     .action(async () => {
       try {
-        const data = await get("/api/v1/creator/themes", resolveKey());
+        const data = await get("/api/v1/creator/themes");
         const themes = (data as Record<string, unknown>).themes ?? data;
         if (Array.isArray(themes)) {
           table(themes as Record<string, unknown>[], [
@@ -140,8 +127,7 @@ export function registerTheme(program: Command): void {
       try {
         const resolvedManifest = manifestFile ?? "theme.json";
         if (!existsSync(resolvedManifest)) {
-          printError(new Error(`File not found: ${resolvedManifest}`));
-          return;
+          throw new Error(`File not found: ${resolvedManifest}`);
         }
         // Default the bundle to <id>.zip next to the manifest, if present.
         let resolvedBundle = bundleFile;
@@ -160,8 +146,7 @@ export function registerTheme(program: Command): void {
           }
         }
         if (resolvedBundle && !existsSync(resolvedBundle)) {
-          printError(new Error(`File not found: ${resolvedBundle}`));
-          return;
+          throw new Error(`File not found: ${resolvedBundle}`);
         }
         const manifestData = readThemeManifest(resolvedManifest);
         const fields: Record<string, string | Blob> = {
@@ -171,7 +156,7 @@ export function registerTheme(program: Command): void {
           const bundleData = readFileSync(resolvedBundle);
           fields.bundle = new Blob([blobPartFromBuffer(bundleData)], { type: "application/zip" });
         }
-        const data = await uploadMultipart("/api/v1/themes/upload", fields, "POST", resolveKey());
+        const data = await uploadMultipart("/api/v1/themes/upload", fields, "POST");
         printResult(data);
       } catch (err) {
         printError(err);
@@ -183,8 +168,8 @@ export function registerTheme(program: Command): void {
     .description("Update a theme")
     .action(async (id: string, manifestFile: string, bundleFile?: string) => {
       try {
-        if (!existsSync(manifestFile)) { printError(new Error(`File not found: ${manifestFile}`)); return; }
-        if (bundleFile && !existsSync(bundleFile)) { printError(new Error(`File not found: ${bundleFile}`)); return; }
+        if (!existsSync(manifestFile)) throw new Error(`File not found: ${manifestFile}`);
+        if (bundleFile && !existsSync(bundleFile)) throw new Error(`File not found: ${bundleFile}`);
         const manifestData = readThemeManifest(manifestFile);
         const fields: Record<string, string | Blob> = {
           manifest: new Blob([blobPartFromBuffer(manifestData)], { type: "application/json" }),
@@ -193,7 +178,7 @@ export function registerTheme(program: Command): void {
           const bundleData = readFileSync(bundleFile);
           fields.bundle = new Blob([blobPartFromBuffer(bundleData)], { type: "application/zip" });
         }
-        const data = await uploadMultipart(`/api/v1/themes/${encodePathSegment(id)}`, fields, "PUT", resolveKey());
+        const data = await uploadMultipart(`/api/v1/themes/${encodePathSegment(id)}`, fields, "PUT");
         printResult(data);
       } catch (err) {
         printError(err);
@@ -205,7 +190,7 @@ export function registerTheme(program: Command): void {
     .description("Delete a theme")
     .action(async (id: string) => {
       try {
-        await del(`/api/v1/themes/${encodePathSegment(id)}`, resolveKey());
+        await del(`/api/v1/themes/${encodePathSegment(id)}`);
         printSuccess(`Theme ${id} deleted.`);
       } catch (err) {
         printError(err);
@@ -217,7 +202,7 @@ export function registerTheme(program: Command): void {
     .description("Publish a theme (requires an approved safety review)")
     .action(async (id: string) => {
       try {
-        const data = await patch(`/api/v1/themes/${encodePathSegment(id)}/status`, { status: "published" }, resolveKey());
+        const data = await patch(`/api/v1/themes/${encodePathSegment(id)}/status`, { status: "published" });
         printResult(data);
       } catch (err) {
         printError(err);
@@ -229,7 +214,7 @@ export function registerTheme(program: Command): void {
     .description("Unpublish a theme")
     .action(async (id: string) => {
       try {
-        const data = await patch(`/api/v1/themes/${encodePathSegment(id)}/status`, { status: "draft" }, resolveKey());
+        const data = await patch(`/api/v1/themes/${encodePathSegment(id)}/status`, { status: "draft" });
         printResult(data);
       } catch (err) {
         printError(err);
@@ -241,7 +226,7 @@ export function registerTheme(program: Command): void {
     .description("Show detailed info about a theme")
     .action(async (id: string) => {
       try {
-        const data = await get(`/api/v1/themes/${encodePathSegment(id)}`, resolveKey());
+        const data = await get(`/api/v1/themes/${encodePathSegment(id)}`);
         printResult(data);
       } catch (err) {
         printError(err);
@@ -257,8 +242,7 @@ export function registerTheme(program: Command): void {
       try {
         const dir = resolve(name);
         if (existsSync(dir)) {
-          printError(new Error(`Directory already exists: ${name}`));
-          return;
+          throw new Error(`Directory already exists: ${name}`);
         }
 
         const id = slugifyThemeId(name);
@@ -281,17 +265,17 @@ export function registerTheme(program: Command): void {
         writeFileSync(join(dir, "preview.png"), Buffer.from(PLACEHOLDER_PREVIEW_PNG_BASE64, "base64"));
 
         printSuccess(`Theme scaffolded in ./${name}/`);
-        console.log("  theme.json   — manifest (id: " + id + ")");
-        console.log("  theme.js     — entry point");
-        console.log("  preview.png  — placeholder preview (replace with a real 16:9 screenshot)");
-        console.log("");
-        console.log("Asset files (png, jpg, svg, mp3, glb, …) go flat next to theme.js — no subfolders.");
-        console.log("");
-        console.log("Next steps:");
-        console.log(`  cd ${name}`);
-        console.log("  arinova theme dev      # preview locally");
-        console.log("  arinova theme build    # package as <id>.zip");
-        console.log("  arinova theme upload   # upload (then publish once approved)");
+        printNote("  theme.json   — manifest (id: " + id + ")");
+        printNote("  theme.js     — entry point");
+        printNote("  preview.png  — placeholder preview (replace with a real 16:9 screenshot)");
+        printNote("");
+        printNote("Asset files (png, jpg, svg, mp3, glb, …) go flat next to theme.js — no subfolders.");
+        printNote("");
+        printNote("Next steps:");
+        printNote(`  cd ${name}`);
+        printNote("  arinova theme dev      # preview locally");
+        printNote("  arinova theme build    # package as <id>.zip");
+        printNote("  arinova theme upload   # upload (then publish once approved)");
       } catch (err) {
         printError(err);
       }
@@ -306,15 +290,17 @@ export function registerTheme(program: Command): void {
         const cwd = process.cwd();
         const manifestPath = join(cwd, "theme.json");
         if (!existsSync(manifestPath)) {
-          printError(new Error("theme.json not found. Run this inside a theme directory."));
-          return;
+          throw new Error("theme.json not found. Run this inside a theme directory.");
         }
 
         const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
         const themeId = typeof manifest.id === "string" && manifest.id ? manifest.id : "dev-theme";
         const themeName = manifest.name || themeId;
         const entry = manifest.entry || "theme.js";
-        const port = parseInt(opts.port, 10);
+        const port = Number(opts.port);
+        if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+          throw new Error("Port must be an integer from 1 to 65535");
+        }
         const entryPath = resolveThemeRootFile(cwd, entry, ["js", "mjs"]);
 
         const RUNTIME_HTML = generateDevHtml(themeId, themeName);
@@ -410,11 +396,11 @@ export function registerTheme(program: Command): void {
         });
 
         server.listen(port, "127.0.0.1", () => {
-          console.log(`\n  Arinova Theme Dev Server`);
-          console.log(`  Theme:  ${themeName} (${themeId})`);
-          console.log(`  URL:    http://localhost:${port}`);
-          console.log(`  Serves the real SDK bridge — dev mirrors production.`);
-          console.log(`  Press Ctrl+C to stop\n`);
+          printNote(`\n  Arinova Theme Dev Server`);
+          printNote(`  Theme:  ${themeName} (${themeId})`);
+          printNote(`  URL:    http://localhost:${port}`);
+          printNote(`  Serves the real SDK bridge — dev mirrors production.`);
+          printNote(`  Press Ctrl+C to stop\n`);
         });
 
         // Keep the process alive until interrupted — otherwise the CLI's
@@ -445,15 +431,13 @@ export function registerTheme(program: Command): void {
         const cwd = process.cwd();
         const manifestPath = join(cwd, "theme.json");
         if (!existsSync(manifestPath)) {
-          printError(new Error("theme.json not found. Run this inside a theme directory."));
-          return;
+          throw new Error("theme.json not found. Run this inside a theme directory.");
         }
 
         const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
         const manifestError = validateManifestForBuild(manifest);
         if (manifestError) {
-          printError(new Error(manifestError));
-          return;
+          throw new Error(manifestError);
         }
 
         const id: string = manifest.id;
@@ -468,7 +452,7 @@ export function registerTheme(program: Command): void {
           ["png", "jpg", "jpeg", "webp", "gif"],
         );
         if (entry !== "theme.js") {
-          console.log(`  note: entry '${entry}' will be packaged as 'theme.js' (the runtime always loads theme.js).`);
+          printNote(`  note: entry '${entry}' will be packaged as 'theme.js' (the runtime always loads theme.js).`);
         }
 
         // Assemble a FLAT bundle keyed by final entry name (production serves a
@@ -501,8 +485,8 @@ export function registerTheme(program: Command): void {
         }
 
         if (skippedDirs) {
-          console.log("  warning: subdirectories were skipped — production serves assets flat.");
-          console.log("           Move any asset files to the theme root (no subfolders).");
+          printNote("  warning: subdirectories were skipped — production serves assets flat.");
+          printNote("           Move any asset files to the theme root (no subfolders).");
         }
 
         const zipEntries: ZipEntry[] = Array.from(entries, ([name, data]) => ({ name, data }));
@@ -510,10 +494,10 @@ export function registerTheme(program: Command): void {
         writeFileSync(join(cwd, outFile), zip);
 
         printSuccess(`Built ${outFile} (${(zip.length / 1024).toFixed(1)} KB, ${zipEntries.length} files)`);
-        console.log("\nUpload with:");
-        console.log(`  arinova theme upload theme.json ${outFile}`);
-        console.log("Then publish once your safety review is approved:");
-        console.log(`  arinova theme publish ${id}`);
+        printNote("\nUpload with:");
+        printNote(`  arinova theme upload theme.json ${outFile}`);
+        printNote("Then publish once your safety review is approved:");
+        printNote(`  arinova theme publish ${id}`);
       } catch (err) {
         printError(err);
       }

@@ -1,15 +1,12 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { Command } from "commander";
-import { getOpts, output } from "../api.js";
-import { ApiClient, buildQuery, encodePathSegment } from "../client.js";
+import { output } from "../api.js";
+import { buildQuery, encodePathSegment, resolveClient } from "../client.js";
 
 const e = encodePathSegment;
 
-function clientFor(command: Command): ApiClient {
-  const { token, apiUrl } = getOpts(command);
-  return new ApiClient({ endpoint: apiUrl, token });
-}
+const clientFor = resolveClient;
 
 function csv(value: string): string[] {
   const values = value.split(",").map((item) => item.trim()).filter(Boolean);
@@ -125,7 +122,9 @@ export function registerFileCommands(program: Command): void {
     .option("--color <color>")
     .option("--space-id <id>")
     .action(async (opts: { name: string; color?: string; spaceId?: string }) => {
-      output(await clientFor(folder).post("/api/v1/file-folders", opts));
+      output(await clientFor(folder).post("/api/v1/file-folders", {
+        name: opts.name, color: opts.color, spaceId: opts.spaceId,
+      }));
     });
   folder.command("show").argument("<id>", "Folder ID").action(async (id: string) => {
     output(await clientFor(folder).get(`/api/v1/file-folders/${e(id)}`));
@@ -139,7 +138,7 @@ export function registerFileCommands(program: Command): void {
     .action(async (id: string, opts: {
       name?: string; color?: string; clearColor?: boolean; sortOrder?: string;
     }) => {
-      output(await clientFor(folder).patch(`/api/v1/file-folders/${e(id)}`, {
+      output(await clientFor(folder).put(`/api/v1/file-folders/${e(id)}`, {
         name: opts.name,
         color: opts.clearColor ? null : opts.color,
         sortOrder: opts.sortOrder == null ? undefined : Number(opts.sortOrder),

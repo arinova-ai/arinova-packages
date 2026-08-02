@@ -7,6 +7,7 @@ const READ_ONLY_COMMANDS = new Set([
   "agent-manifest",
   "agents",
   "categories",
+  "completion",
   "content",
   "credit",
   "duplicates",
@@ -36,7 +37,6 @@ const READ_ONLY_COMMANDS = new Set([
   "status",
   "suggestions",
   "usage",
-  "url",
   "versions",
   "whoami",
 ]);

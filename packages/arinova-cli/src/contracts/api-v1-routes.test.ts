@@ -1,5 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -23,12 +24,16 @@ const fixture = JSON.parse(
 const commandsDirectory = join(contractsDirectory, "../commands");
 
 describe("API v1 route contract fixture", () => {
-  it("pins the inventoried server commit and complete route count", () => {
-    expect(fixture.sourceCommit).toBe(
-      "33b7c06ad9df8b9cb5ab9e21fff109955a3cc3cc",
-    );
-    expect(fixture.routeCount).toBe(378);
+  it("is internally fresh and matches the configured server checkout", () => {
+    expect(fixture.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
+    expect(fixture.routeCount).toBeGreaterThan(0);
     expect(fixture.routes).toHaveLength(fixture.routeCount);
+    if (process.env.ARINOVA_SERVER_ROOT) {
+      const head = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: resolve(process.env.ARINOVA_SERVER_ROOT), encoding: "utf8",
+      }).trim();
+      expect(fixture.sourceCommit).toBe(head);
+    }
   });
 
   it("has unique method/path entries with transport metadata", () => {
@@ -60,5 +65,44 @@ describe("API v1 route contract fixture", () => {
     ]) {
       expect(source).not.toContain(stale);
     }
+  });
+
+  it("maps every literal CLI method/path call to a server route", () => {
+    const files = readdirSync(commandsDirectory)
+      .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
+      .map((name) => readFileSync(join(commandsDirectory, name), "utf8"));
+    const calls = new Set<string>();
+    const add = (method: string, rawPath: string) => {
+      const path = rawPath
+        .replace(/^\$\{apiUrl\}/, "")
+        .replace(/\$\{buildQuery\([\s\S]*$/, "")
+        .replace(/(?<!\/)\$\{[\s\S]*$/, "")
+        .split("?")[0]
+        .replace(/\$\{[^}]+\}/g, "{param}");
+      if (path.startsWith("/api/v1")) calls.add(`${method} ${path}`);
+    };
+    for (const source of files) {
+      for (const match of source.matchAll(/\b(get|post|put|patch|del|delete|upload|download)\(\s*([`'"])(\/api\/v1[\s\S]*?)\2/g)) {
+        const method = ({ del: "DELETE", delete: "DELETE", upload: "POST", download: "GET" } as Record<string, string>)[match[1]] ?? match[1].toUpperCase();
+        add(method, match[3]);
+      }
+      for (const match of source.matchAll(/apiCall\(\{\s*method:\s*"(GET|POST|PUT|PATCH|DELETE)"[\s\S]*?url:\s*`(\$\{apiUrl\}\/api\/v1[^`]*)`/g)) {
+        add(match[1], match[2]);
+      }
+    }
+    const matches = (cliPath: string, serverPath: string) => {
+      const left = cliPath.split("/");
+      const right = serverPath.split("/");
+      return left.length === right.length && left.every((part, index) =>
+        part === "{param}" || /^\{[^}]+\}$/.test(right[index]) || part === right[index]
+      );
+    };
+    const missing = [...calls].filter((call) => {
+      const separator = call.indexOf(" ");
+      const method = call.slice(0, separator);
+      const path = call.slice(separator + 1);
+      return !fixture.routes.some((route) => route.method === method && matches(path, route.path));
+    });
+    expect(missing).toEqual([]);
   });
 });

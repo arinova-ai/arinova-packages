@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { listProfiles, removeProfile, getEndpoint, getEnvironmentLabel, resolveProfileName, getProfile } from "../config.js";
-import { printResult, printError, printSuccess, table } from "../output.js";
+import { printResult, printError, printSuccess, printNote, table } from "../output.js";
 
 export function registerProfile(program: Command): void {
   const profile = program
@@ -34,9 +34,9 @@ Remove a profile:
     .action(() => {
       const profiles = listProfiles();
       if (profiles.length === 0) {
-        console.log("No profiles configured.");
-        console.log("  User:  arinova auth login");
-        console.log("  Bot:   arinova --profile <name> auth set-token <key>");
+        printNote("No profiles configured.");
+        printNote("  User:  arinova auth login");
+        printNote("  Bot:   arinova --profile <name> auth set-token <key>");
         return;
       }
       table(
@@ -51,8 +51,8 @@ Remove a profile:
           { key: "key", label: "API Key" },
         ],
       );
-      console.log(`\nEnvironment: ${getEnvironmentLabel()}`);
-      console.log(`Endpoint:    ${getEndpoint()}`);
+      printNote(`\nEnvironment: ${getEnvironmentLabel()}`);
+      printNote(`Endpoint:    ${getEndpoint()}`);
     });
 
   profile

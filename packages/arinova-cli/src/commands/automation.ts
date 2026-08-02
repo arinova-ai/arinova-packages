@@ -1,34 +1,21 @@
 import type { Command } from "commander";
 import { getOpts } from "../api.js";
 import {
-  ApiClient,
   buildQuery,
   del,
   encodePathSegment,
   get,
   patch,
   post,
+  resolveClient,
 } from "../client.js";
 import { printResult, printWarning } from "../output.js";
+import { parseJsonObject, parseJsonOption } from "../json-options.js";
+import { parseCount } from "../pagination.js";
 
 const e = encodePathSegment;
 
-function parse(value: string, label: string): unknown {
-  try { return JSON.parse(value); } catch { throw new Error(`${label} must be valid JSON`); }
-}
-
-function parseObject(value: string, label: string): Record<string, unknown> {
-  const result = parse(value, label);
-  if (!result || typeof result !== "object" || Array.isArray(result)) {
-    throw new Error(`${label} must be a JSON object`);
-  }
-  return result as Record<string, unknown>;
-}
-
-function client(command: Command) {
-  const { apiUrl, token } = getOpts(command);
-  return new ApiClient({ endpoint: apiUrl, token });
-}
+const client = resolveClient;
 
 export function registerAutomationCommands(program: Command): void {
   const action = program.command("action").description("Action calls and confirmations");
@@ -38,11 +25,11 @@ export function registerAutomationCommands(program: Command): void {
   });
   action.command("call").requiredOption("--body <json>", "Inbound action call")
     .action(async (opts) => printResult(await post(
-      "/api/v1/actions/call", parseObject(opts.body, "--body"),
+      "/api/v1/actions/call", parseJsonObject(opts.body, "--body"),
     )));
   action.command("pending")
     .requiredOption("--since <datetime>")
-    .option("--limit <n>").option("--cursor <cursor>")
+    .option("--limit <n>", "Maximum results", parseCount).option("--cursor <cursor>")
     .action(async (opts) => printResult(await get(
       `/api/v1/actions/pending${buildQuery(opts)}`,
     )));
@@ -70,7 +57,7 @@ export function registerAutomationCommands(program: Command): void {
     });
 
   const workflow = program.command("workflow").description("Workflow commands");
-  workflow.command("list").option("--status <status>").option("--limit <n>").option("--offset <n>")
+  workflow.command("list").option("--status <status>").option("--limit <n>", "Maximum results", parseCount).option("--offset <n>", "Results to skip", parseCount)
     .action(async (opts) => printResult(await get(`/api/v1/workflows${buildQuery(opts)}`)));
   workflow.command("create")
     .requiredOption("--name <name>").requiredOption("--graph <json>")
@@ -79,8 +66,8 @@ export function registerAutomationCommands(program: Command): void {
     .action(async (opts) => printResult(await post("/api/v1/workflows", {
       name: opts.name,
       description: opts.description,
-      graph: parse(opts.graph, "--graph"),
-      variables: opts.variables ? parse(opts.variables, "--variables") : undefined,
+      graph: parseJsonOption(opts.graph, "--graph"),
+      variables: parseJsonOption(opts.variables, "--variables"),
       maxConcurrentRuns: opts.maxConcurrentRuns == null ? undefined : Number(opts.maxConcurrentRuns),
       maxDurationSeconds: opts.maxDurationSeconds == null ? undefined : Number(opts.maxDurationSeconds),
     })));
@@ -89,7 +76,7 @@ export function registerAutomationCommands(program: Command): void {
   });
   workflow.command("update").argument("<id>").requiredOption("--body <json>")
     .action(async (id: string, opts) => printResult(await patch(
-      `/api/v1/workflows/${e(id)}`, parseObject(opts.body, "--body"),
+      `/api/v1/workflows/${e(id)}`, parseJsonObject(opts.body, "--body"),
     )));
   workflow.command("delete").argument("<id>").action(async (id: string) => {
     printResult(await del(`/api/v1/workflows/${e(id)}`));
@@ -102,10 +89,10 @@ export function registerAutomationCommands(program: Command): void {
   workflow.command("run").argument("<id>").option("--payload <json>")
     .action(async (id: string, opts) => printResult(await post(
       `/api/v1/workflows/${e(id)}/run`,
-      { payload: opts.payload ? parse(opts.payload, "--payload") : undefined },
+      { payload: parseJsonOption(opts.payload, "--payload") },
     )));
   workflow.command("runs").argument("<id>")
-    .option("--status <status>").option("--limit <n>").option("--offset <n>")
+    .option("--status <status>").option("--limit <n>", "Maximum results", parseCount).option("--offset <n>", "Results to skip", parseCount)
     .action(async (id: string, opts) => printResult(await get(
       `/api/v1/workflows/${e(id)}/runs${buildQuery(opts)}`,
     )));
@@ -132,7 +119,7 @@ export function registerAutomationCommands(program: Command): void {
   job.command("create").requiredOption("--body <json>").option("--dry-run")
     .action(async (opts) => printResult(await post(
       `/api/v1/platform-cron/jobs${buildQuery({ dryRun: opts.dryRun })}`,
-      parseObject(opts.body, "--body"),
+      parseJsonObject(opts.body, "--body"),
     )));
   job.command("show").argument("<id>").action(async (id: string) => {
     printResult(await get(`/api/v1/platform-cron/jobs/${e(id)}`));
@@ -140,7 +127,7 @@ export function registerAutomationCommands(program: Command): void {
   job.command("update").argument("<id>").requiredOption("--body <json>").option("--dry-run")
     .action(async (id: string, opts) => printResult(await patch(
       `/api/v1/platform-cron/jobs/${e(id)}${buildQuery({ dryRun: opts.dryRun })}`,
-      parseObject(opts.body, "--body"),
+      parseJsonObject(opts.body, "--body"),
     )));
   job.command("cancel").argument("<id>").option("--reason <reason>")
     .action(async (id: string, opts) => printResult(await post(
@@ -164,7 +151,7 @@ export function registerAutomationCommands(program: Command): void {
   });
   trigger.command("create").requiredOption("--body <json>").action(async (opts) => {
     printResult(await post(
-      "/api/v1/platform-triggers/triggers", parseObject(opts.body, "--body"),
+      "/api/v1/platform-triggers/triggers", parseJsonObject(opts.body, "--body"),
     ));
   });
   trigger.command("show").argument("<id>").action(async (id: string) => {
@@ -172,7 +159,7 @@ export function registerAutomationCommands(program: Command): void {
   });
   trigger.command("update").argument("<id>").requiredOption("--body <json>")
     .action(async (id: string, opts) => printResult(await patch(
-      `/api/v1/platform-triggers/triggers/${e(id)}`, parseObject(opts.body, "--body"),
+      `/api/v1/platform-triggers/triggers/${e(id)}`, parseJsonObject(opts.body, "--body"),
     )));
   trigger.command("delete").argument("<id>").action(async (id: string) => {
     printResult(await del(`/api/v1/platform-triggers/triggers/${e(id)}`));
@@ -184,7 +171,7 @@ export function registerAutomationCommands(program: Command): void {
   }
   trigger.command("test").argument("<id>").option("--body <json>", "Test event", "{}")
     .action(async (id: string, opts) => printResult(await post(
-      `/api/v1/platform-triggers/triggers/${e(id)}/test`, parseObject(opts.body, "--body"),
+      `/api/v1/platform-triggers/triggers/${e(id)}/test`, parseJsonObject(opts.body, "--body"),
     )));
   trigger.command("cancel").argument("<id>").option("--reason <reason>")
     .action(async (id: string, opts) => printResult(await post(
@@ -198,18 +185,18 @@ export function registerAutomationCommands(program: Command): void {
   });
 
   const webhook = program.command("webhook").description("Webhook management");
-  webhook.command("list").option("--status <status>").option("--limit <n>").option("--offset <n>")
+  webhook.command("list").option("--status <status>").option("--limit <n>", "Maximum results", parseCount).option("--offset <n>", "Results to skip", parseCount)
     .action(async (opts) => printResult(await get(`/api/v1/webhooks${buildQuery(opts)}`)));
   webhook.command("create").requiredOption("--body <json>").action(async (opts) => {
     if (process.stderr.isTTY) printWarning("Webhook secret is shown only in this response; store it securely.");
-    printResult(await post("/api/v1/webhooks", parseObject(opts.body, "--body")));
+    printResult(await post("/api/v1/webhooks", parseJsonObject(opts.body, "--body")));
   });
   webhook.command("show").argument("<id>").action(async (id: string) => {
     printResult(await get(`/api/v1/webhooks/${e(id)}`));
   });
   webhook.command("update").argument("<id>").requiredOption("--body <json>")
     .action(async (id: string, opts) => printResult(await patch(
-      `/api/v1/webhooks/${e(id)}`, parseObject(opts.body, "--body"),
+      `/api/v1/webhooks/${e(id)}`, parseJsonObject(opts.body, "--body"),
     )));
   webhook.command("cancel").argument("<id>").action(async (id: string) => {
     printResult(await post(`/api/v1/webhooks/${e(id)}/cancel`));
@@ -218,7 +205,7 @@ export function registerAutomationCommands(program: Command): void {
     if (process.stderr.isTTY) printWarning("New webhook secret is shown only in this response; store it securely.");
     printResult(await post(`/api/v1/webhooks/${e(id)}/rotate-secret`));
   });
-  webhook.command("fire-events").argument("<id>").option("--limit <n>").option("--offset <n>")
+  webhook.command("fire-events").argument("<id>").option("--limit <n>", "Maximum results", parseCount).option("--offset <n>", "Results to skip", parseCount)
     .action(async (id: string, opts) => printResult(await get(
       `/api/v1/webhooks/${e(id)}/fire-events${buildQuery(opts)}`,
     )));
@@ -239,7 +226,7 @@ export function registerAutomationCommands(program: Command): void {
   const delivery = program.command("delivery").description("Pull deliveries");
   delivery.command("list")
     .option("--endpoint-id <id>").option("--status <status>")
-    .option("--cursor <cursor>").option("--limit <n>")
+    .option("--cursor <cursor>").option("--limit <n>", "Maximum results", parseCount)
     .action(async (opts) => printResult(await get(`/api/v1/deliveries${buildQuery(opts)}`)));
   delivery.command("show").argument("<id>").action(async (id: string) => {
     printResult(await get(`/api/v1/deliveries/${e(id)}`));
@@ -257,12 +244,16 @@ export function registerAutomationCommands(program: Command): void {
       `/api/v1/autopilot/settings${buildQuery(opts)}`,
     )));
   settings.command("update").requiredOption("--body <json>").action(async (opts) => {
-    printResult(await patch("/api/v1/autopilot/settings", parseObject(opts.body, "--body")));
+    printResult(await patch("/api/v1/autopilot/settings", parseJsonObject(opts.body, "--body")));
   });
   autopilot.command("evaluate")
     .requiredOption("--agent-id <id>").requiredOption("--conversation-id <id>")
     .option("--dry-run")
-    .action(async (opts) => printResult(await post("/api/v1/autopilot/evaluate", opts)));
+    .action(async (opts) => printResult(await post("/api/v1/autopilot/evaluate", {
+      agentId: opts.agentId,
+      conversationId: opts.conversationId,
+      dryRun: opts.dryRun,
+    })));
   autopilot.command("runs").option("--agent-id <id>").option("--conversation-id <id>")
     .action(async (opts) => printResult(await get(`/api/v1/autopilot/runs${buildQuery(opts)}`)));
   autopilot.command("credit").option("--agent-id <id>").option("--conversation-id <id>")

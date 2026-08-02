@@ -1,11 +1,8 @@
 import type { Command } from "commander";
-import { getOpts, output } from "../api.js";
-import { ApiClient, encodePathSegment } from "../client.js";
+import { output } from "../api.js";
+import { encodePathSegment, resolveClient } from "../client.js";
 
-function clientFor(command: Command): ApiClient {
-  const { token, apiUrl } = getOpts(command);
-  return new ApiClient({ endpoint: apiUrl, token });
-}
+const clientFor = resolveClient;
 
 export function registerResolveCommands(program: Command): void {
   const resolve = program.command("resolve").description("Resolve resource identifiers");

@@ -90,6 +90,10 @@ export function printWarning(message: string): void {
   console.error(`Warning: ${terminalText(message)}`);
 }
 
+export function printNote(message: string): void {
+  if (!jsonMode) console.log(terminalText(message));
+}
+
 export function printSuccess(msg: string): void {
   if (jsonMode) {
     console.log(JSON.stringify({ ok: true, message: msg }));
@@ -145,21 +149,35 @@ export function table(
     return;
   }
 
+  const displayWidth = (value: string): number => [...value].reduce((width, character) => {
+    const code = character.codePointAt(0) ?? 0;
+    const wide = code >= 0x1100 && (
+      code <= 0x115f || code === 0x2329 || code === 0x232a ||
+      (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f) ||
+      (code >= 0xac00 && code <= 0xd7a3) || (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xfe10 && code <= 0xfe19) || (code >= 0xfe30 && code <= 0xfe6f) ||
+      (code >= 0xff00 && code <= 0xff60) || (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x1f300 && code <= 0x1faff) || (code >= 0x20000 && code <= 0x3fffd)
+    );
+    return width + (wide ? 2 : 1);
+  }, 0);
+  const padDisplay = (value: string, width: number) => value + " ".repeat(Math.max(0, width - displayWidth(value)));
+
   const widths = columns.map((c) =>
     Math.max(
-      terminalText(c.label).length,
-      ...rows.map((r) => terminalText(r[c.key] ?? "").length),
+      displayWidth(terminalText(c.label)),
+      ...rows.map((r) => displayWidth(terminalText(r[c.key] ?? ""))),
     ),
   );
 
-  const header = columns.map((c, i) => terminalText(c.label).padEnd(widths[i])).join("  ");
+  const header = columns.map((c, i) => padDisplay(terminalText(c.label), widths[i])).join("  ");
   const separator = widths.map((w) => "-".repeat(w)).join("  ");
   console.log(header);
   console.log(separator);
 
   for (const row of rows) {
     const line = columns
-      .map((c, i) => terminalText(row[c.key] ?? "").padEnd(widths[i]))
+      .map((c, i) => padDisplay(terminalText(row[c.key] ?? ""), widths[i]))
       .join("  ");
     console.log(line);
   }

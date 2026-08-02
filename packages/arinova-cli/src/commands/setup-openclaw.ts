@@ -3,8 +3,8 @@ import { readFileSync, writeFileSync, copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { getEndpoint, resolveApiKey } from "../config.js";
-import { ApiClient } from "../client.js";
-import { printSuccess, printError } from "../output.js";
+import { ApiClient, ApiError } from "../client.js";
+import { printSuccess, printError, printNote, printWarning } from "../output.js";
 
 interface OpenclawAgent {
   id: string;
@@ -71,7 +71,7 @@ export function registerSetupOpenclaw(program: Command): void {
         const globalOpts = program.optsWithGlobals() as { apiUrl?: string };
         const apiBase = (opts.apiUrl ?? globalOpts.apiUrl ?? getEndpoint()).replace(/\/+$/, "");
 
-        console.log(`Using API endpoint: ${apiBase}`);
+        printNote(`Using API endpoint: ${apiBase}`);
 
         // 1. Check auth
         const authOpts = program.optsWithGlobals() as {
@@ -85,8 +85,7 @@ export function registerSetupOpenclaw(program: Command): void {
             profile: authOpts.profile,
           }).apiKey;
         } catch {
-          printError("No API key configured. Please run `arinova auth login` first");
-          return;
+          throw new Error("No API key configured. Please run `arinova auth login` first");
         }
         const client = new ApiClient({ endpoint: apiBase, token: apiKey });
         const apiGet = (path: string) => client.get(path);
@@ -95,8 +94,7 @@ export function registerSetupOpenclaw(program: Command): void {
         // 2. Find openclaw.json
         const configPath = opts.workspace ?? join(homedir(), ".openclaw", "openclaw.json");
         if (!existsSync(configPath)) {
-          printError(`openclaw.json not found at: ${configPath}`);
-          return;
+          throw new Error(`openclaw.json not found at: ${configPath}`);
         }
 
         // 3. Read and parse
@@ -104,18 +102,16 @@ export function registerSetupOpenclaw(program: Command): void {
         try {
           config = JSON.parse(readFileSync(configPath, "utf-8")) as OpenclawConfig;
         } catch {
-          printError(`Failed to parse openclaw.json at: ${configPath}`);
-          return;
+          throw new Error(`Failed to parse openclaw.json at: ${configPath}`);
         }
 
         // 4. Check plugin
         const hasPluginEntry = config.plugins?.entries?.["openclaw-arinova-ai"];
         const hasPluginInstall = config.plugins?.installs?.["openclaw-arinova-ai"];
         if (!hasPluginEntry && !hasPluginInstall) {
-          printError(
+          throw new Error(
             "Arinova plugin not installed. Please run:\n  openclaw plugins install @arinova-ai/openclaw-arinova-ai",
           );
-          return;
         }
 
         // 5. Get agents from openclaw config
@@ -128,14 +124,14 @@ export function registerSetupOpenclaw(program: Command): void {
           agents = [{ id, name, workspace: defaults.workspace as string | undefined }];
         }
         if (agents.length === 0) {
-          printError("No agents found in openclaw.json (no agents.list or agents.defaults)");
-          return;
+          throw new Error("No agents found in openclaw.json (no agents.list or agents.defaults)");
         }
 
-        console.log(`Found ${agents.length} agent(s) in openclaw.json: ${agents.map((a) => a.name).join(", ")}`);
+        printNote(`Found ${agents.length} agent(s) in openclaw.json: ${agents.map((a) => a.name).join(", ")}`);
 
         // 6. Get existing bots from Arinova (use /api/agents for owned agents with name field)
         let remoteBots: RemoteAgent[] = [];
+        let canCreateBots = true;
         try {
           const data = await apiGet("/api/agents");
           const raw = data as Record<string, unknown>;
@@ -147,10 +143,14 @@ export function registerSetupOpenclaw(program: Command): void {
             );
           }
         } catch (err) {
-          console.log("Warning: Could not fetch existing bots from Arinova. Will create new bots.");
+          const message = err instanceof Error ? err.message : String(err);
+          canCreateBots = !(err instanceof ApiError && (err.status === 401 || err.status === 403));
+          printWarning(
+            `Could not fetch existing bots from Arinova: ${message}. ${canCreateBots ? "Will create new bots." : "Authentication failed; new bots will not be created."}`,
+          );
         }
 
-        console.log(`Found ${remoteBots.length} existing bot(s) on Arinova`);
+        printNote(`Found ${remoteBots.length} existing bot(s) on Arinova`);
 
         // 7. Match agents to bots and collect tokens
         // channelApiUrl: the URL written into openclaw.json for the plugin
@@ -199,8 +199,12 @@ export function registerSetupOpenclaw(program: Command): void {
           }
 
           if (!token) {
+            if (!canCreateBots) {
+              summary.push({ agent: agent.name, action: "skipped (bot lookup unauthorized)" });
+              continue;
+            }
             // Create a new bot
-            console.log(`Creating bot for agent "${agent.name}"...`);
+            printNote(`Creating bot for agent "${agent.name}"...`);
             try {
               const created = (await apiPost("/api/agents", {
                 name: agent.name,
@@ -219,8 +223,8 @@ export function registerSetupOpenclaw(program: Command): void {
               }
 
               if (!token) {
-                console.log(`Warning: Bot created for "${agent.name}" but no token in response. You may need to retrieve it manually.`);
-                console.log("  Response:", JSON.stringify(created, null, 2));
+                printWarning(`Bot created for "${agent.name}" but no token in response. You may need to retrieve it manually.`);
+                printNote(`  Response: ${JSON.stringify(created, null, 2)}`);
                 summary.push({ agent: agent.name, action: "created bot (token not found in response)" });
                 continue;
               }
@@ -228,7 +232,7 @@ export function registerSetupOpenclaw(program: Command): void {
               summary.push({ agent: agent.name, action: "created new bot" });
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
-              console.log(`Warning: Failed to create bot for "${agent.name}": ${msg}`);
+              printWarning(`Failed to create bot for "${agent.name}": ${msg}`);
               summary.push({ agent: agent.name, action: `failed: ${msg}` });
               continue;
             }
@@ -239,15 +243,15 @@ export function registerSetupOpenclaw(program: Command): void {
 
         if (opts.dryRun) {
           printSetupSummary(summary, channelApiUrl, Object.keys(accountsConfig).length, agents.length);
-          console.log("\nDry run: openclaw.json was not modified.");
+          printNote("\nDry run: openclaw.json was not modified.");
           printSuccess("OpenClaw Arinova integration dry run complete.");
           return;
         }
 
         // 8. Backup
-        const backupPath = configPath + ".bak";
+        const backupPath = `${configPath}.${new Date().toISOString().replace(/[:.]/g, "-")}.bak`;
         copyFileSync(configPath, backupPath);
-        console.log(`Backup saved to: ${backupPath}`);
+        printNote(`Backup saved to: ${backupPath}`);
 
         // 9. Write channels config
         if (!config.channels) {
@@ -310,10 +314,10 @@ function printSetupSummary(
   configuredCount: number,
   agentCount: number,
 ): void {
-  console.log("\n--- Setup Summary ---");
+  printNote("\n--- Setup Summary ---");
   for (const s of summary) {
-    console.log(`  ${s.agent}: ${s.action}`);
+    printNote(`  ${s.agent}: ${s.action}`);
   }
-  console.log(`\nChannel API URL: ${channelApiUrl}`);
-  console.log(`Agents configured: ${configuredCount}/${agentCount}`);
+  printNote(`\nChannel API URL: ${channelApiUrl}`);
+  printNote(`Agents configured: ${configuredCount}/${agentCount}`);
 }

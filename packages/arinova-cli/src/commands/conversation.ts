@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { apiCall, getOpts, output } from "../api.js";
 import { encodePathSegment } from "../client.js";
+import { parseCount } from "../pagination.js";
 
 export function registerConversation(program: Command): void {
   const conv = program.command("conversation").description("Conversation commands");
@@ -9,7 +10,7 @@ export function registerConversation(program: Command): void {
     .command("create")
     .description("Create a conversation with an agent")
     .requiredOption("--agent-id <id>", "Agent ID")
-    .requiredOption(
+    .option(
       "--type <type>",
       "Conversation type: onboarding, task_report, or alert",
       "onboarding",
@@ -31,7 +32,7 @@ export function registerConversation(program: Command): void {
     .description("List conversations")
     .option("--type <type>", "Filter by type (h2a, h2h, group, community, official, lounge)")
     .option("--search <query>", "Search by name")
-    .option("--limit <n>", "Max results", "50")
+    .option("--limit <n>", "Max results", parseCount, 50)
     .action(async function (this: Command) {
       const { token, apiUrl } = getOpts(this);
       const opts = this.opts();

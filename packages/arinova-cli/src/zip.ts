@@ -41,6 +41,7 @@ function crc32(buf: Buffer): number {
 
 /** Build a STORED zip archive from flat entries. */
 export function createZip(entries: ZipEntry[]): Buffer {
+  if (entries.length > 0xffff) throw new Error("ZIP64 is required for more than 65535 entries");
   const chunks: Buffer[] = [];
   const central: Buffer[] = [];
   let offset = 0;
@@ -53,8 +54,11 @@ export function createZip(entries: ZipEntry[]): Buffer {
       throw new Error(`Unsafe ZIP entry name: ${JSON.stringify(entry.name)}`);
     }
     const nameBuf = Buffer.from(entry.name, "utf-8");
-    const crc = crc32(entry.data);
     const size = entry.data.length;
+    if (nameBuf.length > 0xffff) throw new Error(`ZIP entry name is too long: ${entry.name.slice(0, 80)}`);
+    if (size > 0xffffffff) throw new Error(`ZIP64 is required for files larger than 4 GiB: ${entry.name}`);
+    if (offset > 0xffffffff) throw new Error("ZIP64 is required for archives larger than 4 GiB");
+    const crc = crc32(entry.data);
 
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0); // local file header signature
@@ -97,6 +101,9 @@ export function createZip(entries: ZipEntry[]): Buffer {
   const centralBuf = Buffer.concat(central);
   const centralSize = centralBuf.length;
   const centralOffset = offset;
+  if (centralSize > 0xffffffff || centralOffset > 0xffffffff) {
+    throw new Error("ZIP64 is required for archives larger than 4 GiB");
+  }
 
   const eocd = Buffer.alloc(22);
   eocd.writeUInt32LE(0x06054b50, 0); // EOCD signature

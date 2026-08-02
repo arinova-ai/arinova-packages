@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
     source: "test",
   })),
   printError: vi.fn(),
+  printNote: vi.fn(),
+  printWarning: vi.fn(),
   printSuccess: vi.fn(),
 }));
 
@@ -24,7 +26,9 @@ vi.mock("../config.js", () => ({
 
 vi.mock("../output.js", () => ({
   printError: mocks.printError,
+  printNote: mocks.printNote,
   printSuccess: mocks.printSuccess,
+  printWarning: mocks.printWarning,
 }));
 
 const { registerSetupOpenclaw, writeConfigWithRollback } = await import("./setup-openclaw.js");
@@ -143,7 +147,7 @@ describe("setup-openclaw command", () => {
 
     expect(await readJson(configPath)).toEqual(original);
     await expect(readFile(`${configPath}.bak`, "utf-8")).rejects.toThrow();
-    expect(console.log).toHaveBeenCalledWith("\nDry run: openclaw.json was not modified.");
+    expect(mocks.printNote).toHaveBeenCalledWith("\nDry run: openclaw.json was not modified.");
     expect(mocks.printSuccess).toHaveBeenCalledWith("OpenClaw Arinova integration dry run complete.");
   });
 
@@ -156,8 +160,32 @@ describe("setup-openclaw command", () => {
 
     await program.parseAsync(["node", "arinova", "setup-openclaw", "--workspace", configPath]);
 
-    expect(mocks.printError).toHaveBeenCalledWith("No API key configured. Please run `arinova auth login` first");
+    expect(mocks.printError).toHaveBeenCalledWith(expect.objectContaining({
+      message: "No API key configured. Please run `arinova auth login` first",
+    }));
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not create bots after an unauthorized bot lookup", async () => {
+    const configPath = await writeOpenclawConfig({
+      plugins: { entries: { "openclaw-arinova-ai": {} }, allow: [] },
+      agents: { list: [{ id: "ada", name: "Ada" }] },
+    });
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ message: "unauthorized" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    }));
+
+    await createProgram().parseAsync([
+      "node", "arinova", "setup-openclaw", "--workspace", configPath,
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("GET");
+    expect(mocks.printWarning).toHaveBeenCalledWith(expect.stringContaining("Authentication failed"));
+    const updated = await readJson(configPath);
+    expect((updated.channels as Record<string, { accounts: object }>)["openclaw-arinova-ai"].accounts).toEqual({});
   });
 
   it("restores the backup when writing the updated config fails", () => {

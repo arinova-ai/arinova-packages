@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { Command } from "commander";
 import { getOpts, apiCall, output } from "../api.js";
-import { ApiClient, buildQuery, encodePathSegment } from "../client.js";
+import { buildQuery, encodePathSegment, resolveClient } from "../client.js";
+import { parseJsonArray, parseJsonOption } from "../json-options.js";
+import { parseCount } from "../pagination.js";
 
 type MemoryUpdateOptions = {
   id: string;
@@ -12,18 +14,7 @@ type MemoryUpdateOptions = {
   detail?: string;
 };
 
-function clientFor(command: Command): ApiClient {
-  const { token, apiUrl } = getOpts(command);
-  return new ApiClient({ endpoint: apiUrl, token });
-}
-
-function parseJson(value: string, label: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    throw new Error(`${label} must be valid JSON`);
-  }
-}
+const clientFor = resolveClient;
 
 function importForm(filePath: string, agentId: string, source?: string): FormData {
   const data = readFileSync(filePath);
@@ -42,8 +33,8 @@ export function registerMemoryCommands(program: Command): void {
     .requiredOption("--agent <id>", "Agent ID")
     .option("--category <cat>", "Filter by category")
     .option("--tier <tier>", "Filter by tier (hot/warm/cold)")
-    .option("--limit <n>", "Max results", "20")
-    .option("--offset <n>", "Results to skip", "0")
+    .option("--limit <n>", "Max results", parseCount, 20)
+    .option("--offset <n>", "Results to skip", parseCount, 0)
     .option("--exclude-system", "Exclude system memories")
     .action(async (opts: {
       agent: string; category?: string; tier?: string; limit?: string;
@@ -113,7 +104,7 @@ export function registerMemoryCommands(program: Command): void {
     .description("Semantic search across agent memories")
     .requiredOption("--query <text>", "Search query")
     .option("--agent <id>", "Agent ID")
-    .option("--limit <n>", "Max results", "10")
+    .option("--limit <n>", "Max results", parseCount, 10)
     .action(async (opts: { query: string; agent?: string; limit?: string }) => {
       const { token, apiUrl } = getOpts(memory);
       output(await apiCall({
@@ -218,7 +209,7 @@ export function registerMemoryCommands(program: Command): void {
     .action(async (capsuleId: string, entryId: string, opts: { patch: string }) => {
       output(await clientFor(entry).patch(
         `/api/v1/memories/import/${encodePathSegment(capsuleId)}/entries/${encodePathSegment(entryId)}`,
-        parseJson(opts.patch, "--patch"),
+        parseJsonOption(opts.patch, "--patch"),
       ));
     });
   entry.command("delete")
@@ -234,8 +225,7 @@ export function registerMemoryCommands(program: Command): void {
     .argument("<capsule-id>", "Import capsule ID")
     .requiredOption("--entries <json>", "Confirmation entries JSON array")
     .action(async (capsuleId: string, opts: { entries: string }) => {
-      const entries = parseJson(opts.entries, "--entries");
-      if (!Array.isArray(entries)) throw new Error("--entries must be a JSON array");
+      const entries = parseJsonArray(opts.entries, "--entries");
       output(await clientFor(memoryImport).post(
         `/api/v1/memories/import/${encodePathSegment(capsuleId)}/confirm`,
         { entries },

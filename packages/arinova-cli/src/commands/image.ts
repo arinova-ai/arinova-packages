@@ -1,9 +1,7 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { Command } from "commander";
-import { getOpts } from "../api.js";
 import {
-  ApiClient,
   buildQuery,
   del,
   encodePathSegment,
@@ -11,19 +9,14 @@ import {
   patch,
   post,
   put,
+  resolveClient,
 } from "../client.js";
 import { printResult } from "../output.js";
+import { parseJsonArray, parseJsonOption } from "../json-options.js";
 
 const e = encodePathSegment;
 
-function apiClient(command: Command): ApiClient {
-  const { apiUrl, token } = getOpts(command);
-  return new ApiClient({ endpoint: apiUrl, token });
-}
-
-function parse(value: string, label: string): unknown {
-  try { return JSON.parse(value); } catch { throw new Error(`${label} must be valid JSON`); }
-}
+const apiClient = resolveClient;
 
 function fileForm(filePath: string): FormData {
   const form = new FormData();
@@ -43,7 +36,11 @@ export function registerImageCommands(program: Command): void {
     .requiredOption("--title <title>")
     .option("--root-file-key <key>")
     .option("--root-image-asset-id <id>")
-    .action(async (opts) => printResult(await post("/api/v1/image-projects", opts)));
+    .action(async (opts) => printResult(await post("/api/v1/image-projects", {
+      title: opts.title,
+      rootFileKey: opts.rootFileKey,
+      rootImageAssetId: opts.rootImageAssetId,
+    })));
   project.command("show").argument("<id>").action(async (id: string) => {
     printResult(await get(`/api/v1/image-projects/${e(id)}`));
   });
@@ -52,7 +49,11 @@ export function registerImageCommands(program: Command): void {
     .option("--current-file-key <key>")
     .option("--current-image-asset-id <id>")
     .action(async (id: string, opts) => printResult(await patch(
-      `/api/v1/image-projects/${e(id)}`, opts,
+      `/api/v1/image-projects/${e(id)}`, {
+        title: opts.title,
+        currentFileKey: opts.currentFileKey,
+        currentImageAssetId: opts.currentImageAssetId,
+      },
     )));
   project.command("delete").argument("<id>").action(async (id: string) => {
     printResult(await del(`/api/v1/image-projects/${e(id)}`));
@@ -107,7 +108,7 @@ export function registerImageCommands(program: Command): void {
         {
           sourceVersionId: opts.sourceVersionId,
           previewImageAssetId: opts.previewImageAssetId,
-          document: parse(opts.document, "--document"),
+          document: parseJsonOption(opts.document, "--document"),
           idempotencyKey: opts.idempotencyKey,
         },
         { "If-Match": `"${Number(opts.expectedRevision)}"` },
@@ -121,7 +122,11 @@ export function registerImageCommands(program: Command): void {
   member.command("add").argument("<id>")
     .option("--user-id <id>").option("--username <name>").option("--permission <permission>", "view, edit, or admin", "view")
     .action(async (id: string, opts) => printResult(await post(
-      `/api/v1/image-projects/${e(id)}/members`, opts,
+      `/api/v1/image-projects/${e(id)}/members`, {
+        userId: opts.userId,
+        username: opts.username,
+        permission: opts.permission,
+      },
     )));
   member.command("update").argument("<id>").argument("<user-id>")
     .requiredOption("--permission <permission>")
@@ -139,8 +144,7 @@ export function registerImageCommands(program: Command): void {
   });
   permissions.command("set").argument("<id>").requiredOption("--agents <json>")
     .action(async (id: string, opts) => {
-      const agents = parse(opts.agents, "--agents");
-      if (!Array.isArray(agents)) throw new Error("--agents must be a JSON array");
+      const agents = parseJsonArray(opts.agents, "--agents");
       printResult(await put(`/api/v1/image-projects/${e(id)}/agent-permissions`, { agents }));
     });
   const share = project.command("public-share");

@@ -1,13 +1,9 @@
 import type { Command } from "commander";
-import { getOpts } from "../api.js";
-import { ApiClient, buildQuery, get, post } from "../client.js";
+import { buildQuery, get, post, resolveClient } from "../client.js";
 import { printResult } from "../output.js";
 import { renderSseStream } from "../sse.js";
-import { addPaginationOptions, paginationQuery } from "../pagination.js";
-
-function parse(value: string, label: string): unknown {
-  try { return JSON.parse(value); } catch { throw new Error(`${label} must be valid JSON`); }
-}
+import { addPaginationOptions, collectAllPages, paginationQuery } from "../pagination.js";
+import { parseJsonArray, parseJsonOption } from "../json-options.js";
 
 function chatBody(opts: {
   agentId: string; prompt?: string; systemPrompt?: string;
@@ -16,16 +12,13 @@ function chatBody(opts: {
   if (!opts.prompt && !opts.messages) {
     throw new Error("Specify --prompt or --messages");
   }
-  const messages = opts.messages ? parse(opts.messages, "--messages") : undefined;
-  if (messages !== undefined && !Array.isArray(messages)) {
-    throw new Error("--messages must be a JSON array");
-  }
+  const messages = opts.messages ? parseJsonArray(opts.messages, "--messages") : undefined;
   return {
     agentId: opts.agentId,
     prompt: opts.prompt,
     systemPrompt: opts.systemPrompt,
     messages,
-    context: opts.context ? parse(opts.context, "--context") : undefined,
+    context: parseJsonOption(opts.context, "--context"),
   };
 }
 
@@ -36,9 +29,21 @@ export function registerEconomyChatCommands(program: Command): void {
     printResult(await get("/api/v1/economy/balance"));
   });
   addPaginationOptions(economy.command("transactions"))
-    .action(async (opts) => printResult(await get(
-      `/api/v1/economy/transactions${paginationQuery(opts)}`,
-    )));
+    .action(async (opts) => {
+      if (!opts.all) {
+        printResult(await get(`/api/v1/economy/transactions${paginationQuery(opts)}`));
+        return;
+      }
+      const pageSize = opts.limit ?? 100;
+      const transactions = await collectAllPages(opts.offset ?? 0, async (offset) => {
+        const response = await get(`/api/v1/economy/transactions${paginationQuery({ limit: pageSize, offset })}`);
+        const items = Array.isArray(response)
+          ? response
+          : ((response as { transactions?: unknown[] }).transactions ?? []);
+        return { items, next: items.length < pageSize ? undefined : offset + items.length };
+      });
+      printResult(transactions);
+    });
   economy.command("purchase")
     .requiredOption("--space-id <id>")
     .requiredOption("--amount <n>")
@@ -77,8 +82,6 @@ export function registerEconomyChatCommands(program: Command): void {
     .option("--messages <json>")
     .option("--context <json>")
     .action(async (opts) => {
-      const { apiUrl, token } = getOpts(chat);
-      const client = new ApiClient({ endpoint: apiUrl, token });
-      await renderSseStream(await client.stream("/api/v1/agent/chat/stream", chatBody(opts)));
+      await renderSseStream(await resolveClient(chat).stream("/api/v1/agent/chat/stream", chatBody(opts)));
     });
 }

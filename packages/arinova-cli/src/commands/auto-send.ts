@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { UnsupportedCommandError } from "../client.js";
+import { parseCount } from "../pagination.js";
 
 const MESSAGE =
   "auto-send is unavailable because its v1 API was retired. Use platform cron commands when that migration is configured.";
@@ -33,6 +34,6 @@ export function registerAutoSendCommands(program: Command): void {
   autoSend
     .command("history")
     .requiredOption("--conversation-id <id>", "Conversation ID")
-    .option("--limit <n>", "Max entries")
+    .option("--limit <n>", "Max entries", parseCount)
     .action(unsupported);
 }

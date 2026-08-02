@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { getOpts, apiCall, output } from "../api.js";
 import { encodePathSegment } from "../client.js";
+import { parseCount } from "../pagination.js";
 
 export function registerMessageCommands(program: Command): void {
   const msg = program.command("message").description("Message commands");
@@ -19,12 +20,12 @@ export function registerMessageCommands(program: Command): void {
 
   msg.command("list")
     .requiredOption("--conversation-id <id>", "Conversation ID")
-    .option("--limit <n>", "Number of messages")
+    .option("--limit <n>", "Number of messages", parseCount)
     .option("--cursor <id>", "Cursor for pagination")
-    .action(async (opts: { conversationId: string; limit?: string; cursor?: string }) => {
+    .action(async (opts: { conversationId: string; limit?: number; cursor?: string }) => {
       const { token, apiUrl } = getOpts(msg);
       const qs = new URLSearchParams();
-      if (opts.limit) qs.set("limit", opts.limit);
+      if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
       if (opts.cursor) qs.set("before", opts.cursor);
       const q = qs.toString();
       const result = await apiCall({ method: "GET", url: `${apiUrl}/api/v1/messages/${encodePathSegment(opts.conversationId)}${q ? "?" + q : ""}`, token });
@@ -34,8 +35,8 @@ export function registerMessageCommands(program: Command): void {
   msg.command("search")
     .requiredOption("-q, --query <text>", "Message search query")
     .option("--conversation-id <id>", "Limit search to a conversation")
-    .option("--limit <n>", "Max results", Number.parseInt)
-    .option("--offset <n>", "Skip results", Number.parseInt)
+    .option("--limit <n>", "Max results", parseCount)
+    .option("--offset <n>", "Skip results", parseCount)
     .action(async (opts) => {
       const { token, apiUrl } = getOpts(msg);
       const query = new URLSearchParams({ q: opts.query });

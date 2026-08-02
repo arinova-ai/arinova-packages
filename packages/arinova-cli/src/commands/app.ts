@@ -1,6 +1,6 @@
 import { Command } from "commander";
-import { get, post, put, del } from "../client.js";
-import { printResult, printError, printSuccess, table } from "../output.js";
+import { get, post, put, del, encodePathSegment } from "../client.js";
+import { printResult, printError, printSuccess, printNote, table } from "../output.js";
 
 export function registerApp(program: Command): void {
   const app = program.command("app").description("OAuth App management");
@@ -56,9 +56,9 @@ export function registerApp(program: Command): void {
           printResult(data);
           const d = data as Record<string, unknown>;
           if (d.clientId) {
-            console.log(`\n  Client ID:    ${d.clientId}`);
-            console.log(`  Redirect URI: ${(d.externalUrl as string) ?? opts.redirectUri}`);
-            console.log("  Type:         Public (PKCE) — no client_secret needed");
+            printNote(`\n  Client ID:    ${d.clientId}`);
+            printNote(`  Redirect URI: ${(d.externalUrl as string) ?? opts.redirectUri}`);
+            printNote("  Type:         Public (PKCE) — no client_secret needed");
           }
         } catch (err) {
           printError(err);
@@ -71,7 +71,7 @@ export function registerApp(program: Command): void {
     .description("Show OAuth app details")
     .action(async (id: string) => {
       try {
-        const data = await get(`/api/v1/developer/apps/${id}`);
+        const data = await get(`/api/v1/developer/apps/${encodePathSegment(id)}`);
         printResult(data);
       } catch (err) {
         printError(err);
@@ -101,7 +101,7 @@ export function registerApp(program: Command): void {
           if (opts.redirectUri) body.externalUrl = opts.redirectUri;
           if (opts.description) body.description = opts.description;
           if (opts.category) body.category = opts.category;
-          const data = await put(`/api/v1/developer/apps/${id}`, body);
+          const data = await put(`/api/v1/developer/apps/${encodePathSegment(id)}`, body);
           printResult(data);
         } catch (err) {
           printError(err);
@@ -114,7 +114,7 @@ export function registerApp(program: Command): void {
     .description("Delete an OAuth app")
     .action(async (id: string) => {
       try {
-        await del(`/api/v1/developer/apps/${id}`);
+        await del(`/api/v1/developer/apps/${encodePathSegment(id)}`);
         printSuccess(`App ${id} deleted.`);
       } catch (err) {
         printError(err);

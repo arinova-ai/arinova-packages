@@ -1,6 +1,5 @@
 import type { Command } from "commander";
-import { resolveApiKey, getEndpoint } from "./config.js";
-import { ApiClient, type HttpMethod } from "./client.js";
+import { ApiClient, resolveClient, type HttpMethod } from "./client.js";
 import { printResult } from "./output.js";
 
 export function getOpts(cmd: Command): {
@@ -8,16 +7,12 @@ export function getOpts(cmd: Command): {
   apiUrl: string;
   profileName: string;
 } {
-  const opts = cmd.optsWithGlobals();
-  const { apiKey, profileName } = resolveApiKey({
-    token: opts.token as string | undefined,
-    profile: opts.profile as string | undefined,
-  });
-  const apiUrl = ((opts.apiUrl as string | undefined) ?? getEndpoint()).replace(
-    /\/+$/,
-    "",
-  );
-  return { token: apiKey, apiUrl, profileName };
+  const client = resolveClient(cmd);
+  return {
+    token: client.token,
+    apiUrl: client.endpoint,
+    profileName: client.profileName ?? "(--token override)",
+  };
 }
 
 export async function apiCall(opts: {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "./client.js";
 import {
   printError,
+  printNote,
   printResult,
   printSuccess,
   sanitizeTerminalText,
@@ -63,6 +64,20 @@ describe("CLI output formatting", () => {
     expect(console.log).toHaveBeenCalledWith("200  B    ");
   });
 
+  it("aligns CJK and emoji by terminal display width", () => {
+    table([{ name: "中文", value: "a" }, { name: "🙂", value: "bb" }], [
+      { key: "name", label: "Name" }, { key: "value", label: "Value" },
+    ]);
+    expect(console.log).toHaveBeenCalledWith("中文  a    ");
+    expect(console.log).toHaveBeenCalledWith("🙂    bb   ");
+  });
+
+  it("suppresses human notes in JSON mode", () => {
+    setJsonMode(true);
+    printNote("diagnostic");
+    expect(console.log).not.toHaveBeenCalled();
+  });
+
   it("renders record lists as a human table", () => {
     printResult([
       { id: "1", name: "Alpha", nested: { ignored: true } },
@@ -96,7 +111,7 @@ describe("CLI output formatting", () => {
             status: 409,
             code: "CONFLICT",
             message:
-              'API error 409: {"code":"CONFLICT","message":"Already exists","details":{"id":"item-1"}}',
+              "API error 409: Already exists",
             details: { id: "item-1" },
           },
         },

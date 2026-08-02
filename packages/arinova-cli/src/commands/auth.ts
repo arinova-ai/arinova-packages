@@ -2,8 +2,8 @@ import { Command } from "commander";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
-import { loadConfig, saveConfig, setProfile, getEndpoint, getEnvironmentLabel, resolveApiKey, resolveProfileName, getProfile, listProfiles } from "../config.js";
-import { printResult, printError, printSuccess } from "../output.js";
+import { loadConfig, saveConfig, setProfile, removeProfile, getEndpoint, getEnvironmentLabel, resolveApiKey, resolveProfileName, getProfile, listProfiles } from "../config.js";
+import { printResult, printError, printSuccess, printNote } from "../output.js";
 import { ApiClient } from "../client.js";
 
 const LOGIN_TIMEOUT_MS = 120_000;
@@ -78,14 +78,16 @@ export function registerAuth(program: Command): void {
         printError(new Error("Callback port must be an integer from 1 to 65535"));
         return;
       }
-      // Derive web URL from API endpoint (strip "api." prefix)
       const apiEndpoint = getEndpoint();
-      const endpoint = apiEndpoint.replace("://api.", "://");
+      const webEndpoint = new URL(apiEndpoint);
+      if (webEndpoint.hostname.startsWith("api.")) {
+        webEndpoint.hostname = webEndpoint.hostname.slice(4);
+      }
       const callback = `http://127.0.0.1:${port}/callback`;
       const state = randomBytes(32).toString("hex");
 
-      console.log("Opening browser for authentication...");
-      console.log(`Waiting for callback on ${callback} ...\n`);
+      printNote("Opening browser for authentication...");
+      printNote(`Waiting for callback on ${callback} ...\n`);
 
       const callbackController = new AbortController();
       const keyPromise = waitForLoginCallback(
@@ -103,14 +105,15 @@ export function registerAuth(program: Command): void {
             body: JSON.stringify({ callback }),
           },
         );
-        const registration = await registrationResponse.json() as { nonce?: unknown };
         if (!registrationResponse.ok) {
-          throw new Error("Unable to register CLI authorization request");
+          const detail = await registrationResponse.text();
+          throw new Error(`Unable to register CLI authorization request (${registrationResponse.status})${detail ? `: ${detail}` : ""}`);
         }
+        const registration = await registrationResponse.json() as { nonce?: unknown };
         if (typeof registration.nonce !== "string" || !/^[a-f0-9]{64}$/.test(registration.nonce)) {
           throw new Error("Server returned an invalid CLI authorization nonce");
         }
-        const loginUrl = new URL("/creator/cli-auth", endpoint);
+        const loginUrl = new URL("/creator/cli-auth", webEndpoint);
         loginUrl.searchParams.set("callback", callback);
         loginUrl.searchParams.set("nonce", registration.nonce);
         loginUrl.searchParams.set("state", state);
@@ -121,7 +124,7 @@ export function registerAuth(program: Command): void {
           ? ["/c", "start", "", loginUrl.toString()]
           : [loginUrl.toString()];
         spawn(open, args, { detached: true, stdio: "ignore" }).unref();
-        console.log(`If the browser didn't open, visit:\n  ${loginUrl.toString()}\n`);
+        printNote(`If the browser didn't open, visit:\n  ${loginUrl.toString()}\n`);
         const key = await keyPromise;
 
         // Fetch username to use as profile name
@@ -138,7 +141,7 @@ export function registerAuth(program: Command): void {
         setProfile(profileName, { type: "user", apiKey: key });
 
         printSuccess(`Logged in! Profile '${profileName}' created (user, key stored securely)`);
-        console.log(`\nTo use: arinova --profile ${profileName} <command>`);
+        printNote(`\nTo use: arinova --profile ${profileName} <command>`);
       } catch (err) {
         callbackController.abort();
         await keyPromise.catch(() => undefined);
@@ -151,20 +154,12 @@ export function registerAuth(program: Command): void {
     .description("Remove the current profile's API key")
     .action(() => {
       const profileFlag = program.optsWithGlobals().profile as string | undefined;
-      try {
-        const name = resolveProfileName(profileFlag);
-        const profile = getProfile(name);
-        if (!profile) {
-          printError(new Error(`Profile '${name}' not found.`));
-          return;
-        }
-        // Remove the profile entirely
-        const { removeProfile } = require("../config.js") as typeof import("../config.js");
-        removeProfile(name);
-        printSuccess(`Profile '${name}' removed.`);
-      } catch {
-        printError(new Error("No active profile to log out from."));
+      const name = resolveProfileName(profileFlag);
+      if (!getProfile(name)) {
+        throw new Error(`Profile '${name}' not found.`);
       }
+      removeProfile(name);
+      printSuccess(`Profile '${name}' removed.`);
     });
 
   auth
@@ -172,7 +167,8 @@ export function registerAuth(program: Command): void {
     .description("Set a bot token for the current profile (requires --profile)")
     .action((key: string) => {
       const profileFlag = program.optsWithGlobals().profile as string | undefined;
-      if (!profileFlag) {
+      const profileName = profileFlag ?? process.env.ARINOVA_PROFILE;
+      if (!profileName) {
         printError(new Error("Must specify --profile <name> when setting a bot token.\nExample: arinova --profile linda auth set-token ari_xxx"));
         return;
       }
@@ -180,10 +176,10 @@ export function registerAuth(program: Command): void {
         printError(new Error("Invalid key format. Expected key starting with ari_"));
         return;
       }
-      const name = profileFlag;
+      const name = profileName;
       setProfile(name, { type: "bot", apiKey: key });
       printSuccess(`Bot profile '${name}' saved (key stored securely)`);
-      console.log(`\nTo use: arinova --profile ${name} <command>`);
+      printNote(`\nTo use: arinova --profile ${name} <command>`);
     });
 
   // Keep set-key as hidden alias for backwards compat

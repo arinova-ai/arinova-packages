@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -28,6 +28,8 @@ export class ConfigError extends Error {
 
 const CONFIG_DIR = join(homedir(), ".arinova-cli");
 const CONFIG_FILE = join(CONFIG_DIR, "config");
+let cachedConfig: CliConfig | undefined;
+let cachedStaging: boolean | undefined;
 
 function ensureDir(): void {
   if (!existsSync(CONFIG_DIR)) {
@@ -36,11 +38,26 @@ function ensureDir(): void {
 }
 
 export function loadConfig(): CliConfig {
+  if (cachedConfig) return cachedConfig;
   try {
     const raw = readFileSync(CONFIG_FILE, "utf-8");
-    return JSON.parse(raw) as CliConfig;
-  } catch {
-    return {};
+    cachedConfig = JSON.parse(raw) as CliConfig;
+    return cachedConfig;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      cachedConfig = {};
+      return cachedConfig;
+    }
+    if (error instanceof SyntaxError) {
+      const backup = `${CONFIG_FILE}.corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}.bak`;
+      try {
+        copyFileSync(CONFIG_FILE, backup);
+      } catch (backupError) {
+        throw new ConfigError(`Config is malformed and backup failed: ${String(backupError)}`);
+      }
+      throw new ConfigError(`Config is malformed; preserved a backup at ${backup}`);
+    }
+    throw new ConfigError(`Unable to read config: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -48,6 +65,7 @@ export function saveConfig(config: CliConfig): void {
   ensureDir();
   writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });
   chmodSync(CONFIG_FILE, 0o600);
+  cachedConfig = config;
 }
 
 /** Migrate legacy config (single apiKey) to profile-based config */
@@ -107,8 +125,9 @@ export function listProfiles(): { name: string; profile: Profile }[] {
  */
 export function resolveProfileName(flagValue?: string): string {
   if (flagValue) return flagValue;
+  if (process.env.ARINOVA_PROFILE) return process.env.ARINOVA_PROFILE;
   throw new ConfigError(
-    "--profile <name> is required. Run 'arinova profile list' to see available profiles.",
+    "--profile <name> or ARINOVA_PROFILE is required. Run 'arinova profile list' to see available profiles.",
   );
 }
 
@@ -139,13 +158,15 @@ const STAGING_ENDPOINT = "https://api.chat-staging.arinova.ai";
 
 /** Detect staging from package version (contains "-staging") */
 export function isStaging(): boolean {
+  if (cachedStaging !== undefined) return cachedStaging;
   try {
     const pkgPath = new URL("../package.json", import.meta.url);
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-    return typeof pkg.version === "string" && pkg.version.includes("-staging");
+    cachedStaging = typeof pkg.version === "string" && pkg.version.includes("-staging");
   } catch {
-    return false;
+    cachedStaging = false;
   }
+  return cachedStaging ?? false;
 }
 
 export function getEndpoint(): string {
@@ -162,15 +183,7 @@ export function getEnvironmentLabel(): string {
   return isStaging() ? "staging" : "production";
 }
 
-// --- Legacy compat (used by some commands during migration) ---
-
-export function getApiKey(): string | undefined {
-  // Legacy compat — try old apiKey field, then first profile as fallback
-  const cfg = loadConfig();
-  if (cfg.apiKey) return cfg.apiKey;
-  if (cfg.profiles) {
-    const first = Object.values(cfg.profiles)[0];
-    if (first) return first.apiKey;
-  }
-  return undefined;
+export function resetConfigCacheForTests(): void {
+  cachedConfig = undefined;
+  cachedStaging = undefined;
 }

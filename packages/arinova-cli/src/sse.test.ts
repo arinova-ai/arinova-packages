@@ -42,18 +42,17 @@ describe("SSE transport", () => {
     expect(events).toEqual([{ type: "error", message: "provider failed" }]);
   });
 
-  it("rejects truncated and malformed JSON events", async () => {
-    const truncated = async () => {
-      for await (const _event of parseSseStream(streamOf('data: {"type":"chunk"}'))) {
-        // Drain.
-      }
-    };
+  it("flushes a complete final block and rejects malformed JSON events", async () => {
+    const finalEvents = [];
+    for await (const event of parseSseStream(streamOf('data: {"type":"chunk"}'))) {
+      finalEvents.push(event);
+    }
     const malformed = async () => {
       for await (const _event of parseSseStream(streamOf("data: nope\n\n"))) {
         // Drain.
       }
     };
-    await expect(truncated()).rejects.toThrow("Truncated SSE event");
+    expect(finalEvents).toEqual([{ type: "chunk" }]);
     await expect(malformed()).rejects.toThrow("Invalid JSON");
   });
 
@@ -73,5 +72,22 @@ describe("SSE transport", () => {
         configurable: true,
       });
     }
+  });
+
+  it("ignores final keepalive comments and event fields", async () => {
+    const events = [];
+    for await (const event of parseSseStream(streamOf(
+      'event: message\ndata: {"type":"done"}\n\n: keepalive',
+    ))) events.push(event);
+    expect(events).toEqual([{ type: "done" }]);
+  });
+
+  it("bounds an unterminated event buffer", async () => {
+    const drain = async () => {
+      for await (const _event of parseSseStream(streamOf(`data: ${"x".repeat(1024 * 1024)}`))) {
+        // Drain.
+      }
+    };
+    await expect(drain()).rejects.toThrow("SSE event exceeded 1048576 bytes");
   });
 });

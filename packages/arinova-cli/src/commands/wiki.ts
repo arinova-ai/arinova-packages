@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { getOpts, apiCall, output } from "../api.js";
 import { encodePathSegment } from "../client.js";
+import { parseCount } from "../pagination.js";
 import { printWarning } from "../output.js";
 
 interface MemoRegistration {
@@ -26,8 +27,8 @@ function registerMemoSurface(program: Command, registration: MemoRegistration): 
     .command("list")
     .option("--conversation-id <id>", "Conversation ID")
     .option("--search <query>", "Search memo pages")
-    .option("--limit <n>", "Max pages", Number.parseInt)
-    .option("--offset <n>", "Skip pages", Number.parseInt)
+    .option("--limit <n>", "Max pages", parseCount)
+    .option("--offset <n>", "Skip pages", parseCount)
     .action(async (opts) => {
       warn();
       const { token, apiUrl } = getOpts(root);

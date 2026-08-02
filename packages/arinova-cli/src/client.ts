@@ -2,7 +2,8 @@ import { createWriteStream, existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { getApiKey, getEndpoint, getProfile } from "./config.js";
+import type { Command } from "commander";
+import { getEndpoint, resolveApiKey } from "./config.js";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export type ResponseMode = "json" | "binary" | "stream";
@@ -40,12 +41,11 @@ export class ApiError extends Error {
     public readonly body: unknown,
   ) {
     const parsed = parseApiError(body);
-    const rendered =
-      typeof body === "string" ? body : JSON.stringify(body);
-    super(`API error ${status}: ${rendered || parsed.message || "empty response"}`);
+    const rendered = typeof body === "string" ? body : JSON.stringify(body);
+    super(`API error ${status}: ${parsed.message || rendered || "empty response"}`);
     this.name = "ApiError";
     this.code = parsed.code;
-    this.details = parsed.details;
+    this.details = parsed.details ?? body;
   }
 }
 
@@ -296,42 +296,42 @@ export class ApiClient {
   }
 }
 
-function defaultClient(apiKey?: string): ApiClient {
-  const selectedProfileToken = runtimeDefaults.profileName
-    ? getProfile(runtimeDefaults.profileName)?.apiKey
-    : undefined;
-  const token =
-    apiKey ?? runtimeDefaults.token ?? selectedProfileToken ?? getApiKey();
-  if (!token) {
-    throw new Error(
-      "No API key configured. Use --token or select a profile with --profile.",
-    );
-  }
+export function resolveClient(commandOrApiKey?: Command | string): ApiClient {
+  const command = typeof commandOrApiKey === "object" ? commandOrApiKey : undefined;
+  const explicitApiKey = typeof commandOrApiKey === "string" ? commandOrApiKey : undefined;
+  const commandOptions = command?.optsWithGlobals() as {
+    apiUrl?: string; token?: string; profile?: string;
+  } | undefined;
+  const token = explicitApiKey ?? commandOptions?.token ?? runtimeDefaults.token;
+  const profile = commandOptions?.profile ?? runtimeDefaults.profileName;
+  const resolved = token
+    ? { apiKey: token, profileName: profile }
+    : resolveApiKey({ profile });
   return new ApiClient({
-    endpoint: runtimeDefaults.endpoint ?? getEndpoint(),
-    token,
-    profileName: runtimeDefaults.profileName,
+    endpoint: (commandOptions?.apiUrl ?? runtimeDefaults.endpoint ?? getEndpoint()).replace(/\/+$/, ""),
+    token: resolved.apiKey,
+    profileName: resolved.profileName,
   });
 }
 
 export async function get(path: string, apiKey?: string): Promise<unknown> {
-  return defaultClient(apiKey).get(path);
+  return resolveClient(apiKey).get(path);
 }
 
 export async function post(path: string, body?: unknown, apiKey?: string): Promise<unknown> {
-  return defaultClient(apiKey).post(path, body);
+  return resolveClient(apiKey).post(path, body);
 }
 
 export async function patch(path: string, body?: unknown, apiKey?: string): Promise<unknown> {
-  return defaultClient(apiKey).patch(path, body);
+  return resolveClient(apiKey).patch(path, body);
 }
 
 export async function put(path: string, body?: unknown, apiKey?: string): Promise<unknown> {
-  return defaultClient(apiKey).put(path, body);
+  return resolveClient(apiKey).put(path, body);
 }
 
 export async function del(path: string, apiKey?: string): Promise<unknown> {
-  return defaultClient(apiKey).delete(path);
+  return resolveClient(apiKey).delete(path);
 }
 
 export async function upload(
@@ -358,7 +358,7 @@ export async function upload(
   const blob = new Blob([fileData], { type: mimeType });
   const form = new FormData();
   form.append(fieldName, blob, basename(filePath));
-  return defaultClient(apiKey).upload(path, form);
+  return resolveClient(apiKey).upload(path, form);
 }
 
 export async function uploadMultipart(
@@ -369,7 +369,7 @@ export async function uploadMultipart(
 ): Promise<unknown> {
   const form = new FormData();
   for (const [key, value] of Object.entries(fields)) form.append(key, value);
-  return defaultClient(apiKey).upload(path, form, method);
+  return resolveClient(apiKey).upload(path, form, method);
 }
 
 export async function download(
@@ -378,5 +378,5 @@ export async function download(
   force = false,
   apiKey?: string,
 ): Promise<void> {
-  return defaultClient(apiKey).download(path, outputPath, force);
+  return resolveClient(apiKey).download(path, outputPath, force);
 }

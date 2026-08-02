@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { getOpts, apiCall, output } from "../api.js";
 import { encodePathSegment } from "../client.js";
+import { parseCount } from "../pagination.js";
 
 export function registerNoteCommands(program: Command): void {
   const note = program.command("note").description("Note commands");
@@ -8,8 +9,8 @@ export function registerNoteCommands(program: Command): void {
   note.command("list")
     .option("--notebook-id <id>", "Filter by notebook ID (defaults to your default notebook)")
     .option("--search <query>", "Search notes by title or content")
-    .option("--limit <n>", "Max notes to return (default 20, max 50)", parseInt)
-    .option("--offset <n>", "Skip first N notes (pagination)", parseInt)
+    .option("--limit <n>", "Max notes to return (default 20, max 50)", parseCount)
+    .option("--offset <n>", "Skip first N notes (pagination)", parseCount)
     .option("--cursor <id>", "Fetch notes before this note ID (cursor pagination)")
     .option("--tags <tags...>", "Filter by tags")
     .option("--archived", "List archived notes instead of active")
@@ -34,7 +35,12 @@ export function registerNoteCommands(program: Command): void {
     .option("--tags <tags...>", "Tags")
     .action(async (opts: { notebookId: string; title: string; content?: string; tags?: string[] }) => {
       const { token, apiUrl } = getOpts(note);
-      output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/notes`, token, body: opts }));
+      output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/notes`, token, body: {
+        notebookId: opts.notebookId,
+        title: opts.title,
+        content: opts.content,
+        tags: opts.tags,
+      } }));
     });
 
   note.command("update")
@@ -90,8 +96,8 @@ export function registerNoteCommands(program: Command): void {
 
   note.command("linked-cards")
     .requiredOption("--note-id <id>", "Note ID")
-    .option("--limit <n>", "Max linked cards", Number.parseInt)
-    .option("--offset <n>", "Skip linked cards", Number.parseInt)
+    .option("--limit <n>", "Max linked cards", parseCount)
+    .option("--offset <n>", "Skip linked cards", parseCount)
     .action(async (opts) => {
       const { token, apiUrl } = getOpts(note);
       const query = new URLSearchParams();

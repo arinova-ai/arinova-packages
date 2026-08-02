@@ -1,6 +1,26 @@
 import { isJsonMode, sanitizeTerminalText } from "./output.js";
 
 export type SseEvent = Record<string, unknown> & { type?: string; content?: string };
+const MAX_SSE_BUFFER_BYTES = 1024 * 1024;
+
+function parseBlock(block: string): SseEvent | undefined {
+  const data = block
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n");
+  if (!data || data === "[DONE]") return undefined;
+  let event: unknown;
+  try {
+    event = JSON.parse(data);
+  } catch {
+    throw new Error("Invalid JSON in SSE data event");
+  }
+  if (!event || typeof event !== "object" || Array.isArray(event)) {
+    throw new Error("Invalid SSE event payload");
+  }
+  return event as SseEvent;
+}
 
 export async function* parseSseStream(
   stream: ReadableStream<Uint8Array>,
@@ -12,30 +32,22 @@ export async function* parseSseStream(
     for (;;) {
       const { done, value } = await reader.read();
       buffer += decoder.decode(value, { stream: !done });
+      if (Buffer.byteLength(buffer, "utf8") > MAX_SSE_BUFFER_BYTES) {
+        throw new Error("SSE event exceeded 1048576 bytes");
+      }
       let separator: RegExpExecArray | null;
       while ((separator = /\r?\n\r?\n/.exec(buffer)) !== null) {
         const block = buffer.slice(0, separator.index);
         buffer = buffer.slice(separator.index + separator[0].length);
-        const data = block
-          .split(/\r?\n/)
-          .filter((line) => line.startsWith("data:"))
-          .map((line) => line.slice(5).trimStart())
-          .join("\n");
-        if (!data || data === "[DONE]") continue;
-        let event: unknown;
-        try {
-          event = JSON.parse(data);
-        } catch {
-          throw new Error("Invalid JSON in SSE data event");
-        }
-        if (!event || typeof event !== "object" || Array.isArray(event)) {
-          throw new Error("Invalid SSE event payload");
-        }
-        yield event as SseEvent;
+        const event = parseBlock(block);
+        if (event) yield event;
       }
       if (done) break;
     }
-    if (buffer.trim()) throw new Error("Truncated SSE event");
+    if (buffer.trim()) {
+      const event = parseBlock(buffer);
+      if (event) yield event;
+    }
   } finally {
     reader.releaseLock();
   }

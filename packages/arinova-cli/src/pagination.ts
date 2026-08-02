@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import { InvalidArgumentError } from "commander";
 import { buildQuery } from "./client.js";
 
 export interface PaginationOptions {
@@ -8,10 +9,17 @@ export interface PaginationOptions {
   all?: boolean;
 }
 
+export function parseCount(value: string): number {
+  if (!/^\d+$/.test(value)) throw new InvalidArgumentError("Expected a non-negative integer.");
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) throw new InvalidArgumentError("Expected a safe non-negative integer.");
+  return parsed;
+}
+
 export function addPaginationOptions(command: Command): Command {
   return command
-    .option("--limit <n>", "Maximum items to return", Number.parseInt)
-    .option("--offset <n>", "Number of items to skip", Number.parseInt)
+    .option("--limit <n>", "Maximum items to return", parseCount)
+    .option("--offset <n>", "Number of items to skip", parseCount)
     .option("--cursor <cursor>", "Server pagination cursor")
     .option("--all", "Fetch every page");
 }
@@ -41,7 +49,6 @@ export async function collectAllPages<T, C extends string | number>(
     seen.add(cursor);
     const page = await fetchPage(cursor);
     items.push(...page.items);
-    if (page.items.length === 0) break;
     cursor = page.next;
   }
   return items;

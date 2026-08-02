@@ -27,10 +27,16 @@ const mocks = vi.hoisted(() => ({
   post: vi.fn(),
   put: vi.fn(),
   printError: vi.fn(),
+  printNote: vi.fn(),
   printResult: vi.fn(),
   printSuccess: vi.fn(),
   printWarning: vi.fn(),
   uploadMultipart: vi.fn(),
+  listProfiles: vi.fn((): Array<{
+    name: string; profile: { type: "user" | "bot"; apiKey: string };
+  }> => []),
+  getProfile: vi.fn(),
+  removeProfile: vi.fn(),
 }));
 
 vi.mock("../api.js", () => ({
@@ -89,10 +95,22 @@ vi.mock("../client.js", () => ({
   post: mocks.post,
   put: mocks.put,
   uploadMultipart: mocks.uploadMultipart,
+  resolveClient: vi.fn(() => ({
+    get: mocks.clientGet,
+    post: mocks.clientPost,
+    put: mocks.clientPut,
+    patch: mocks.clientPatch,
+    delete: mocks.clientDelete,
+    upload: mocks.clientUpload,
+    download: mocks.clientDownload,
+    request: mocks.clientRequest,
+    stream: mocks.clientStream,
+  })),
 }));
 
 vi.mock("../output.js", () => ({
   printError: mocks.printError,
+  printNote: mocks.printNote,
   printResult: mocks.printResult,
   printSuccess: mocks.printSuccess,
   printWarning: mocks.printWarning,
@@ -107,6 +125,11 @@ vi.mock("../config.js", () => ({
     profileName: "default",
     source: "test",
   })),
+  getEndpoint: vi.fn(() => "https://api.example.test"),
+  getEnvironmentLabel: vi.fn(() => "test"),
+  getProfile: mocks.getProfile,
+  listProfiles: mocks.listProfiles,
+  removeProfile: mocks.removeProfile,
 }));
 
 const { registerFileCommands } = await import("./file.js");
@@ -137,6 +160,11 @@ const { registerWorkbookCommands } = await import("./workbook.js");
 const { registerImageCommands } = await import("./image.js");
 const { registerAutomationCommands } = await import("./automation.js");
 const { registerEconomyChatCommands } = await import("./economy-chat.js");
+const { registerApp } = await import("./app.js");
+const { registerList } = await import("./list.js");
+const { registerStats } = await import("./stats.js");
+const { registerAutoSendCommands } = await import("./auto-send.js");
+const { registerProfile } = await import("./profile.js");
 
 const tempDirs: string[] = [];
 
@@ -443,7 +471,7 @@ describe("CLI command API request shapes", () => {
     expect(mocks.uploadMultipart).toHaveBeenCalledWith("/api/v1/themes/upload", {
       manifest: expect.any(Blob),
       bundle: expect.any(Blob),
-    }, "POST", "ari_cli_theme_token");
+    }, "POST");
     expect(mocks.printResult).toHaveBeenCalledWith({ ok: true });
   });
 
@@ -497,7 +525,7 @@ describe("CLI command API request shapes", () => {
 
     expect(mocks.uploadMultipart).toHaveBeenCalledWith("/api/v1/themes/theme-1", {
       manifest: expect.any(Blob),
-    }, "PUT", "ari_cli_theme_token");
+    }, "PUT");
     expect(mocks.printError).toHaveBeenCalledWith(error);
   });
 
@@ -509,10 +537,10 @@ describe("CLI command API request shapes", () => {
 
     expect(mocks.patch).toHaveBeenNthCalledWith(1, "/api/v1/themes/theme-1/status", {
       status: "published",
-    }, "ari_cli_theme_token");
+    });
     expect(mocks.patch).toHaveBeenNthCalledWith(2, "/api/v1/themes/theme-1/status", {
       status: "draft",
-    }, "ari_cli_theme_token");
+    });
     expect(mocks.printResult).toHaveBeenCalledTimes(2);
   });
 
@@ -537,7 +565,6 @@ describe("CLI command API request shapes", () => {
     expect(mocks.clientUpload).toHaveBeenCalledWith(
       "/api/v1/files/upload",
       expect.any(FormData),
-      undefined,
     );
     const form = mocks.clientUpload.mock.calls[0][1] as FormData;
     expect(form.get("conversationId")).toBe("conv-1");
@@ -884,7 +911,7 @@ describe("CLI command API request shapes", () => {
       fileId: "file-1", spaceId: "space-1",
     });
     expect(mocks.clientUpload).toHaveBeenCalledWith(
-      "/api/v1/workbooks/book%2Fa/import", expect.any(FormData), undefined,
+      "/api/v1/workbooks/book%2Fa/import", expect.any(FormData),
     );
     expect(mocks.clientDownload).toHaveBeenCalledWith(
       "/api/v1/workbooks/book%2Fa/export?format=csv&sheetId=sheet%2Fa",
@@ -1052,5 +1079,26 @@ describe("CLI command API request shapes", () => {
       messages: [{ role: "user", content: "Hi" }],
       context: { locale: "en" },
     });
+  });
+
+  it("app, list, and stats commands use encoded current routes", async () => {
+    await createProgram(registerApp).parseAsync(["node", "arinova", "app", "show", "app/a"]);
+    await createProgram(registerList).parseAsync(["node", "arinova", "list", "--type", "theme"]);
+    await createProgram(registerStats).parseAsync(["node", "arinova", "stats", "revenue", "--period", "7d"]);
+    expect(mocks.get).toHaveBeenNthCalledWith(1, "/api/v1/developer/apps/app%2Fa");
+    expect(mocks.get).toHaveBeenNthCalledWith(2, "/api/v1/creator/themes");
+    expect(mocks.get).toHaveBeenNthCalledWith(3, "/api/v1/creator/revenue?period=7d");
+  });
+
+  it("profile list remains local and auto-send fails before any request", async () => {
+    mocks.listProfiles.mockReturnValue([{ name: "bot", profile: { type: "bot", apiKey: "ari_secret" } }]);
+    await createProgram(registerProfile).parseAsync(["node", "arinova", "profile", "list"]);
+    expect(mocks.listProfiles).toHaveBeenCalledOnce();
+    const autoSend = createProgram(registerAutoSendCommands);
+    await expect(autoSend.parseAsync([
+      "node", "arinova", "auto-send", "list", "--conversation-id", "conv-1",
+    ])).rejects.toMatchObject({ code: "UNSUPPORTED_COMMAND" });
+    expect(mocks.get).not.toHaveBeenCalled();
+    expect(mocks.apiCall).not.toHaveBeenCalled();
   });
 });

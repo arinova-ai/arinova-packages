@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   listProfiles: vi.fn(() => []),
   loadConfig: vi.fn(() => ({})),
   printError: vi.fn(),
+  printNote: vi.fn(),
   printResult: vi.fn(),
   printSuccess: vi.fn(),
   resolveApiKey: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("../config.js", () => ({
 
 vi.mock("../output.js", () => ({
   printError: mocks.printError,
+  printNote: mocks.printNote,
   printResult: mocks.printResult,
   printSuccess: mocks.printSuccess,
 }));
@@ -184,5 +186,18 @@ describe("auth command", () => {
 
     expect(mocks.setProfile).not.toHaveBeenCalled();
     expect(mocks.printError).toHaveBeenCalled();
+  });
+
+  it("reports an HTML registration failure without an opaque JSON parse error", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("<html>bad gateway</html>", {
+      status: 502,
+      headers: { "content-type": "text/html" },
+    }));
+    const program = createProgram();
+    await program.parseAsync(["node", "arinova", "auth", "login", "--port", "31001"]);
+    expect(mocks.printError).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining("502"),
+    }));
+    expect(mocks.spawn).not.toHaveBeenCalled();
   });
 });
