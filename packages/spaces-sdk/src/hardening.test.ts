@@ -114,10 +114,19 @@ describe("PKCE invariants and popup lifecycle", () => {
     const first = client.login();
     const second = client.login();
     expect(second).toBe(first);
+    // The popup opens only after the async PKCE challenge resolves — wait for
+    // it instead of assuming a single macrotask tick is enough.
+    await vi.waitFor(() => expect(open).toHaveBeenCalledTimes(1));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(open).toHaveBeenCalledTimes(1);
     popup.closed = true;
     await expect(first).rejects.toMatchObject({ code: "login_cancelled" });
+  });
+
+  it("constructs server-side without a redirectUri and fails only at login", async () => {
+    vi.stubGlobal("window", undefined);
+    const client = new Arinova({ clientId: "app-1", apiUrl: "https://api.test" });
+    await expect(client.login()).rejects.toMatchObject({ code: "browser_required" });
   });
 
   it("removes OAuth parameters from browser history after a redirect exchange", async () => {
@@ -305,6 +314,31 @@ describe("stream and shared utility contracts", () => {
     await expect(stream.next()).resolves.toMatchObject({ value: { type: "chunk", content: "hi" } });
     await stream.return(undefined);
     expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a healthy stream alive past the request timeout", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        for (let i = 0; i < 3; i += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          controller.enqueue(encoder.encode(`data: {"type":"chunk","content":"c${i}"}\n`));
+        }
+        controller.close();
+      },
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(body, { status: 200 }));
+    // timeoutMs far below total stream duration: it must only bound the
+    // connection phase, never abort an actively-delivering body.
+    const stream = clientWithSession().agent.chatStream(
+      { agentId: "a1", prompt: "hi" },
+      { timeoutMs: 20 },
+    );
+    const contents: string[] = [];
+    for await (const event of stream) {
+      if (event.type === "chunk" && typeof event.content === "string") contents.push(event.content);
+    }
+    expect(contents).toEqual(["c0", "c1", "c2"]);
   });
 
   it("reports a bodyless successful stream as invalid_response", async () => {

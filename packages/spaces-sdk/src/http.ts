@@ -52,7 +52,7 @@ export function parseError(body: unknown, fallback: string): { message: string; 
 }
 
 /** fetch wrapper: JSON in/out, Bearer auth, API-v1 and OAuth error parsing. */
-function combinedSignal(signal: AbortSignal | undefined, timeoutMs: number): { signal: AbortSignal; clear: () => void } {
+function combinedSignal(signal: AbortSignal | undefined, timeoutMs: number): { signal: AbortSignal; clear: () => void; disarmTimeout: () => void } {
   const controller = new AbortController();
   const abort = () => controller.abort(signal?.reason);
   if (signal?.aborted) abort();
@@ -64,6 +64,7 @@ function combinedSignal(signal: AbortSignal | undefined, timeoutMs: number): { s
       clearTimeout(timer);
       signal?.removeEventListener("abort", abort);
     },
+    disarmTimeout: () => clearTimeout(timer),
   };
 }
 
@@ -71,6 +72,8 @@ interface ResponseHandle {
   response: Response;
   close(): void;
   abortCode(): "timeout" | "aborted" | undefined;
+  /** Stop the timeout clock while keeping caller-abort wiring intact. */
+  disarmTimeout(): void;
 }
 
 async function fetchWithErrors(url: string, init: RequestOptions): Promise<ResponseHandle> {
@@ -100,6 +103,7 @@ async function fetchWithErrors(url: string, init: RequestOptions): Promise<Respo
             response,
             close: deadline.clear,
             abortCode: () => deadline.signal.aborted ? (rest.signal?.aborted ? "aborted" : "timeout") : undefined,
+            disarmTimeout: deadline.disarmTimeout,
           };
         }
         await response.body?.cancel().catch(() => undefined);
@@ -166,6 +170,10 @@ export async function requestStream(url: string, init: RequestOptions = {}): Pro
     handle.close();
     throw new ArinovaError("Streaming response has no body", res.status, "invalid_response");
   }
+  // timeoutMs bounds connection + headers only. Body consumption can
+  // legitimately outlast any fixed deadline (LLM generation), so stop the
+  // clock here; the caller's own AbortSignal still cancels mid-stream.
+  handle.disarmTimeout();
   return handle;
 }
 

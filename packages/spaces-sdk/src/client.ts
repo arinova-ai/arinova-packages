@@ -51,13 +51,22 @@ export class Arinova {
     this.redirectUri =
       config.redirectUri ??
       (typeof window !== "undefined" ? `${window.location.origin}/callback` : "");
+    // Server-side with no explicit redirectUri there is nothing to validate
+    // yet — defer to login time so SSR module-scope construction never throws.
+    if (config.redirectUri !== undefined || typeof window !== "undefined") {
+      this.validateRedirectUri();
+    }
+    this.scopes = config.scopes && config.scopes.length ? [...config.scopes] : ["profile"];
+  }
+
+  private validateRedirectUri(): string {
     try {
       const redirect = new URL(this.redirectUri);
       if (!redirect.protocol.startsWith("http") || !redirect.host) throw new Error();
     } catch {
       throw new ArinovaError("Arinova: `redirectUri` must be an absolute HTTP(S) URL", 0, "invalid_redirect_uri");
     }
-    this.scopes = config.scopes && config.scopes.length ? [...config.scopes] : ["profile"];
+    return this.redirectUri;
   }
 
   /** The current session, or null. */
@@ -232,7 +241,7 @@ export class Arinova {
 
     const params = new URLSearchParams({
       client_id: this.clientId,
-      redirect_uri: this.redirectUri,
+      redirect_uri: this.validateRedirectUri(),
       scope: this.scopes.join(" "),
       state,
       response_type: "code",
@@ -343,7 +352,7 @@ export class Arinova {
         grant_type: "authorization_code",
         client_id: this.clientId,
         code,
-        redirect_uri: this.redirectUri,
+        redirect_uri: this.validateRedirectUri(),
         code_verifier: codeVerifier,
       }),
     });
@@ -485,7 +494,8 @@ class EconomyApi {
 class AgentApi {
   constructor(private readonly client: ClientTransport) {}
   chat(params: AgentChatParams, options?: RequestOptions): Promise<AgentChatResponse> {
-    return this.client.apiPost<AgentChatResponse>("/api/v1/agent/chat", params, options);
+    // A full completion routinely outlasts the transport default of 15s.
+    return this.client.apiPost<AgentChatResponse>("/api/v1/agent/chat", params, { timeoutMs: 120_000, ...options });
   }
   chatStream(params: AgentChatParams, options?: RequestOptions): AsyncGenerator<AgentChatEvent> {
     return this.client.streamChat(params, options);
