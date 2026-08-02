@@ -41,11 +41,11 @@ Every Arinova user has a **virtual office** — a personal workspace where their
 ```
 
 - Your theme runs inside a **sandboxed iframe** (`sandbox="allow-scripts"`, so its origin is opaque) served by the Arinova runtime.
-- The runtime injects a **bridge script** that exposes an `sdk` object to your code and speaks a secured `postMessage` protocol with the host (origin-locked, with a per-iframe `bridgeToken`).
+- The runtime injects a **bridge script** that passes an immutable-view `sdk` object to your `init` function and speaks a secured `postMessage` protocol with the host.
 - Through the SDK your theme receives **live agent data** and can **send actions** back to the host (select an agent, open a chat, navigate, bind/unbind agents to slots).
 - Agents have real-time statuses — `working`, `idle`, `blocked`, `collaborating`, `unbound` — visualize them however you like.
 
-> The bridge is injected for you. You do not include it — you only ship `theme.js` (and assets). `src/bridge.js` in this package is the exact reference the host injects and the local `arinova theme dev` server serves, so local dev matches production.
+> The bridge is injected for you. You do not include it — you only ship `theme.js` (and assets). `src/bridge.js` is the versioned reference used by local tooling and pinned as a complete-file digest so deployments can synchronize it without accepting prepended or appended code.
 
 The JavaScript bridge is a runtime script, not an importable library entry:
 loading it executes its iframe IIFE immediately. Tooling that needs the raw
@@ -478,7 +478,7 @@ interface Agent {
 }
 
 interface User { id: string; name: string; username: string }
-interface ConnectedAgent { id: string; name: string }
+interface ConnectedAgent { id: string; name: string; avatarUrl?: string }
 interface Binding { slotIndex: number; agentId: string; agentName?: string }
 interface Size { width: number; height: number }
 
@@ -494,6 +494,9 @@ interface ArinovaSDK {
   onConnectedAgentsChange(cb: (connectedAgents: ConnectedAgent[]) => void): () => void;
 
   assetUrl(relativePath: string): string;
+  getAgent(id: string): Agent | undefined;
+  loadJSON<T = unknown>(relativePath: string): Promise<T>;
+  readonly agent: Agent | null;
 
   selectAgent(agentId: string): void;
   openChat(agentId: string): void;
@@ -529,7 +532,18 @@ interface ThemeManifest {
 
 ## 12. PostMessage Protocol
 
-You normally never touch this — the bridge abstracts it. **Every message carries a `bridgeToken`**, minted per-iframe by the host and passed in the iframe URL fragment (`#bridgeToken=…`). The bridge attaches it to every outbound message and rejects any inbound message whose `bridgeToken`, source, or origin doesn't match; the host does the same. `sdk.emit` / arbitrary custom events are **not** supported.
+You normally never touch this — the bridge abstracts it. Every outbound message
+carries `protocol: 1` and a per-iframe `bridgeToken`. During the protocol-1
+rollout the bridge also accepts a versionless inbound message as version 1, but
+rejects every unknown explicit version. It also rejects inbound messages whose
+token, parent-window source, origin, type, or payload schema does not match.
+`sdk.emit` and arbitrary custom events are not supported.
+
+The `bridgeToken` prevents messages from crossing between sibling iframe
+instances; it is not a secret from the theme itself and is not the theme's
+security boundary. Containment comes from the host's sandboxed iframe and CSP,
+plus strict source/origin validation. Preview rollouts may supply an explicit
+origin allowlist while outbound messages remain pinned to the primary origin.
 
 The host first waits for the bridge-level `ready` handshake. After `init` and
 theme registration have both arrived (in either order), the bridge runs
@@ -537,8 +551,9 @@ theme registration have both arrived (in either order), the bridge runs
 registration error, synchronous throw, rejected initialization promise, or
 explicit `window.__ARINOVA_REPORT_THEME_ERROR__(stage, error)` sends one
 sanitized `theme:error` instead.
+If `init` never arrives, the bridge emits a `handshake` error after 12 seconds.
 
-**Host → theme iframe** (each also includes `bridgeToken`):
+**Host → theme iframe** (each also includes `protocol: 1` and `bridgeToken`):
 
 | Message | Payload |
 |---|---|
@@ -548,7 +563,7 @@ sanitized `theme:error` instead.
 | `connectedAgents:update` | `{ type, connectedAgents }` |
 | `resize` | `{ type, width, height }` |
 
-**Theme iframe → host** (each also includes `bridgeToken`):
+**Theme iframe → host** (each also includes `protocol: 1` and `bridgeToken`):
 
 | Message | Payload |
 |---|---|

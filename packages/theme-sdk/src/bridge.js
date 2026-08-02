@@ -10,7 +10,7 @@
  *    from `window.__ARINOVA_PARENT_ORIGIN__`, then stamps the token on every
  *    outbound message and posts only to that origin;
  *  - rejects any inbound message whose source, origin, or token does not match;
- *  - exposes a global `sdk` object to theme code via `theme.init(sdk, container)`.
+ *  - passes an immutable-view `sdk` object to theme code via `theme.init(sdk, container)`.
  *
  * Protocol (host -> iframe): init | agents:update | bindings:update |
  *   connectedAgents:update | resize   (every message carries `bridgeToken`)
@@ -25,13 +25,60 @@
   var THEME_ID = window.__ARINOVA_THEME_ID__ || "";
   var ASSET_BASE = window.__ARINOVA_ASSETS_BASE__ || "";
   var PARENT_ORIGIN = window.__ARINOVA_PARENT_ORIGIN__ || "";
+  var PARENT_ORIGINS = Array.isArray(window.__ARINOVA_PARENT_ORIGINS__)
+    ? window.__ARINOVA_PARENT_ORIGINS__.slice()
+    : [PARENT_ORIGIN];
   var BRIDGE_TOKEN = new URLSearchParams(window.location.hash.slice(1)).get("bridgeToken") || "";
   var mountTarget = document.getElementById("container");
+  var PROTOCOL_VERSION = 1;
+  var HANDSHAKE_TIMEOUT_MS = 12000;
+  var OUTBOUND_TYPES = {
+    "ready": true,
+    "theme:ready": true,
+    "theme:error": true,
+    "agent:select": true,
+    "agent:openChat": true,
+    "agent:bind": true,
+    "agent:unbind": true,
+    "navigate": true
+  };
+  var ERROR_STAGES = { registration: true, initialization: true, handshake: true, runtime: true };
+
+  function validOrigin(origin) {
+    if (typeof origin !== "string" || !origin) return false;
+    try {
+      var parsed = new URL(origin);
+      return (parsed.protocol === "https:" || parsed.protocol === "http:") && parsed.origin === origin;
+    } catch (err) {
+      return false;
+    }
+  }
+  PARENT_ORIGINS = PARENT_ORIGINS.filter(validOrigin);
+  if (!validOrigin(PARENT_ORIGIN) || PARENT_ORIGINS.indexOf(PARENT_ORIGIN) === -1) {
+    console.error("[arinova-sdk] invalid parent origin configuration");
+    return;
+  }
+  if (!ASSET_BASE) {
+    console.error("[arinova-sdk] missing asset base configuration");
+    return;
+  }
+  if (window.__ARINOVA_BRIDGE_LOADED__) {
+    console.warn("[arinova-sdk] bridge is already loaded");
+    return;
+  }
+  Object.defineProperty(window, "__ARINOVA_BRIDGE_LOADED__", {
+    value: true,
+    writable: false,
+    configurable: false
+  });
 
   var channels = { agents: [], bindings: [], connectedAgents: [], resize: [] };
   function subscribe(channel, cb) {
     var list = channels[channel];
-    if (!list || typeof cb !== "function") return function () {};
+    if (!list || typeof cb !== "function") {
+      console.warn("[arinova-sdk] cannot subscribe to unknown channel " + channel);
+      return function () {};
+    }
     list.push(cb);
     return function () {
       var idx = list.indexOf(cb);
@@ -43,25 +90,46 @@
     if (!list) return;
     var snapshot = list.slice();
     for (var i = 0; i < snapshot.length; i++) {
+      if (list.indexOf(snapshot[i]) === -1) continue;
       try { snapshot[i](payload); } catch (err) { console.error("[arinova-sdk]", err); }
     }
   }
 
   function send(type, body) {
-    var payload = { type: type };
-    if (body) for (var k in body) if (Object.prototype.hasOwnProperty.call(body, k)) payload[k] = body[k];
+    if (!OUTBOUND_TYPES[type]) {
+      console.error("[arinova-sdk] refused unknown outbound message type " + type);
+      return;
+    }
+    var payload = { type: type, protocol: PROTOCOL_VERSION };
+    if (body) for (var k in body) {
+      if (Object.prototype.hasOwnProperty.call(body, k) && k !== "type" && k !== "protocol" && k !== "bridgeToken") {
+        payload[k] = body[k];
+      }
+    }
     payload.bridgeToken = BRIDGE_TOKEN;
-    try { window.parent.postMessage(payload, PARENT_ORIGIN); } catch (e) {}
+    try {
+      window.parent.postMessage(payload, PARENT_ORIGIN);
+    } catch (err) {
+      console.error("[arinova-sdk] failed to post " + type, err);
+    }
   }
 
   function joinAsset(rel) {
+    if (!ASSET_BASE) throw new Error("Asset base is unavailable");
     var base = new URL(ASSET_BASE.replace(/\/?$/, "/"), window.location.href);
     if (!rel) return base.href;
-    var clean = String(rel).replace(/^\/+/, "");
-    return new URL(clean, base).href;
+    var clean = String(rel);
+    if (/[/\\:]/.test(clean) || clean.indexOf("..") !== -1 || clean === ".") {
+      throw new Error("Asset path must be a single flat filename");
+    }
+    var result = new URL(clean, base);
+    if (result.origin !== base.origin || result.pathname.slice(0, base.pathname.length) !== base.pathname) {
+      throw new Error("Asset path escapes the configured base");
+    }
+    return result.href;
   }
 
-  var sdk = {
+  var state = {
     themeId: THEME_ID,
     themeVersion: "0.0.0",
     user: null,
@@ -71,16 +139,28 @@
     width: window.innerWidth,
     height: window.innerHeight,
     isMobile: window.innerWidth < 768,
-    pixelRatio: window.devicePixelRatio || 1,
+    pixelRatio: window.devicePixelRatio || 1
+  };
+  var sdk = {
+    get themeId() { return state.themeId; },
+    get themeVersion() { return state.themeVersion; },
+    get user() { return state.user; },
+    get agents() { return state.agents; },
+    get bindings() { return state.bindings; },
+    get connectedAgents() { return state.connectedAgents; },
+    get width() { return state.width; },
+    get height() { return state.height; },
+    get isMobile() { return state.isMobile; },
+    get pixelRatio() { return state.pixelRatio; },
     assetUrl: joinAsset,
-    getAgent: function (id) { return sdk.agents.find(function (a) { return a.id === id; }); },
+    getAgent: function (id) { return state.agents.find(function (a) { return a.id === id; }); },
     loadJSON: function (rel) {
       return fetch(sdk.assetUrl(rel)).then(function (r) {
         if (!r.ok) throw new Error("Failed to load " + rel);
         return r.json();
       });
     },
-    get agent() { return sdk.agents.length ? sdk.agents[0] : null; },
+    get agent() { return state.agents.length ? state.agents[0] : null; },
     onAgentsChange: function (cb) { return subscribe("agents", cb); },
     onBindingsChange: function (cb) { return subscribe("bindings", cb); },
     onConnectedAgentsChange: function (cb) { return subscribe("connectedAgents", cb); },
@@ -97,6 +177,7 @@
   var themeStarted = false;
   var themeReady = false;
   var themeFailed = false;
+  var handshakeTimer = null;
 
   function errorMessage(err) {
     var message = "";
@@ -109,8 +190,9 @@
   }
 
   function reportThemeError(stage, err) {
-    if (themeReady || themeFailed) return;
-    themeFailed = true;
+    if (themeFailed) return;
+    if (!themeReady) themeFailed = true;
+    if (!ERROR_STAGES[stage]) stage = "runtime";
     var message = errorMessage(err);
     console.error("[arinova-sdk] theme failed during " + stage, err);
     send("theme:error", { stage: stage, message: message });
@@ -145,52 +227,80 @@
   window.__ARINOVA_REPORT_THEME_ERROR__ = reportThemeError;
 
   function applyInit(data) {
-    if (data.themeId) sdk.themeId = data.themeId;
-    if (data.themeVersion) sdk.themeVersion = data.themeVersion;
-    if (data.user) sdk.user = data.user;
-    if (Array.isArray(data.agents)) sdk.agents = data.agents;
-    if (Array.isArray(data.bindings)) sdk.bindings = data.bindings;
-    if (Array.isArray(data.connectedAgents)) sdk.connectedAgents = data.connectedAgents;
-    if (typeof data.width === "number") sdk.width = data.width;
-    if (typeof data.height === "number") sdk.height = data.height;
-    if (typeof data.isMobile === "boolean") sdk.isMobile = data.isMobile;
-    if (typeof data.pixelRatio === "number") sdk.pixelRatio = data.pixelRatio;
+    if (handshakeTimer !== null) { clearTimeout(handshakeTimer); handshakeTimer = null; }
+    if (typeof data.themeId === "string" && data.themeId) state.themeId = data.themeId;
+    if (typeof data.themeVersion === "string" && data.themeVersion) state.themeVersion = data.themeVersion;
+    if (data.user && typeof data.user === "object" && typeof data.user.id === "string") state.user = data.user;
+    if (Array.isArray(data.agents)) state.agents = data.agents;
+    if (Array.isArray(data.bindings)) state.bindings = data.bindings;
+    if (Array.isArray(data.connectedAgents)) state.connectedAgents = data.connectedAgents;
+    if (typeof data.width === "number" && isFinite(data.width)) state.width = data.width;
+    if (typeof data.height === "number" && isFinite(data.height)) state.height = data.height;
+    if (typeof data.isMobile === "boolean") state.isMobile = data.isMobile;
+    else state.isMobile = state.width < 768;
+    if (typeof data.pixelRatio === "number" && isFinite(data.pixelRatio) && data.pixelRatio > 0) state.pixelRatio = data.pixelRatio;
     if (!hostReady) {
       hostReady = true;
       if (pending) { var p = pending; pending = null; runTheme(p); }
     }
-    broadcast("agents", sdk.agents);
-    broadcast("bindings", sdk.bindings);
-    broadcast("connectedAgents", sdk.connectedAgents);
-    broadcast("resize", { width: sdk.width, height: sdk.height });
+    broadcast("agents", state.agents);
+    broadcast("bindings", state.bindings);
+    broadcast("connectedAgents", state.connectedAgents);
+    broadcast("resize", { width: state.width, height: state.height });
   }
 
-  var handlers = {
-    "init": applyInit,
-    "agents:update": function (d) {
-      if (Array.isArray(d.agents)) { sdk.agents = d.agents; broadcast("agents", sdk.agents); }
+  var handlers = Object.create(null);
+  handlers["init"] = { apply: applyInit };
+  handlers["agents:update"] = {
+    valid: function (d) { return Array.isArray(d.agents); },
+    apply: function (d) { state.agents = d.agents; broadcast("agents", state.agents); }
+  };
+  handlers["bindings:update"] = {
+    valid: function (d) { return Array.isArray(d.bindings); },
+    apply: function (d) { state.bindings = d.bindings; broadcast("bindings", state.bindings); }
+  };
+  handlers["connectedAgents:update"] = {
+    valid: function (d) { return Array.isArray(d.connectedAgents); },
+    apply: function (d) { state.connectedAgents = d.connectedAgents; broadcast("connectedAgents", state.connectedAgents); }
+  };
+  handlers.resize = {
+    valid: function (d) {
+      return (d.width === undefined || (typeof d.width === "number" && isFinite(d.width)))
+        && (d.height === undefined || (typeof d.height === "number" && isFinite(d.height)));
     },
-    "bindings:update": function (d) {
-      if (Array.isArray(d.bindings)) { sdk.bindings = d.bindings; broadcast("bindings", sdk.bindings); }
-    },
-    "connectedAgents:update": function (d) {
-      if (Array.isArray(d.connectedAgents)) { sdk.connectedAgents = d.connectedAgents; broadcast("connectedAgents", sdk.connectedAgents); }
-    },
-    "resize": function (d) {
-      if (typeof d.width === "number") sdk.width = d.width;
-      if (typeof d.height === "number") sdk.height = d.height;
-      broadcast("resize", { width: sdk.width, height: sdk.height });
+    apply: function (d) {
+      if (typeof d.width === "number") state.width = d.width;
+      if (typeof d.height === "number") state.height = d.height;
+      state.isMobile = state.width < 768;
+      broadcast("resize", { width: state.width, height: state.height });
     }
   };
 
-  window.addEventListener("message", function (e) {
-    if (e.source !== window.parent || e.origin !== PARENT_ORIGIN) return;
+  function validateInbound(e) {
+    if (e.source !== window.parent) return null;
+    if (PARENT_ORIGINS.indexOf(e.origin) === -1) {
+      console.warn("[arinova-sdk] ignored message from unexpected origin " + e.origin);
+      return null;
+    }
     var data = e.data;
-    if (!data || typeof data.type !== "string") return;
-    if (!BRIDGE_TOKEN || data.bridgeToken !== BRIDGE_TOKEN) return;
-    var handler = handlers[data.type];
-    if (handler) handler(data);
+    if (!data || typeof data !== "object" || Array.isArray(data) || typeof data.type !== "string") return null;
+    var protocol = data.protocol === undefined ? PROTOCOL_VERSION : data.protocol;
+    if (protocol !== PROTOCOL_VERSION) return null;
+    if (!BRIDGE_TOKEN || data.bridgeToken !== BRIDGE_TOKEN) return null;
+    var entry = handlers[data.type];
+    if (!entry || typeof entry.apply !== "function") return null;
+    if (entry.valid && !entry.valid(data)) return null;
+    return { entry: entry, data: data };
+  }
+
+  window.addEventListener("message", function (e) {
+    var inbound = validateInbound(e);
+    if (inbound) inbound.entry.apply(inbound.data);
   });
 
+  handshakeTimer = setTimeout(function () {
+    handshakeTimer = null;
+    if (!hostReady) reportThemeError("handshake", new Error("Host did not initialize the theme bridge"));
+  }, HANDSHAKE_TIMEOUT_MS);
   send("ready");
 })();

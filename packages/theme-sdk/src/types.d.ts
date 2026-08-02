@@ -146,6 +146,8 @@ export interface ThemeModule {
   destroy?(): void;
 }
 
+export type ThemeErrorStage = "registration" | "initialization" | "handshake" | "runtime";
+
 /** Author block in a theme manifest (theme.json). */
 export interface ThemeAuthor {
   name: string;
@@ -192,9 +194,19 @@ export interface ThemeManifest {
 
 declare global {
   interface Window {
+    /** Host-injected active theme id. Theme code must not change this value. */
+    readonly __ARINOVA_THEME_ID__: string;
+    /** Host-injected base URL for the flat theme asset namespace. */
+    readonly __ARINOVA_ASSETS_BASE__: string;
+    /** Primary parent origin used for outbound messages. */
+    readonly __ARINOVA_PARENT_ORIGIN__: string;
+    /** Optional rollout allowlist accepted for inbound parent messages. */
+    readonly __ARINOVA_PARENT_ORIGINS__?: string[];
+    /** Non-configurable duplicate-load sentinel installed by the bridge. */
+    readonly __ARINOVA_BRIDGE_LOADED__?: boolean;
     /** Register your theme module with the runtime bridge (called for you by the runtime HTML). */
     __ARINOVA_REGISTER_THEME__: (themeModule: { default?: ThemeModule } | ThemeModule) => void;
     /** Report a sanitized pre-init/runtime loading failure to the host. */
-    __ARINOVA_REPORT_THEME_ERROR__: (stage: string, error: unknown) => void;
+    __ARINOVA_REPORT_THEME_ERROR__: (stage: ThemeErrorStage, error: unknown) => void;
   }
 }
