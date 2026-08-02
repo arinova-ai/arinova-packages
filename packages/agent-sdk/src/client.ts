@@ -609,7 +609,12 @@ export class ArinovaAgent extends ArinovaRestClient {
           this.scheduleReconnect();
           return;
         }
-        this.sendBeforeAuth({ type: "ping" });
+        // The socket can sit in CLOSING before onclose fires (delayed TCP
+        // teardown); a throw here would be an uncaughtException inside the
+        // interval callback, so skip the ping and let onclose reconnect.
+        if (this.ws && this.ws.readyState === WS_OPEN) {
+          this.sendBeforeAuth({ type: "ping" });
+        }
       }, this.pingInterval);
     };
 
