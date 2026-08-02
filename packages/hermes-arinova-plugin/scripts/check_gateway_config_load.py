@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import inspect
 import os
 import shutil
 import sys
@@ -273,6 +274,9 @@ arinova:
                 or created_adapter._busy_text_mode != "queue"
             ):
                 raise RuntimeError("GatewayRunner handler wiring did not attach to Arinova adapter")
+            if "is_reconnect" not in inspect.signature(runner._connect_adapter_with_timeout).parameters:
+                print("Hermes gateway config load OK; reconnect integration skipped for incompatible checkout")
+                return 0
             connect_calls = []
 
             async def fake_connect(*, is_reconnect: bool = False) -> bool:

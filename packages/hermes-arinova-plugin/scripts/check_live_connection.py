@@ -21,7 +21,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SDK_ROOT = Path.home() / ".arinova-bridge/workspace/projects/arinova-packages/packages/agent-sdk"
+DEFAULT_SDK_ROOT = ROOT.parent / "agent-sdk"
 SDK_DIST_FILES = (
     "dist/client.d.ts",
     "dist/client.d.ts.map",
@@ -1260,11 +1260,25 @@ def free_port() -> int:
 
 
 def yaml_config_platform() -> dict:
+    config_path = Path(os.getenv("HERMES_HOME") or Path.home() / ".hermes").expanduser() / "config.yaml"
     try:
         import yaml
     except Exception:
-        return {}
-    config_path = Path(os.getenv("HERMES_HOME") or Path.home() / ".hermes").expanduser() / "config.yaml"
+        try:
+            lines = config_path.read_text().splitlines()
+        except OSError:
+            return {}
+        values: dict[str, str] = {}
+        in_arinova = False
+        for line in lines:
+            if line and not line.startswith((" ", "\t")):
+                in_arinova = line.strip() == "arinova:"
+                continue
+            if not in_arinova or ":" not in line:
+                continue
+            key, value = line.strip().split(":", 1)
+            values[key] = value.strip().strip("'\"")
+        return values
     try:
         data = yaml.safe_load(config_path.read_text()) or {}
     except Exception:

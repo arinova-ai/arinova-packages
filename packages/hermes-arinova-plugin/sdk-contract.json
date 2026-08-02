@@ -1,0 +1,1147 @@
+{
+  "agent": {
+    "addCardCommit": {
+      "args": [
+        {
+          "name": "card_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "body",
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "commitHash": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "commitHash"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "addCardLabel": {
+      "args": [
+        {
+          "name": "card_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "label_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "archiveBoard": {
+      "args": [
+        {
+          "name": "board_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "callAction": {
+      "args": [
+        {
+          "name": "action",
+          "schema": {
+            "description": "Action name.",
+            "type": "string"
+          }
+        },
+        {
+          "name": "action_args",
+          "schema": {
+            "description": "Action arguments.",
+            "type": "object"
+          }
+        },
+        {
+          "name": "options",
+          "schema": {
+            "additionalProperties": false,
+            "description": "Optional action call options.",
+            "properties": {
+              "callId": {
+                "type": "string"
+              },
+              "conversationId": {
+                "type": "string"
+              },
+              "dryRun": {
+                "type": "boolean"
+              },
+              "messageId": {
+                "type": "string"
+              },
+              "metadata": {
+                "type": "object"
+              },
+              "parentCallId": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "taskId": {
+                "type": "string"
+              },
+              "timeoutMs": {
+                "type": "number"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "completeCard": {
+      "args": [
+        {
+          "name": "card_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "createBoard": {
+      "args": [
+        {
+          "name": "body",
+          "schema": {
+            "additionalProperties": false,
+            "description": "Board creation payload.",
+            "properties": {
+              "columns": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "createCard": {
+      "args": [
+        {
+          "name": "body",
+          "schema": {
+            "additionalProperties": false,
+            "description": "Card creation payload.",
+            "properties": {
+              "boardId": {
+                "type": "string"
+              },
+              "columnId": {
+                "type": "string"
+              },
+              "columnName": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "priority": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "createColumn": {
+      "args": [
+        {
+          "name": "board_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "body",
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "sortOrder": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "createLabel": {
+      "args": [
+        {
+          "name": "board_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "body",
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "color": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "createNote": {
+      "args": [
+        {
+          "name": "body",
+          "schema": {
+            "additionalProperties": false,
+            "description": "Note title/content/tags payload.",
+            "properties": {
+              "content": {
+                "type": "string"
+              },
+              "notebookId": {
+                "type": "string"
+              },
+              "tags": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "deleteColumn": {
+      "args": [
+        {
+          "name": "column_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "deleteLabel": {
+      "args": [
+        {
+          "name": "label_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "deleteNote": {
+      "args": [
+        {
+          "name": "note_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "fetchHistory": {
+      "args": [
+        {
+          "name": "conversation_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "options",
+          "schema": {
+            "additionalProperties": false,
+            "description": "Optional history pagination options.",
+            "properties": {
+              "after": {
+                "type": "string"
+              },
+              "around": {
+                "type": "string"
+              },
+              "before": {
+                "type": "string"
+              },
+              "limit": {
+                "type": "number"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "fetchSkillPrompt": {
+      "args": [
+        {
+          "name": "skill_slug",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "getAgentId": {
+      "args": [],
+      "required": 0
+    },
+    "getOnboardingSeed": {
+      "args": [],
+      "required": 0
+    },
+    "linkCardNote": {
+      "args": [
+        {
+          "name": "card_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "note_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "listArchivedCards": {
+      "args": [
+        {
+          "name": "board_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "options",
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "limit": {
+                "type": "number"
+              },
+              "page": {
+                "type": "number"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "listBoards": {
+      "args": [],
+      "required": 0
+    },
+    "listCardCommits": {
+      "args": [
+        {
+          "name": "card_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "listCardNotes": {
+      "args": [
+        {
+          "name": "card_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "listCards": {
+      "args": [
+        {
+          "name": "options",
+          "schema": {
+            "additionalProperties": false,
+            "description": "Optional search/limit/offset options.",
+            "properties": {
+              "limit": {
+                "type": "number"
+              },
+              "offset": {
+                "type": "number"
+              },
+              "search": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ],
+      "required": 0
+    },
+    "listColumns": {
+      "args": [
+        {
+          "name": "board_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "listLabels": {
+      "args": [
+        {
+          "name": "board_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "listNotes": {
+      "args": [
+        {
+          "name": "options",
+          "schema": {
+            "additionalProperties": false,
+            "description": "Optional notes pagination/filter options.",
+            "properties": {
+              "archived": {
+                "type": "boolean"
+              },
+              "before": {
+                "type": "string"
+              },
+              "limit": {
+                "type": "number"
+              },
+              "offset": {
+                "type": "number"
+              },
+              "tags": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ],
+      "required": 0
+    },
+    "queryMemory": {
+      "args": [
+        {
+          "name": "options",
+          "schema": {
+            "additionalProperties": false,
+            "description": "Memory query options.",
+            "properties": {
+              "limit": {
+                "type": "number"
+              },
+              "query": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "removeCardLabel": {
+      "args": [
+        {
+          "name": "card_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "label_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "reorderColumns": {
+      "args": [
+        {
+          "name": "board_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "column_ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "reportToolCall": {
+      "args": [
+        {
+          "name": "report",
+          "schema": {
+            "additionalProperties": false,
+            "description": "Tool call report payload.",
+            "properties": {
+              "durationMs": {
+                "type": "number"
+              },
+              "error": {
+                "type": "string"
+              },
+              "input": {
+                "type": "object"
+              },
+              "messageId": {
+                "type": "string"
+              },
+              "output": {},
+              "seqOrder": {
+                "type": "number"
+              },
+              "sessionId": {
+                "type": "string"
+              },
+              "success": {
+                "type": "boolean"
+              },
+              "toolName": {
+                "type": "string"
+              },
+              "turnId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId",
+              "turnId",
+              "seqOrder",
+              "toolName",
+              "input",
+              "success"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "sendHud": {
+      "args": [
+        {
+          "name": "data",
+          "schema": {
+            "description": "HUD payload.",
+            "type": "object"
+          }
+        },
+        {
+          "name": "conversation_id",
+          "schema": {
+            "description": "Optional conversation id.",
+            "type": "string"
+          }
+        }
+      ],
+      "required": 1
+    },
+    "sendMessage": {
+      "args": [
+        {
+          "name": "conversation_id",
+          "schema": {
+            "description": "Arinova conversation id.",
+            "type": "string"
+          }
+        },
+        {
+          "name": "content",
+          "schema": {
+            "description": "Message content.",
+            "type": "string"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "sendTaskUpdate": {
+      "args": [
+        {
+          "name": "agent_name",
+          "schema": {
+            "description": "Agent display name.",
+            "type": "string"
+          }
+        },
+        {
+          "name": "data",
+          "schema": {
+            "description": "Task update payload.",
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "started"
+                    ],
+                    "type": "string"
+                  },
+                  "task": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status",
+                  "task"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "costUsd": {
+                    "type": "number"
+                  },
+                  "durationMs": {
+                    "type": "number"
+                  },
+                  "numTurns": {
+                    "type": "number"
+                  },
+                  "status": {
+                    "enum": [
+                      "completed"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        }
+      ],
+      "required": 2
+    },
+    "sendTelemetry": {
+      "args": [
+        {
+          "name": "event",
+          "schema": {
+            "description": "Telemetry event name.",
+            "type": "string"
+          }
+        },
+        {
+          "name": "data",
+          "schema": {
+            "description": "Telemetry payload.",
+            "type": "object"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "shareNote": {
+      "args": [
+        {
+          "name": "conversation_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "note_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "unlinkCardNote": {
+      "args": [
+        {
+          "name": "card_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "note_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "updateBoard": {
+      "args": [
+        {
+          "name": "board_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "body",
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "updateCard": {
+      "args": [
+        {
+          "name": "card_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "body",
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "columnId": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "priority": {
+                "type": "string"
+              },
+              "sortOrder": {
+                "type": "number"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "updateColumn": {
+      "args": [
+        {
+          "name": "column_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "body",
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "sortOrder": {
+                "type": "number"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "updateLabel": {
+      "args": [
+        {
+          "name": "label_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "body",
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "color": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "updateNote": {
+      "args": [
+        {
+          "name": "note_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "body",
+          "schema": {
+            "additionalProperties": false,
+            "description": "Note fields to update.",
+            "properties": {
+              "content": {
+                "type": "string"
+              },
+              "tags": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "uploadFile": {
+      "args": [
+        {
+          "name": "conversation_id",
+          "schema": {
+            "description": "Arinova conversation id.",
+            "type": "string"
+          }
+        },
+        {
+          "name": "file",
+          "schema": {
+            "additionalProperties": false,
+            "description": "File bytes as {'base64':'...'} or an explicitly enabled workspace-relative local path.",
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "base64": {
+                    "description": "Base64-encoded file bytes.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "base64"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "description": "Workspace-relative local file path (requires ARINOVA_ALLOW_LOCAL_UPLOADS and ARINOVA_UPLOAD_ROOT).",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            ],
+            "properties": {
+              "base64": {
+                "description": "Base64-encoded file bytes.",
+                "type": "string"
+              },
+              "path": {
+                "description": "Workspace-relative local file path.",
+                "type": "string"
+              }
+            },
+            "type": "object",
+            "x-arinova-file": true
+          }
+        },
+        {
+          "name": "file_name",
+          "schema": {
+            "description": "Original file name.",
+            "type": "string"
+          }
+        },
+        {
+          "name": "file_type",
+          "schema": {
+            "description": "Optional MIME type.",
+            "type": "string"
+          }
+        }
+      ],
+      "required": 3
+    }
+  },
+  "task": {
+    "callAction": {
+      "args": [
+        {
+          "name": "action",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "action_args",
+          "schema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "options",
+          "schema": {
+            "additionalProperties": false,
+            "description": "Optional action call options.",
+            "properties": {
+              "callId": {
+                "type": "string"
+              },
+              "dryRun": {
+                "type": "boolean"
+              },
+              "metadata": {
+                "type": "object"
+              },
+              "parentCallId": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "timeoutMs": {
+                "type": "number"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ],
+      "required": 2
+    },
+    "fetchHistory": {
+      "args": [
+        {
+          "name": "options",
+          "schema": {
+            "additionalProperties": false,
+            "description": "Optional history pagination options.",
+            "properties": {
+              "after": {
+                "type": "string"
+              },
+              "around": {
+                "type": "string"
+              },
+              "before": {
+                "type": "string"
+              },
+              "limit": {
+                "type": "number"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ],
+      "required": 0
+    },
+    "uploadFile": {
+      "args": [
+        {
+          "name": "file",
+          "schema": {
+            "additionalProperties": false,
+            "description": "File bytes as {'base64':'...'} or an explicitly enabled workspace-relative local path.",
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "base64": {
+                    "description": "Base64-encoded file bytes.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "base64"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "description": "Workspace-relative local file path (requires ARINOVA_ALLOW_LOCAL_UPLOADS and ARINOVA_UPLOAD_ROOT).",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            ],
+            "properties": {
+              "base64": {
+                "description": "Base64-encoded file bytes.",
+                "type": "string"
+              },
+              "path": {
+                "description": "Workspace-relative local file path.",
+                "type": "string"
+              }
+            },
+            "type": "object",
+            "x-arinova-file": true
+          }
+        },
+        {
+          "name": "file_name",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "file_type",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "required": 2
+    }
+  }
+}

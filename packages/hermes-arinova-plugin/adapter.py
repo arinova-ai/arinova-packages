@@ -9,6 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from collections import deque
+import hmac
+import http.client
+import inspect
 import ipaddress
 import json
 import logging
@@ -17,7 +21,9 @@ import os
 import secrets
 import shutil
 import socket
+import ssl
 import subprocess
+import tempfile
 import threading
 import time
 import urllib.error
@@ -34,9 +40,28 @@ from gateway.platforms.base import (
     MessageType,
     ProcessingOutcome,
     SendResult,
-    cache_media_bytes,
 )
 from gateway.session import build_session_key
+
+try:
+    from gateway.platforms.base import cache_media_bytes
+except ImportError:
+    class _CachedMedia:
+        def __init__(self, path: str, media_type: str, filename: str):
+            self.path = path
+            self.media_type = media_type
+            self._filename = filename
+
+        def context_note(self) -> str:
+            return f"Downloaded attachment: {self._filename} ({self.media_type})"
+
+    def cache_media_bytes(data: bytes, *, filename: str, mime_type: str):
+        safe_name = Path(filename).name or "attachment"
+        suffix = Path(safe_name).suffix[:16]
+        descriptor, path = tempfile.mkstemp(prefix="hermes-arinova-", suffix=suffix)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+        return _CachedMedia(path, mime_type, safe_name)
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +74,9 @@ DEFAULT_ATTACHMENT_TOTAL_MAX_BYTES = 64 * 1024 * 1024
 DEFAULT_ATTACHMENT_TOTAL_TIMEOUT_MS = 30_000
 DEFAULT_CONNECT_TIMEOUT_MS = 30_000
 DEFAULT_SIDECAR_POST_TIMEOUT_MS = 10_000
-DEFAULT_CONTROL_MAX_BODY_BYTES = 128 * 1024 * 1024
+DEFAULT_CONTROL_MAX_BODY_BYTES = 1024 * 1024
 SIDECAR_DIR = Path(__file__).parent / "sidecar"
-DEFAULT_SDK_ROOT = Path.home() / ".arinova-bridge/workspace/projects/arinova-packages/packages/agent-sdk"
+DEFAULT_SDK_ROOT = Path(__file__).resolve().parent.parent / "agent-sdk"
 SDK_DIST_FILES = (
     "dist/client.d.ts",
     "dist/client.d.ts.map",
@@ -170,13 +195,14 @@ TASK_REPLY_FIELDS = {"id", "role", "content", "senderAgentId", "senderAgentName"
 TASK_HISTORY_FIELDS = {"role", "content", "senderAgentName", "senderUsername", "createdAt"}
 TASK_ATTACHMENT_FIELDS = {"id", "fileName", "fileType", "fileSize", "url"}
 TASK_SKILL_FIELDS = {"slug", "name", "slashCommand", "description"}
-NONNEGATIVE_INT_SETTINGS = (
+POSITIVE_INT_SETTINGS = (
     ("ARINOVA_SIDECAR_PORT", "sidecar_port"),
     ("ARINOVA_ADAPTER_PORT", "adapter_port"),
     ("ARINOVA_RECONNECT_INTERVAL_MS", "reconnect_interval_ms"),
     ("ARINOVA_PING_INTERVAL_MS", "ping_interval_ms"),
     ("ARINOVA_PING_TIMEOUT_MS", "ping_timeout_ms"),
     ("ARINOVA_MAX_CONSECUTIVE_PER_CONVERSATION", "max_consecutive_per_conversation"),
+    ("ARINOVA_MAX_QUEUED_TASKS", "max_queued_tasks"),
     ("ARINOVA_CONNECT_TIMEOUT_MS", "connect_timeout_ms"),
     ("ARINOVA_ADAPTER_POST_TIMEOUT_MS", "adapter_post_timeout_ms"),
     ("ARINOVA_SIDECAR_POST_TIMEOUT_MS", "sidecar_post_timeout_ms"),
@@ -188,7 +214,7 @@ NONNEGATIVE_INT_SETTINGS = (
 )
 
 
-def _validate_public_http_url(url: str) -> None:
+def _resolve_public_http_url(url: str) -> tuple[urllib.parse.SplitResult, str, int]:
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError("attachment URL must be an absolute http(s) URL")
@@ -211,6 +237,7 @@ def _validate_public_http_url(url: str) -> None:
     if not addresses:
         raise ValueError("attachment URL host could not be resolved")
 
+    pinned_ip = ""
     for address in addresses:
         raw_ip = address[4][0]
         try:
@@ -219,12 +246,80 @@ def _validate_public_http_url(url: str) -> None:
             raise ValueError("attachment URL resolved to an invalid address") from exc
         if not ip.is_global:
             raise ValueError("attachment URL resolves to a non-public address")
+        if not pinned_ip:
+            pinned_ip = raw_ip
+    return parsed, pinned_ip, port
+
+
+def _validate_public_http_url(url: str) -> None:
+    _resolve_public_http_url(url)
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, host: str, *, pinned_ip: str, **kwargs: Any):
+        self._pinned_ip = pinned_ip
+        super().__init__(host, **kwargs)
+
+    def connect(self) -> None:
+        self.sock = self._create_connection(
+            (self._pinned_ip, self.port),
+            self.timeout,
+            self.source_address,
+        )
+        if self._tunnel_host:
+            self._tunnel()
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, host: str, *, pinned_ip: str, **kwargs: Any):
+        self._pinned_ip = pinned_ip
+        super().__init__(host, **kwargs)
+
+    def connect(self) -> None:
+        self.sock = self._create_connection(
+            (self._pinned_ip, self.port),
+            self.timeout,
+            self.source_address,
+        )
+        if self._tunnel_host:
+            self._tunnel()
+        self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    handler_order = 100
+
+    def http_open(self, req):
+        _, pinned_ip, _ = _resolve_public_http_url(req.full_url)
+        return self.do_open(
+            lambda host, **kwargs: _PinnedHTTPConnection(host, pinned_ip=pinned_ip, **kwargs),
+            req,
+        )
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    handler_order = 100
+
+    def https_open(self, req):
+        _, pinned_ip, _ = _resolve_public_http_url(req.full_url)
+        return self.do_open(
+            lambda host, **kwargs: _PinnedHTTPSConnection(host, pinned_ip=pinned_ip, **kwargs),
+            req,
+            context=self._context,
+            check_hostname=self._check_hostname,
+        )
 
 
 class _AttachmentRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         target = urllib.parse.urljoin(req.full_url, newurl)
-        _validate_public_http_url(target)
+        hostname = urllib.parse.urlsplit(target).hostname
+        try:
+            literal_ip = ipaddress.ip_address(hostname or "")
+        except ValueError:
+            literal_ip = None
+        if literal_ip is not None and not literal_ip.is_global:
+            raise ValueError("attachment URL resolves to a non-public address")
         return super().redirect_request(req, fp, code, msg, headers, target)
 
 
@@ -295,13 +390,18 @@ def _parse_nonnegative_int(value: Any) -> int | None:
     return parsed if parsed >= 0 else None
 
 
+def _parse_positive_int(value: Any) -> int | None:
+    parsed = _parse_nonnegative_int(value)
+    return parsed if parsed is not None and parsed > 0 else None
+
+
 def _int_env(name: str, default: int) -> int:
-    value = _parse_nonnegative_int(os.getenv(name, ""))
+    value = _parse_positive_int(os.getenv(name, ""))
     return default if value is None else value
 
 
 def _int_setting(name: str, extra_value: Any, default: int) -> int:
-    extra_default = _parse_nonnegative_int(extra_value)
+    extra_default = _parse_positive_int(extra_value)
     if extra_default is None:
         extra_default = default
     return _int_env(name, extra_default)
@@ -309,22 +409,22 @@ def _int_setting(name: str, extra_value: Any, default: int) -> int:
 
 def _optional_int_setting(name: str, extra_value: Any) -> int | None:
     raw = os.getenv(name) if name in os.environ else extra_value
-    return _parse_nonnegative_int(raw)
+    return _parse_positive_int(raw)
 
 
-def _valid_nonnegative_int_value(value: Any) -> bool:
+def _valid_positive_int_value(value: Any) -> bool:
     if value in (None, "") or isinstance(value, bool):
         return value in (None, "")
-    return _parse_nonnegative_int(value) is not None
+    return _parse_positive_int(value) is not None
 
 
-def _valid_nonnegative_int_settings(extra: dict[str, Any]) -> bool:
-    for env_name, extra_key in NONNEGATIVE_INT_SETTINGS:
+def _valid_positive_int_settings(extra: dict[str, Any]) -> bool:
+    for env_name, extra_key in POSITIVE_INT_SETTINGS:
         if env_name in os.environ:
-            if not _valid_nonnegative_int_value(os.getenv(env_name)):
+            if not _valid_positive_int_value(os.getenv(env_name)):
                 return False
             continue
-        if extra_key in extra and not _valid_nonnegative_int_value(extra.get(extra_key)):
+        if extra_key in extra and not _valid_positive_int_value(extra.get(extra_key)):
             return False
     return True
 
@@ -530,7 +630,7 @@ def _validate_adapter_callback_payload(path: str, payload: dict[str, Any]) -> No
     allowed = ADAPTER_CALLBACK_FIELDS.get(path)
     required = ADAPTER_CALLBACK_REQUIRED_FIELDS.get(path)
     if allowed is None and required is None:
-        return
+        raise ValueError(f"unsupported callback path: {path}")
     unknown = sorted(set(payload) - (allowed or set()))
     if unknown:
         raise ValueError(f"callback request body has unsupported field(s): {', '.join(unknown)}")
@@ -626,7 +726,7 @@ def _sdk_mime_type(file_name: str) -> str:
     return SDK_UPLOAD_MIME_TYPES.get(ext, "application/octet-stream")
 
 
-def _urlopen_json(req: urllib.request.Request, *, timeout: int, label: str) -> dict:
+def _urlopen_json(req: urllib.request.Request, *, timeout: float, label: str) -> dict:
     try:
         with urllib.request.urlopen(req, timeout=timeout) as res:
             if not _is_json_content_type(res.headers.get("Content-Type")):
@@ -977,7 +1077,7 @@ def validate_config(cfg: PlatformConfig) -> bool:
         and bot_token
         and concurrency_mode in CONCURRENCY_MODES
         and _valid_agent_skills_setting(extra)
-        and _valid_nonnegative_int_settings(extra)
+        and _valid_positive_int_settings(extra)
     )
 
 
@@ -1036,6 +1136,10 @@ class ArinovaAdapter(BasePlatformAdapter):
         self.max_consecutive_per_conversation = _optional_int_setting(
             "ARINOVA_MAX_CONSECUTIVE_PER_CONVERSATION",
             extra.get("max_consecutive_per_conversation"),
+        )
+        self.max_queued_tasks = _optional_int_setting(
+            "ARINOVA_MAX_QUEUED_TASKS",
+            extra.get("max_queued_tasks"),
         )
         self.adapter_post_timeout_ms = _optional_int_setting(
             "ARINOVA_ADAPTER_POST_TIMEOUT_MS",
@@ -1099,7 +1203,8 @@ class ArinovaAdapter(BasePlatformAdapter):
         self._httpd: ThreadingHTTPServer | None = None
         self._http_thread: threading.Thread | None = None
         self._sidecar_proc: subprocess.Popen | None = None
-        self._sidecar_log_tail: list[str] = []
+        self._sidecar_log_tail: deque[str] = deque(maxlen=20)
+        self._sidecar_log_thread: threading.Thread | None = None
 
         self._task_by_conversation: dict[str, str] = {}
         self._conversation_by_task: dict[str, str] = {}
@@ -1155,6 +1260,7 @@ class ArinovaAdapter(BasePlatformAdapter):
     async def disconnect(self) -> None:
         global _active_adapter
         self._mark_disconnected()
+        self._loop = None
         self._clear_active_task_state()
         if _active_adapter is self:
             _active_adapter = None
@@ -1519,9 +1625,10 @@ class ArinovaAdapter(BasePlatformAdapter):
                     "/complete",
                     complete_payload,
                 )
-            self._forget_task(task_id)
         except Exception as exc:
             logger.warning("Arinova: failed to finish task %s: %s", task_id, exc)
+        finally:
+            self._forget_task(task_id)
 
     def _start_inbound_server(self) -> None:
         if self._httpd:
@@ -1540,7 +1647,8 @@ class ArinovaAdapter(BasePlatformAdapter):
                 self._send_json(200, {"ok": True})
 
             def do_POST(self) -> None:
-                if self.headers.get("X-Arinova-Bridge-Token") != adapter._shared_token:
+                supplied_token = self.headers.get("X-Arinova-Bridge-Token") or ""
+                if not hmac.compare_digest(supplied_token, adapter._shared_token):
                     self.send_error(401)
                     return
                 if not _is_json_content_type(self.headers.get("Content-Type")):
@@ -1588,23 +1696,23 @@ class ArinovaAdapter(BasePlatformAdapter):
                     self._send_json(202, {"ok": True})
                     return
                 if self.path == "/token-claimed":
-                    adapter._handle_token_claimed(payload)
+                    adapter._schedule_callback(adapter._handle_token_claimed, payload)
                     self._send_json(202, {"ok": True})
                     return
                 if self.path == "/onboarding-seed":
-                    adapter._handle_onboarding_seed(payload)
+                    adapter._schedule_callback(adapter._handle_onboarding_seed, payload)
                     self._send_json(202, {"ok": True})
                     return
                 if self.path == "/connection-status":
-                    adapter._handle_connection_status(payload)
+                    adapter._schedule_callback(adapter._handle_connection_status, payload)
                     self._send_json(202, {"ok": True})
                     return
                 if self.path == "/auth-failed":
-                    adapter._handle_auth_failed(payload)
+                    adapter._schedule_callback(adapter._handle_auth_failed, payload)
                     self._send_json(202, {"ok": True})
                     return
                 if self.path == "/sdk-error":
-                    adapter._handle_sdk_error(payload)
+                    adapter._schedule_callback(adapter._handle_sdk_error, payload)
                     self._send_json(202, {"ok": True})
                     return
                 self.send_error(404)
@@ -1628,6 +1736,13 @@ class ArinovaAdapter(BasePlatformAdapter):
     def _start_sidecar(self) -> None:
         if self._sidecar_proc and self._sidecar_proc.poll() is None:
             return
+        if self._sidecar_proc:
+            if self._sidecar_proc.stdout:
+                self._sidecar_proc.stdout.close()
+            if self._sidecar_log_thread and self._sidecar_log_thread.is_alive():
+                self._sidecar_log_thread.join(timeout=1)
+            self._sidecar_proc = None
+            self._sidecar_log_thread = None
         if not shutil.which(self.node_bin):
             raise RuntimeError(f"Node executable not found for Arinova sidecar: {self.node_bin}")
         if not _node_version_supported(self.node_bin):
@@ -1647,11 +1762,12 @@ class ArinovaAdapter(BasePlatformAdapter):
             stderr=subprocess.STDOUT,
             text=True,
         )
-        threading.Thread(
+        self._sidecar_log_thread = threading.Thread(
             target=self._drain_sidecar_logs,
             name="arinova-sidecar-logs",
             daemon=True,
-        ).start()
+        )
+        self._sidecar_log_thread.start()
 
     def _sidecar_env(self) -> dict[str, str]:
         env = os.environ.copy()
@@ -1672,6 +1788,7 @@ class ArinovaAdapter(BasePlatformAdapter):
             "ARINOVA_PING_INTERVAL_MS": self.ping_interval_ms,
             "ARINOVA_PING_TIMEOUT_MS": self.ping_timeout_ms,
             "ARINOVA_MAX_CONSECUTIVE_PER_CONVERSATION": self.max_consecutive_per_conversation,
+            "ARINOVA_MAX_QUEUED_TASKS": self.max_queued_tasks,
             "ARINOVA_ADAPTER_POST_TIMEOUT_MS": self.adapter_post_timeout_ms,
             "ARINOVA_CONTROL_MAX_BODY_BYTES": self.control_max_body_bytes,
             "ARINOVA_AGENT_SDK_ROOT": self.agent_sdk_root,
@@ -1686,14 +1803,13 @@ class ArinovaAdapter(BasePlatformAdapter):
         for line in proc.stdout:
             message = line.rstrip()
             self._sidecar_log_tail.append(message)
-            del self._sidecar_log_tail[:-20]
             logger.info("[arinova-sidecar] %s", message)
 
     def _sidecar_exit_error(self) -> RuntimeError:
         code = self._sidecar_proc.returncode if self._sidecar_proc else None
         detail = f"sidecar exited before SDK authentication (exit {code})"
         if self._sidecar_log_tail:
-            detail = f"{detail}; recent sidecar output: " + " | ".join(self._sidecar_log_tail[-5:])
+            detail = f"{detail}; recent sidecar output: " + " | ".join(list(self._sidecar_log_tail)[-5:])
         return RuntimeError(detail)
 
     async def _wait_for_sidecar(self) -> None:
@@ -1733,48 +1849,24 @@ class ArinovaAdapter(BasePlatformAdapter):
                 "X-Arinova-Bridge-Token": self._shared_token,
             },
         )
-        try:
-            with urllib.request.urlopen(req, timeout=max(self.sidecar_post_timeout_ms, 1) / 1000) as res:
-                if not _is_json_content_type(res.headers.get("Content-Type")):
-                    content_type = res.headers.get("Content-Type") or "<missing>"
-                    raise RuntimeError(f"{path} returned non-JSON response content type: {content_type}")
-                body = res.read()
-                try:
-                    raw = body.decode("utf-8")
-                except UnicodeDecodeError as exc:
-                    raise RuntimeError(f"{path} returned non-UTF-8 response body") from exc
-                try:
-                    parsed = json.loads(
-                        raw,
-                        parse_constant=_reject_json_constant,
-                        object_pairs_hook=_reject_duplicate_json_keys,
-                    )
-                except (json.JSONDecodeError, ValueError) as exc:
-                    raise RuntimeError(f"{path} returned malformed JSON: {raw!r}") from exc
-                if not isinstance(parsed, dict):
-                    raise RuntimeError(f"{path} returned malformed response: {parsed!r}")
-                return parsed
-        except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"{path} failed ({exc.code}): {body}") from exc
-        except urllib.error.URLError as exc:
-            reason = getattr(exc, "reason", exc)
-            raise RuntimeError(f"{path} failed: {reason}") from exc
-        except TimeoutError as exc:
-            raise RuntimeError(f"{path} timed out") from exc
+        return _urlopen_json(
+            req,
+            timeout=max(self.sidecar_post_timeout_ms, 1) / 1000,
+            label=path,
+        )
 
     def _schedule_task(self, task: dict) -> None:
-        if not self._loop:
+        if not self._loop or self._loop.is_closed() or not self._loop.is_running():
             return
         self._loop.call_soon_threadsafe(lambda: asyncio.create_task(self._handle_arinova_task(task)))
 
     def _schedule_cancel(self, payload: dict) -> None:
-        if not self._loop:
+        if not self._loop or self._loop.is_closed() or not self._loop.is_running():
             return
         self._loop.call_soon_threadsafe(lambda: asyncio.create_task(self._handle_arinova_cancel(payload)))
 
     def _schedule_cancel_sessions(self, session_keys: list[str]) -> None:
-        if not self._loop:
+        if not self._loop or self._loop.is_closed() or not self._loop.is_running():
             return
         for session_key in dict.fromkeys(item for item in session_keys if item):
             self._loop.call_soon_threadsafe(
@@ -1782,6 +1874,22 @@ class ArinovaAdapter(BasePlatformAdapter):
                     self.cancel_session_processing(key, release_guard=True, discard_pending=True)
                 )
             )
+
+    def _schedule_callback(self, callback, payload: dict) -> None:
+        loop = self._loop
+        if not loop or loop.is_closed() or not loop.is_running():
+            return
+        completed = threading.Event()
+
+        def run_callback() -> None:
+            try:
+                callback(payload)
+            finally:
+                completed.set()
+
+        loop.call_soon_threadsafe(run_callback)
+        if not completed.wait(timeout=1):
+            logger.warning("Arinova: callback dispatch timed out for %s", getattr(callback, "__name__", callback))
 
     def _handle_token_claimed(self, payload: dict) -> None:
         raw_agent_id = payload.get("agentId")
@@ -1886,7 +1994,7 @@ class ArinovaAdapter(BasePlatformAdapter):
 
         # Standalone/test fallback has no pairing store. Preserve explicit
         # allow-all/allowlist behavior, but never infer authorization.
-        if source.role_authorized is True:
+        if getattr(source, "role_authorized", False) is True:
             return True
         if _truthy(os.getenv("ARINOVA_ALLOW_ALL_USERS")) or _truthy(
             os.getenv("GATEWAY_ALLOW_ALL_USERS")
@@ -1914,7 +2022,8 @@ class ArinovaAdapter(BasePlatformAdapter):
         conversation_id = str(task.get("conversationId") or task_id)
         conversation_name = self._task_conversation_name(task)
 
-        source = self.build_source(
+        role_authorized = bool(task.get("senderAgentId")) and self._allow_agent_sender()
+        source_args = dict(
             chat_id=conversation_id,
             chat_name=conversation_name,
             chat_type=self._chat_type(task.get("conversationType")),
@@ -1927,8 +2036,12 @@ class ArinovaAdapter(BasePlatformAdapter):
             message_id=task.get("userMessageId") or task_id,
             thread_id=self._task_thread_id(task, task_id),
             is_bot=bool(task.get("senderAgentId")),
-            role_authorized=bool(task.get("senderAgentId")) and self._allow_agent_sender(),
         )
+        if "role_authorized" in inspect.signature(self.build_source).parameters:
+            source_args["role_authorized"] = role_authorized
+        source = self.build_source(**source_args)
+        if not hasattr(source, "role_authorized"):
+            setattr(source, "role_authorized", role_authorized)
         attachment_fetch_authorized = self._source_authorized_for_attachment_fetch(source)
         media_urls, media_types, media_notes = await self._collect_attachment_media(
             task,
@@ -1948,7 +2061,7 @@ class ArinovaAdapter(BasePlatformAdapter):
         )
         reply_to_message_id = _first_str(reply_to, ("id", "messageId", "message_id", "replyToId", "reply_to_id"))
         reply_to_author_id = _first_str(reply_to, ("senderAgentId", "senderUserId", "agentId", "userId"))
-        event = MessageEvent(
+        event_args = dict(
             text=content,
             message_type=self._message_type_for_media(media_types),
             source=source,
@@ -1962,11 +2075,16 @@ class ArinovaAdapter(BasePlatformAdapter):
             reply_to_author_name=str(reply_to_author_name) if reply_to_author_name else None,
             reply_to_is_own_message=bool(reply_to.get("senderAgentId") and reply_to.get("senderAgentId") == self._claimed_agent_id),
         )
+        supported_event_args = inspect.signature(MessageEvent).parameters
+        event = MessageEvent(**{key: value for key, value in event_args.items() if key in supported_event_args})
+        for key, value in event_args.items():
+            if key not in supported_event_args and not hasattr(event, key):
+                setattr(event, key, value)
 
         session_key = build_session_key(
             source,
-            group_sessions_per_user=self.config.extra.get("group_sessions_per_user", True),
-            thread_sessions_per_user=self.config.extra.get("thread_sessions_per_user", False),
+            group_sessions_per_user=(self.config.extra or {}).get("group_sessions_per_user", True),
+            thread_sessions_per_user=(self.config.extra or {}).get("thread_sessions_per_user", False),
         )
         previous_conversation_id = self._conversation_by_task.get(task_id)
         if (
@@ -2099,7 +2217,12 @@ class ArinovaAdapter(BasePlatformAdapter):
         return cached.path, cached.media_type, cached.context_note(), len(data)
 
     def _attachment_urlopen(self, req: urllib.request.Request, *, timeout: float):
-        opener = urllib.request.build_opener(_AttachmentRedirectHandler())
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            _PinnedHTTPHandler(),
+            _PinnedHTTPSHandler(context=ssl.create_default_context()),
+            _AttachmentRedirectHandler(),
+        )
         return opener.open(req, timeout=timeout)
 
     def _download_attachment_bytes(
@@ -2109,7 +2232,6 @@ class ArinovaAdapter(BasePlatformAdapter):
         max_bytes: int | None = None,
         timeout_seconds: float = 30.0,
     ) -> tuple[bytes, str]:
-        _validate_public_http_url(url)
         byte_limit = self.attachment_max_bytes if max_bytes is None else max_bytes
         if byte_limit <= 0 or timeout_seconds <= 0:
             raise ValueError("attachment download budget exhausted")
@@ -2144,10 +2266,8 @@ class ArinovaAdapter(BasePlatformAdapter):
             raise RuntimeError("attachment download timed out") from exc
         return b"".join(chunks), content_type
 
-    def _task_text(self, task: dict, *, media_notes: list[str] | None = None) -> str:
-        content = str(task.get("content") or "")
-        sections: list[str] = [content] if content else []
-
+    @staticmethod
+    def _reply_section(task: dict) -> str:
         reply_to = task.get("replyTo")
         if isinstance(reply_to, dict):
             reply_content = str(reply_to.get("content") or "").strip()
@@ -2157,8 +2277,11 @@ class ArinovaAdapter(BasePlatformAdapter):
                 reply_lines = [prefix, reply_content]
                 if reply_to.get("role") and reply_to.get("role") != reply_sender:
                     reply_lines.append(f"role={reply_to.get('role')}")
-                sections.append("\n".join(reply_lines))
+                return "\n".join(reply_lines)
+        return ""
 
+    @staticmethod
+    def _history_section(task: dict) -> str:
         history = task.get("history")
         if isinstance(history, list) and history:
             lines = []
@@ -2184,8 +2307,11 @@ class ArinovaAdapter(BasePlatformAdapter):
                 suffix = f" ({', '.join(details)})" if details else ""
                 lines.append(f"- {label}{suffix}: {text}")
             if lines:
-                sections.append("Recent Arinova history:\n" + "\n".join(lines))
+                return "Recent Arinova history:\n" + "\n".join(lines)
+        return ""
 
+    @staticmethod
+    def _members_section(task: dict) -> str:
         members = task.get("members")
         if isinstance(members, list) and members:
             lines = []
@@ -2200,8 +2326,11 @@ class ArinovaAdapter(BasePlatformAdapter):
                         detail += f" ({agent_id})"
                     lines.append(f"- {detail}")
             if lines:
-                sections.append("Arinova conversation agents:\n" + "\n".join(lines))
+                return "Arinova conversation agents:\n" + "\n".join(lines)
+        return ""
 
+    @staticmethod
+    def _attachments_section(task: dict) -> str:
         attachments = task.get("attachments")
         if isinstance(attachments, list) and attachments:
             lines = []
@@ -2228,10 +2357,11 @@ class ArinovaAdapter(BasePlatformAdapter):
                     detail += f": {url}"
                 lines.append(detail)
             if lines:
-                sections.append("Attachments:\n" + "\n".join(lines))
-        if media_notes:
-            sections.append("Downloaded attachments:\n" + "\n".join(media_notes))
+                return "Attachments:\n" + "\n".join(lines)
+        return ""
 
+    @staticmethod
+    def _skills_section(task: dict) -> str:
         skills = task.get("availableSkills")
         if isinstance(skills, list) and skills:
             lines = []
@@ -2251,14 +2381,14 @@ class ArinovaAdapter(BasePlatformAdapter):
                     parts.append(str(desc))
                 lines.append("- " + " | ".join(parts))
             if lines:
-                sections.append(
+                return (
                     "Available Arinova skills (use arinova_fetch_skill_prompt with slug for full prompt):\n"
                     + "\n".join(lines)
                 )
+        return ""
 
-        if task.get("taskKind"):
-            sections.append(f"Arinova task kind: {task.get('taskKind')}")
-
+    @staticmethod
+    def _metadata_section(task: dict) -> str:
         metadata_lines = []
         for label, key in (
             ("taskId", "taskId"),
@@ -2277,9 +2407,24 @@ class ArinovaAdapter(BasePlatformAdapter):
             if isinstance(value, str) or value:
                 metadata_lines.append(f"- {label}: {value}")
         if metadata_lines:
-            sections.append("Arinova task metadata:\n" + "\n".join(metadata_lines))
+            return "Arinova task metadata:\n" + "\n".join(metadata_lines)
+        return ""
 
-        return "\n\n".join(sections).strip()
+    def _task_text(self, task: dict, *, media_notes: list[str] | None = None) -> str:
+        content = str(task.get("content") or "")
+        sections = [
+            content,
+            self._reply_section(task),
+            self._history_section(task),
+            self._members_section(task),
+            self._attachments_section(task),
+            "Downloaded attachments:\n" + "\n".join(media_notes) if media_notes else "",
+            self._skills_section(task),
+            f"Arinova task kind: {task.get('taskKind')}" if task.get("taskKind") else "",
+            self._metadata_section(task),
+        ]
+
+        return "\n\n".join(section for section in sections if section).strip()
 
     async def _handle_arinova_cancel(self, payload: dict) -> None:
         task_id = self._task_id_value(payload.get("taskId"))

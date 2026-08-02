@@ -2894,6 +2894,7 @@ console.log(JSON.stringify(values));
         check=True,
         capture_output=True,
         text=True,
+        timeout=300,
     )
     parsed = json.loads(process.stdout)
     if not isinstance(parsed, dict):
@@ -3112,5 +3113,4 @@ def tool_param_name(ts_name: str) -> str:
     if ts_name == "args":
         return "action_args"
     return snake(ts_name)
-
 

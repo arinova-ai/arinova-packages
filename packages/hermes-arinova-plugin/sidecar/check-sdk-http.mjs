@@ -528,45 +528,45 @@ try {
     messages: [],
     hasMore: false
   });
-  assert.deepEqual(await sdk("listNotes", ["conv-1", { before: "note-9", limit: 1, offset: 2, tags: ["work", "ai"], archived: true }]), {
+  assert.deepEqual(await sdk("listNotes", [{ before: "note-9", limit: 1, offset: 2, tags: ["work", "ai"], archived: true }]), {
     notes: [note()],
     hasMore: true,
     nextCursor: "note-cursor-1"
   });
   assert.match(
-    await sdkError("listNotes", ["conv-1", { before: "bad-note-cursor" }]),
+    await sdkError("listNotes", [{ before: "bad-note-cursor" }]),
     /listNotes failed \(410\): notes expired/
   );
-  assert.deepEqual(await sdk("listNotes", ["conv-1", { before: "", limit: 0, offset: 0, tags: [], archived: false }]), {
+  assert.deepEqual(await sdk("listNotes", [{ before: "", limit: 0, offset: 0, tags: [], archived: false }]), {
     notes: [note()],
     hasMore: true,
     nextCursor: "note-cursor-1"
   });
-  assert.deepEqual(await sdk("listNotes", ["conv-1"]), {
+  assert.deepEqual(await sdk("listNotes", []), {
     notes: [note()],
     hasMore: true,
     nextCursor: "note-cursor-1"
   });
-  assert.deepEqual(await sdk("createNote", ["conv-1", { title: "Note", content: "Body", tags: ["work"], notebookId: "book-1" }]), note());
-  assert.deepEqual(await sdk("createNote", ["conv-1", { title: "Title only" }]), note());
+  assert.deepEqual(await sdk("createNote", [{ title: "Note", content: "Body", tags: ["work"], notebookId: "book-1" }]), note());
+  assert.deepEqual(await sdk("createNote", [{ title: "Title only" }]), note());
   assert.match(
-    await sdkError("createNote", ["conv-1", { title: "Duplicate Json Note" }]),
+    await sdkError("createNote", [{ title: "Duplicate Json Note" }]),
     /createNote returned malformed JSON: JSON object contains duplicate key: id/
   );
   assert.match(
-    await sdkError("createNote", ["conv-1", { title: "Bad Note" }]),
+    await sdkError("createNote", [{ title: "Bad Note" }]),
     /createNote failed \(422\): note invalid/
   );
-  assert.deepEqual(await sdk("updateNote", ["conv-1", "note-1", { title: "Updated", content: "Body 2", tags: ["ai"] }]), note("Updated"));
-  assert.deepEqual(await sdk("updateNote", ["conv-1", "note-1", { tags: ["solo"] }]), note("Updated"));
-  assert.deepEqual(await sdk("updateNote", ["conv-1", "note/slash", { title: "Encoded" }]), note("Encoded"));
+  assert.deepEqual(await sdk("updateNote", ["note-1", { title: "Updated", content: "Body 2", tags: ["ai"] }]), note("Updated"));
+  assert.deepEqual(await sdk("updateNote", ["note-1", { tags: ["solo"] }]), note("Updated"));
+  assert.deepEqual(await sdk("updateNote", ["note/slash", { title: "Encoded" }]), note("Encoded"));
   assert.match(
-    await sdkError("updateNote", ["conv-1", "note-locked", { title: "Blocked" }]),
+    await sdkError("updateNote", ["note-locked", { title: "Blocked" }]),
     /updateNote failed \(423\): note locked/
   );
-  assert.equal(await sdk("deleteNote", ["conv-1", "note-1"]), null);
+  assert.equal(await sdk("deleteNote", ["note-1"]), null);
   assert.match(
-    await sdkError("deleteNote", ["conv-1", "note-missing"]),
+    await sdkError("deleteNote", ["note-missing"]),
     /deleteNote failed \(404\): note missing/
   );
   assert.deepEqual(await sdk("listBoards", []), [{ id: "board-1", name: "Board", createdAt: "now" }]);
@@ -925,10 +925,10 @@ try {
   assertEmptyBody(requestFor("DELETE", "/api/v1/notes/note-1"));
   assert.deepEqual(Object.fromEntries(searchParams(requestFor("DELETE", "/api/v1/notes/note-missing"))), {});
   assertEmptyBody(requestFor("DELETE", "/api/v1/notes/note-missing"));
-  assertEmptyBody(requestFor("POST", "/api/v1/notes/note-1/share"));
-  assertEmptyBody(requestFor("POST", "/api/v1/notes/note%2Fslash/share"));
-  assertEmptyBody(requestFor("POST", "/api/v1/notes/note-share-missing/share"));
-  assertEmptyBody(requestFor("POST", "/api/v1/notes/note-duplicate-json/share"));
+  assert.deepEqual(jsonBody(requestFor("POST", "/api/v1/notes/note-1/share")), { conversationId: "conv-1" });
+  assert.deepEqual(jsonBody(requestFor("POST", "/api/v1/notes/note%2Fslash/share")), { conversationId: "conv-1" });
+  assert.deepEqual(jsonBody(requestFor("POST", "/api/v1/notes/note-share-missing/share")), { conversationId: "conv-1" });
+  assert.deepEqual(jsonBody(requestFor("POST", "/api/v1/notes/note-duplicate-json/share")), { conversationId: "conv-1" });
   assertEmptyBody(requestFor("GET", "/api/v1/kanban/boards"));
   assert.deepEqual(jsonBody(requestFor("POST", "/api/v1/kanban/cards")), {
     title: "Card",

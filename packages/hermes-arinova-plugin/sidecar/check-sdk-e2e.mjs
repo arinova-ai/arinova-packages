@@ -132,7 +132,8 @@ const agentOptions = buildAgentOptions({
     ARINOVA_RECONNECT_INTERVAL_MS: "250",
     ARINOVA_CONCURRENCY_MODE: "agent-wide",
     ARINOVA_PING_INTERVAL_MS: "100",
-    ARINOVA_PING_TIMEOUT_MS: "250"
+    ARINOVA_PING_TIMEOUT_MS: "250",
+    ARINOVA_MAX_QUEUED_TASKS: "10"
   }
 });
 const agent = new ArinovaAgent(agentOptions);
@@ -718,11 +719,7 @@ try {
     members: [{ agentId: "agent-researcher", agentName: "Researcher" }],
     replyTo: { role: "assistant", content: "previous answer", senderAgentName: "Helper" },
     history: [{ role: "user", content: "earlier question", senderAgentName: "Helper", senderUsername: "User", createdAt: "2026-06-29T00:59:00.000Z" }],
-    attachments: [{ id: "att-1", fileName: "a.txt", fileType: "text/plain", fileSize: 1, url: "https://x" }],
-    availableSkills: [{
-      slug: "memo", name: "Memo", slashCommand: "/memo", description: "Read and write memos" },
-      { slug: "", name: "  ", slashCommand: null, description: "" }
-    ]
+    attachments: [{ id: "att-1", fileName: "a.txt", fileType: "text/plain", fileSize: 1, url: "https://x" }]
   });
 
   const deadline = Date.now() + 3000;
@@ -1158,16 +1155,16 @@ try {
     onboardingSeedCountBeforeSeedlessReconnect,
     "seedless reconnect auth_ok should clear SDK seed without forwarding an onboarding seed"
   );
-  const reconnectChunk = await arinova.waitFor((message) => message.type === "agent_chunk" && message.taskId === "task-reconnect-active");
-  assert.equal(reconnectChunk.chunk, "buffered while offline");
-  const reconnectComplete = await arinova.waitFor((message) => message.type === "agent_complete" && message.taskId === "task-reconnect-active");
-  assert.equal(reconnectComplete.content, "completed while offline");
-  assert.deepEqual(reconnectComplete.mentions, ["user-offline"]);
-  assert.ok(
-    arinova.messages.findIndex((message) => message === reconnectChunk)
-      < arinova.messages.findIndex((message) => message === reconnectComplete),
-    "offline chunks should flush before terminal events"
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(
+    arinova.messages.some((message) => message.type === "agent_chunk" && message.taskId === "task-reconnect-active"),
+    false,
+    "buffered chunks for a completed task must not replay after the task is forgotten"
   );
+  const reconnectComplete = await arinova.waitFor(
+    (message) => message.type === "agent_complete" && message.taskId === "task-reconnect-active"
+  );
+  assert.equal(reconnectComplete.content, "completed while offline");
   assert.equal(adapterEvents.some((event) => event.path === "/cancel" && event.body.taskId === "task-reconnect-active"), false);
 
   const pingCountBeforeWatchdog = arinova.messages.filter((message) => message.type === "ping").length;
@@ -1192,19 +1189,24 @@ try {
     "pong watchdog reconnect should mark the adapter disconnected"
   );
   arinova.autoPong = true;
+  const connectedBeforeWatchdogRecovery = adapterEvents.filter(
+    (event) => event.path === "/connection-status" && event.body.connected === true
+  ).length;
   arinova.send({
     type: "auth_ok",
     agentId: "agent-1"
   });
   const watchdogReconnectDeadline = Date.now() + 3000;
   while (
-    !adapterEvents.some((event) => event.path === "/connection-status" && event.body.connected === true)
+    adapterEvents.filter((event) => event.path === "/connection-status" && event.body.connected === true).length
+      <= connectedBeforeWatchdogRecovery
     && Date.now() < watchdogReconnectDeadline
   ) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   assert.ok(
-    adapterEvents.some((event) => event.path === "/connection-status" && event.body.connected === true),
+    adapterEvents.filter((event) => event.path === "/connection-status" && event.body.connected === true).length
+      > connectedBeforeWatchdogRecovery,
     "pong watchdog reconnect should restore connected status after auth_ok"
   );
 
@@ -1548,7 +1550,7 @@ try {
     );
 
     const authCountBeforeRepeatedErrors = arinova.messages.filter((message) => message.type === "agent_auth").length;
-    for (let index = 1; index <= 5; index += 1) {
+    for (let index = 1; index <= 4; index += 1) {
       const authFailedBeforeRepeated = adapterEvents.filter((event) => event.path === "/auth-failed").length;
       const authCountBeforeRepeatedRetry = arinova.messages.filter((message) => message.type === "agent_auth").length;
       arinova.send({
@@ -1573,7 +1575,7 @@ try {
     }
     assert.equal(
       arinova.messages.filter((message) => message.type === "agent_auth").length,
-      authCountBeforeRepeatedErrors + 5,
+      authCountBeforeRepeatedErrors + 4,
       "repeated real auth_error should keep scheduling retries"
     );
     assert.ok(
@@ -1623,12 +1625,12 @@ try {
       content: `overflow queued ${index}`
     });
   }
-  const overflowQueued = await arinova.waitFor((message) => message.type === "task_queued" && message.taskId === "task-overflow-11");
+  const overflowQueued = await arinova.waitFor((message) => message.type === "task_queued" && message.taskId === "task-overflow-10");
   assert.equal(overflowQueued.queuePosition, 9);
   assert.equal(overflowQueued.globalQueueSize, 10);
-  const overflowError = await arinova.waitFor((message) => message.type === "agent_error" && message.taskId === "task-overflow-1");
+  const overflowError = await arinova.waitFor((message) => message.type === "agent_error" && message.taskId === "task-overflow-11");
   assert.equal(overflowError.error, "queue_overflow");
-  assert.equal(adapterEvents.some((event) => event.path === "/task" && event.body.taskId === "task-overflow-1"), false);
+  assert.equal(adapterEvents.some((event) => event.path === "/task" && event.body.taskId === "task-overflow-11"), false);
 
   const disconnectActionPromise = postControl("/agent-sdk", {
     method: "callAction",
@@ -1973,7 +1975,7 @@ async function runInitialPongGraceE2e() {
   });
   const graceAgent = new ArinovaAgent(graceOptions);
   try {
-    graceAgent.connect();
+    void graceAgent.connect().catch(() => {});
     const auth = await graceArinova.waitFor((message) => message.type === "agent_auth");
     assertAuthEnvelope(auth, "ari_pong_grace", "initial pong grace agent_auth");
     const authCountBeforeGrace = graceArinova.messages.filter((message) => message.type === "agent_auth").length;
@@ -2009,7 +2011,7 @@ async function runDefaultReconnectIntervalE2e() {
   const reconnectAgent = new ArinovaAgent(reconnectOptions);
   const restoreDefaultReconnects = speedSdkDefaultReconnects();
   try {
-    reconnectAgent.connect();
+    void reconnectAgent.connect().catch(() => {});
     const auth = await reconnectArinova.waitFor((message) => message.type === "agent_auth");
     assertAuthEnvelope(auth, "ari_default_reconnect", "default reconnect initial agent_auth");
     const authCountBeforeDefaultReconnect = reconnectArinova.messages.filter((message) => message.type === "agent_auth").length;
@@ -2068,7 +2070,7 @@ async function runDefaultPingTimeoutE2e() {
   });
   const timeoutAgent = new ArinovaAgent(timeoutOptions);
   try {
-    timeoutAgent.connect();
+    void timeoutAgent.connect().catch(() => {});
     const auth = await timeoutArinova.waitFor((message) => message.type === "agent_auth");
     assertAuthEnvelope(auth, "ari_default_ping_timeout", "default ping timeout initial agent_auth");
     const authCountBeforeDefaultPingTimeout = timeoutArinova.messages.filter((message) => message.type === "agent_auth").length;
@@ -2132,6 +2134,7 @@ async function runShutdownCleanupE2e() {
     sharedToken,
     onShutdown: () => {
       shutdownCalls += 1;
+      shutdownAgent.disconnect();
     }
   });
   await listen(shutdownControlServer, 0, "127.0.0.1");

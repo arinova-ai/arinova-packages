@@ -25,6 +25,7 @@ AGENT_METHODS: tuple[str, ...] = (
     "reportToolCall",
     "callAction",
     "uploadFile",
+    "fetchHistory",
     "listNotes",
     "createNote",
     "updateNote",
@@ -132,6 +133,7 @@ METHOD_DESCRIPTIONS: dict[str, str] = {
 
 STRING_ARRAY_SCHEMA = {"type": "array", "items": {"type": "string"}}
 UPLOAD_FILE_SCHEMA = {
+    "x-arinova-file": True,
     "type": "object",
     "description": "File bytes as {'base64':'...'} or an explicitly enabled workspace-relative local path.",
     "oneOf": [
@@ -403,20 +405,21 @@ ARG_SPECS: dict[str, tuple[tuple[str, dict[str, Any]], ...]] = {
         ("file_name", {"type": "string", "description": "Original file name."}),
         ("file_type", {"type": "string", "description": "Optional MIME type."}),
     ),
+    "fetchHistory": (
+        ("conversation_id", {"type": "string"}),
+        ("options", {**FETCH_HISTORY_OPTIONS_SCHEMA, "description": "Optional history pagination options."}),
+    ),
     "listNotes": (
-        ("conversation_id", {"type": "string", "description": "Arinova conversation id."}),
         ("options", {**LIST_NOTES_OPTIONS_SCHEMA, "description": "Optional notes pagination/filter options."}),
     ),
     "createNote": (
-        ("conversation_id", {"type": "string"}),
         ("body", {**CREATE_NOTE_BODY_SCHEMA, "description": "Note title/content/tags payload."}),
     ),
     "updateNote": (
-        ("conversation_id", {"type": "string"}),
         ("note_id", {"type": "string"}),
         ("body", {**UPDATE_NOTE_BODY_SCHEMA, "description": "Note fields to update."}),
     ),
-    "deleteNote": (("conversation_id", {"type": "string"}), ("note_id", {"type": "string"})),
+    "deleteNote": (("note_id", {"type": "string"}),),
     "createCard": (("body", {**CREATE_CARD_BODY_SCHEMA, "description": "Card creation payload."}),),
     "updateCard": (("card_id", {"type": "string"}), ("body", UPDATE_CARD_BODY_SCHEMA)),
     "createBoard": (("body", {**CREATE_BOARD_BODY_SCHEMA, "description": "Board creation payload."}),),
@@ -513,10 +516,11 @@ REQUIRED_ARG_COUNTS: dict[str, int] = {
     "reportToolCall": 1,
     "callAction": 2,
     "uploadFile": 3,
-    "listNotes": 1,
-    "createNote": 2,
-    "updateNote": 3,
-    "deleteNote": 2,
+    "fetchHistory": 1,
+    "listNotes": 0,
+    "createNote": 1,
+    "updateNote": 2,
+    "deleteNote": 1,
     "createCard": 1,
     "updateCard": 2,
     "createBoard": 1,
@@ -548,6 +552,29 @@ TASK_REQUIRED_ARG_COUNTS: dict[str, int] = {
     "uploadFile": 2,
     "callAction": 2,
 }
+
+
+def _load_sdk_contract() -> None:
+    global AGENT_METHODS, MODEL_AGENT_METHODS, TASK_METHODS
+    global ARG_SPECS, TASK_ARG_SPECS, REQUIRED_ARG_COUNTS, TASK_REQUIRED_ARG_COUNTS
+    contract = json.loads(Path(__file__).with_name("sdk-contract.json").read_text(encoding="utf-8"))
+
+    def scope(name: str):
+        definitions = contract[name]
+        methods = tuple(definitions)
+        specs = {
+            method: tuple((argument["name"], argument["schema"]) for argument in definition["args"])
+            for method, definition in definitions.items()
+        }
+        required = {method: definition["required"] for method, definition in definitions.items()}
+        return methods, specs, required
+
+    AGENT_METHODS, ARG_SPECS, REQUIRED_ARG_COUNTS = scope("agent")
+    TASK_METHODS, TASK_ARG_SPECS, TASK_REQUIRED_ARG_COUNTS = scope("task")
+    MODEL_AGENT_METHODS = tuple(method for method in AGENT_METHODS if method != "callAction")
+
+
+_load_sdk_contract()
 
 
 def _snake(name: str) -> str:
@@ -641,7 +668,7 @@ def _validate_named_value(name: str, schema: dict[str, Any], value: Any) -> Any:
     if not schema:
         _validate_json_compliant(name, value)
         return value
-    if schema is UPLOAD_FILE_SCHEMA:
+    if schema.get("x-arinova-file") is True:
         if not isinstance(value, dict):
             raise ValueError(f"{name} must be an object")
         return value
@@ -679,7 +706,7 @@ def _validate_named_value(name: str, schema: dict[str, Any], value: Any) -> Any:
     if schema_type == "object" and not isinstance(value, dict):
         raise ValueError(f"{name} must be an object")
     if schema_type == "object" and isinstance(value, dict):
-        if schema is UPLOAD_FILE_SCHEMA:
+        if schema.get("x-arinova-file") is True:
             return value
         properties = schema.get("properties")
         if isinstance(properties, dict):
@@ -778,7 +805,7 @@ def _adapter_available(adapter: Any) -> bool:
     if callable(is_connected):
         if not bool(is_connected()):
             return False
-    if is_connected is not None:
+    elif is_connected is not None:
         if not bool(is_connected):
             return False
     return True
@@ -792,7 +819,7 @@ def check_arinova_available() -> bool:
 def _json_result(payload: Any) -> str:
     try:
         return json.dumps(payload, ensure_ascii=False, allow_nan=False)
-    except ValueError as exc:
+    except (TypeError, ValueError) as exc:
         fallback: dict[str, Any] = {
             "success": False,
             "error": f"Arinova tool result is not JSON-compliant: {exc}",
@@ -847,7 +874,7 @@ def _file_arg(value: Any) -> Any:
     max_bytes = _upload_max_bytes()
     if len(data) > max_bytes:
         raise ValueError(f"upload file exceeds {max_bytes} bytes")
-    return value
+    return data
 
 
 def _upload_max_bytes() -> int:
@@ -866,7 +893,11 @@ def _prepare_args(method: str, args: list[Any], *, task_scoped: bool) -> list[An
     if method == "uploadFile":
         file_index = 0 if task_scoped else 1
         if len(prepared) > file_index:
-            prepared[file_index] = _file_arg(prepared[file_index])
+            data = _file_arg(prepared[file_index])
+            if isinstance(data, bytes):
+                prepared[file_index] = {"base64": base64.b64encode(data).decode("ascii")}
+            else:
+                prepared[file_index] = data
     return prepared
 
 

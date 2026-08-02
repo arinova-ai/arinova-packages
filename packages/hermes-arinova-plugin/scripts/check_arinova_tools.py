@@ -49,10 +49,11 @@ async def main() -> int:
             ],
             "callAction": ["arinova.all", {}, {"dryRun": True}],
             "uploadFile": ["conv-all", {"base64": "SGk="}, "all.txt", "text/plain"],
-            "listNotes": ["conv-all", {"limit": 1}],
-            "createNote": ["conv-all", {"title": "Note"}],
-            "updateNote": ["conv-all", "note-all", {"title": "Note 2"}],
-            "deleteNote": ["conv-all", "note-all"],
+            "fetchHistory": ["conv-all", {"limit": 1}],
+            "listNotes": [{"limit": 1}],
+            "createNote": [{"title": "Note"}],
+            "updateNote": ["note-all", {"title": "Note 2"}],
+            "deleteNote": ["note-all"],
             "listBoards": [],
             "createCard": [{"title": "Card"}],
             "updateCard": ["card-all", {"title": "Card 2"}],
@@ -205,7 +206,7 @@ async def main() -> int:
                     "success": True,
                 }
             ],
-            "deleteNote": ["conv-void", "note-void"],
+            "deleteNote": ["note-void"],
             "archiveBoard": ["board-void"],
             "deleteColumn": ["col-void"],
             "reorderColumns": ["board-void", ["col-a", "col-b"]],
@@ -385,7 +386,9 @@ async def main() -> int:
                         }
                     )
                 )
-                assert path_upload_global["result"]["args"] == ["conv-path", "Hi", "path.txt"]
+                assert path_upload_global["result"]["args"] == [
+                    "conv-path", {"base64": "SGk="}, "path.txt"
+                ]
 
                 path_upload_task = assert_success(
                     await arinova_tools._handle_task_call(
@@ -398,7 +401,9 @@ async def main() -> int:
                         }
                     )
                 )
-                assert path_upload_task["result"]["args"] == ["Hi", "task-path.txt", "text/plain"]
+                assert path_upload_task["result"]["args"] == [
+                    {"base64": "SGk="}, "task-path.txt", "text/plain"
+                ]
 
                 for unsafe_path in (str(upload_path), "../upload.txt"):
                     unsafe_upload = json.loads(
@@ -1302,7 +1307,7 @@ async def main() -> int:
         }
         bad_nested_option_type = json.loads(
             await arinova_tools._agent_handler("listNotes")(
-                {"conversation_id": "conv-1", "options": {"tags": ["work", 3]}}
+                {"options": {"tags": ["work", 3]}}
             )
         )
         assert bad_nested_option_type == {
@@ -1312,7 +1317,7 @@ async def main() -> int:
         }
         bad_list_notes_tags_type = json.loads(
             await arinova_tools._agent_handler("listNotes")(
-                {"conversation_id": "conv-1", "options": {"tags": "work"}}
+                {"options": {"tags": "work"}}
             )
         )
         assert bad_list_notes_tags_type == {
@@ -1322,7 +1327,7 @@ async def main() -> int:
         }
         bad_list_notes_limit_type = json.loads(
             await arinova_tools._agent_handler("listNotes")(
-                {"conversation_id": "conv-1", "options": {"limit": "10"}}
+                {"options": {"limit": "10"}}
             )
         )
         assert bad_list_notes_limit_type == {
@@ -1332,7 +1337,7 @@ async def main() -> int:
         }
         bad_list_notes_before_type = json.loads(
             await arinova_tools._agent_handler("listNotes")(
-                {"conversation_id": "conv-1", "options": {"before": 10}}
+                {"options": {"before": 10}}
             )
         )
         assert bad_list_notes_before_type == {
@@ -1342,7 +1347,7 @@ async def main() -> int:
         }
         bad_list_notes_offset_type = json.loads(
             await arinova_tools._agent_handler("listNotes")(
-                {"conversation_id": "conv-1", "options": {"offset": "20"}}
+                {"options": {"offset": "20"}}
             )
         )
         assert bad_list_notes_offset_type == {
@@ -1352,7 +1357,7 @@ async def main() -> int:
         }
         bad_list_notes_archived_type = json.loads(
             await arinova_tools._agent_handler("listNotes")(
-                {"conversation_id": "conv-1", "options": {"archived": "true"}}
+                {"options": {"archived": "true"}}
             )
         )
         assert bad_list_notes_archived_type == {
@@ -1438,10 +1443,10 @@ async def main() -> int:
         }
         empty_update_note = assert_success(
             await arinova_tools._agent_handler("updateNote")(
-                {"conversation_id": "conv-1", "note_id": "note-empty", "body": {}}
+                {"note_id": "note-empty", "body": {}}
             )
         )
-        assert empty_update_note["result"]["args"] == ["conv-1", "note-empty", {}]
+        assert empty_update_note["result"]["args"] == ["note-empty", {}]
         empty_update_card = assert_success(
             await arinova_tools._agent_handler("updateCard")({"card_id": "card-empty", "body": {}})
         )
@@ -1456,13 +1461,13 @@ async def main() -> int:
         assert empty_update_label["result"]["args"] == ["label-empty", {}]
         empty_optional_arrays = assert_success(
             await arinova_tools._agent_handler("createNote")(
-                {"conversation_id": "conv-1", "body": {"title": "", "tags": []}}
+                {"body": {"title": "", "tags": []}}
             )
         )
-        assert empty_optional_arrays["result"]["args"] == ["conv-1", {"title": "", "tags": []}]
+        assert empty_optional_arrays["result"]["args"] == [{"title": "", "tags": []}]
         bad_body_missing_required = json.loads(
             await arinova_tools._agent_handler("createNote")(
-                {"conversation_id": "conv-1", "body": {"content": "missing title"}}
+                {"body": {"content": "missing title"}}
             )
         )
         assert bad_body_missing_required == {
@@ -1472,7 +1477,7 @@ async def main() -> int:
         }
         bad_create_note_tags_item_type = json.loads(
             await arinova_tools._agent_handler("createNote")(
-                {"conversation_id": "conv-1", "body": {"title": "Note", "tags": ["work", 3]}}
+                {"body": {"title": "Note", "tags": ["work", 3]}}
             )
         )
         assert bad_create_note_tags_item_type == {
@@ -1482,7 +1487,7 @@ async def main() -> int:
         }
         bad_create_note_tags_type = json.loads(
             await arinova_tools._agent_handler("createNote")(
-                {"conversation_id": "conv-1", "body": {"title": "Note", "tags": "work"}}
+                {"body": {"title": "Note", "tags": "work"}}
             )
         )
         assert bad_create_note_tags_type == {
@@ -1492,7 +1497,7 @@ async def main() -> int:
         }
         bad_create_note_notebook_id_type = json.loads(
             await arinova_tools._agent_handler("createNote")(
-                {"conversation_id": "conv-1", "body": {"title": "Note", "notebookId": 123}}
+                {"body": {"title": "Note", "notebookId": 123}}
             )
         )
         assert bad_create_note_notebook_id_type == {
@@ -1502,7 +1507,7 @@ async def main() -> int:
         }
         bad_create_note_title_type = json.loads(
             await arinova_tools._agent_handler("createNote")(
-                {"conversation_id": "conv-1", "body": {"title": 123}}
+                {"body": {"title": 123}}
             )
         )
         assert bad_create_note_title_type == {
@@ -1512,7 +1517,7 @@ async def main() -> int:
         }
         bad_create_note_content_type = json.loads(
             await arinova_tools._agent_handler("createNote")(
-                {"conversation_id": "conv-1", "body": {"title": "Note", "content": 123}}
+                {"body": {"title": "Note", "content": 123}}
             )
         )
         assert bad_create_note_content_type == {
@@ -1522,7 +1527,7 @@ async def main() -> int:
         }
         bad_update_note_title_type = json.loads(
             await arinova_tools._agent_handler("updateNote")(
-                {"conversation_id": "conv-1", "note_id": "note-1", "body": {"title": 123}}
+                {"note_id": "note-1", "body": {"title": 123}}
             )
         )
         assert bad_update_note_title_type == {
@@ -1532,7 +1537,7 @@ async def main() -> int:
         }
         bad_update_note_content_type = json.loads(
             await arinova_tools._agent_handler("updateNote")(
-                {"conversation_id": "conv-1", "note_id": "note-1", "body": {"content": 123}}
+                {"note_id": "note-1", "body": {"content": 123}}
             )
         )
         assert bad_update_note_content_type == {
@@ -1542,7 +1547,7 @@ async def main() -> int:
         }
         bad_update_note_tags_item_type = json.loads(
             await arinova_tools._agent_handler("updateNote")(
-                {"conversation_id": "conv-1", "note_id": "note-1", "body": {"tags": ["work", 3]}}
+                {"note_id": "note-1", "body": {"tags": ["work", 3]}}
             )
         )
         assert bad_update_note_tags_item_type == {
@@ -1552,7 +1557,7 @@ async def main() -> int:
         }
         bad_update_note_tags_type = json.loads(
             await arinova_tools._agent_handler("updateNote")(
-                {"conversation_id": "conv-1", "note_id": "note-1", "body": {"tags": "work"}}
+                {"note_id": "note-1", "body": {"tags": "work"}}
             )
         )
         assert bad_update_note_tags_type == {
@@ -2198,7 +2203,7 @@ async def main() -> int:
         }
         bad_delete_note_id_type = json.loads(
             await arinova_tools._agent_handler("deleteNote")(
-                {"conversation_id": "conv-1", "note_id": 123}
+                {"note_id": 123}
             )
         )
         assert bad_delete_note_id_type == {
@@ -2500,12 +2505,12 @@ async def main() -> int:
             "error": "args[1] must be an array",
         }
         bad_positional_string_arg2 = json.loads(
-            await arinova_tools._handle_sdk_call({"method": "updateNote", "args": ["conv-1", "note-1", "body"]})
+            await arinova_tools._handle_sdk_call({"method": "updateNote", "args": ["note-1", "body"]})
         )
         assert bad_positional_string_arg2 == {
             "success": False,
             "method": "updateNote",
-            "error": "args[2] must be an object",
+            "error": "args[1] must be an object",
         }
         bad_positional_upload_file_name_type = json.loads(
             await arinova_tools._handle_sdk_call(
@@ -2532,7 +2537,8 @@ async def main() -> int:
         )
         assert named_arg_gap == {
             "success": False,
-            "error": "Unsupported Arinova SDK method: fetchHistory",
+            "method": "fetchHistory",
+            "error": "conversation_id is required when using later named arguments",
         }
         task_named_arg_gap = json.loads(
             await arinova_tools._handle_task_call({"method": "uploadFile", "taskId": "task-1", "fileName": "late.txt"})
@@ -2564,8 +2570,8 @@ async def main() -> int:
                     {"args": ["conv-1", {"path": path.name}, "a.txt", "text/plain"]}
                 )
             )
-            assert uploaded["result"]["args"][1] == "abc"
-            assert fake.calls[-1][2][1] == b"abc"
+            assert uploaded["result"]["args"][1] == {"base64": "YWJj"}
+            assert fake.calls[-1][2][1] == {"base64": "YWJj"}
 
             generic_uploaded = assert_success(
                 await arinova_tools._handle_sdk_call(
@@ -2575,8 +2581,8 @@ async def main() -> int:
                     }
                 )
             )
-            assert generic_uploaded["result"]["args"][1] == "abc"
-            assert fake.calls[-1][2][1] == b"abc"
+            assert generic_uploaded["result"]["args"][1] == {"base64": "YWJj"}
+            assert fake.calls[-1][2][1] == {"base64": "YWJj"}
 
             named_agent_uploaded = assert_success(
                 await arinova_tools._agent_handler("uploadFile")(
@@ -2588,8 +2594,8 @@ async def main() -> int:
                     }
                 )
             )
-            assert named_agent_uploaded["result"]["args"] == ["conv-1", "abc", "named-agent.txt", "text/plain"]
-            assert fake.calls[-1][2][1] == b"abc"
+            assert named_agent_uploaded["result"]["args"] == ["conv-1", {"base64": "YWJj"}, "named-agent.txt", "text/plain"]
+            assert fake.calls[-1][2][1] == {"base64": "YWJj"}
 
             generic_named_agent_uploaded = assert_success(
                 await arinova_tools._handle_sdk_call(
@@ -2604,11 +2610,11 @@ async def main() -> int:
             )
             assert generic_named_agent_uploaded["result"]["args"] == [
                 "conv-1",
-                "abc",
+                {"base64": "YWJj"},
                 "generic-named-agent.txt",
                 "text/plain",
             ]
-            assert fake.calls[-1][2][1] == b"abc"
+            assert fake.calls[-1][2][1] == {"base64": "YWJj"}
 
             generic_camel_agent_uploaded = assert_success(
                 await arinova_tools._handle_sdk_call(
@@ -2623,11 +2629,11 @@ async def main() -> int:
             )
             assert generic_camel_agent_uploaded["result"]["args"] == [
                 "conv-camel",
-                "abc",
+                {"base64": "YWJj"},
                 "generic-camel-agent.txt",
                 "text/plain",
             ]
-            assert fake.calls[-1][2][1] == b"abc"
+            assert fake.calls[-1][2][1] == {"base64": "YWJj"}
 
             task_uploaded = assert_success(
                 await arinova_tools._task_handler("uploadFile")(
@@ -2635,8 +2641,8 @@ async def main() -> int:
                 )
             )
             assert task_uploaded["task_id"] == "task-1"
-            assert task_uploaded["result"]["args"][0] == "abc"
-            assert fake.calls[-1][3][0] == b"abc"
+            assert task_uploaded["result"]["args"][0] == {"base64": "YWJj"}
+            assert fake.calls[-1][3][0] == {"base64": "YWJj"}
 
             task_uploaded_explicit = assert_success(
                 await arinova_tools._task_handler("uploadFile")(
@@ -2649,9 +2655,9 @@ async def main() -> int:
                 )
             )
             assert task_uploaded_explicit["task_id"] == "task-upload-explicit"
-            assert task_uploaded_explicit["result"]["args"] == ["abc", "explicit-task.txt", "text/plain"]
+            assert task_uploaded_explicit["result"]["args"] == [{"base64": "YWJj"}, "explicit-task.txt", "text/plain"]
             assert fake.calls[-1][1] == "task-upload-explicit"
-            assert fake.calls[-1][3][0] == b"abc"
+            assert fake.calls[-1][3][0] == {"base64": "YWJj"}
 
             task_uploaded_camel = assert_success(
                 await arinova_tools._task_handler("uploadFile")(
@@ -2664,9 +2670,9 @@ async def main() -> int:
                 )
             )
             assert task_uploaded_camel["task_id"] == "task-upload-camel"
-            assert task_uploaded_camel["result"]["args"] == ["abc", "camel-task.txt", "text/plain"]
+            assert task_uploaded_camel["result"]["args"] == [{"base64": "YWJj"}, "camel-task.txt", "text/plain"]
             assert fake.calls[-1][1] == "task-upload-camel"
-            assert fake.calls[-1][3][0] == b"abc"
+            assert fake.calls[-1][3][0] == {"base64": "YWJj"}
 
             generic_task_uploaded = assert_success(
                 await arinova_tools._handle_task_call(
@@ -2676,8 +2682,8 @@ async def main() -> int:
                     }
                 )
             )
-            assert generic_task_uploaded["result"]["args"][0] == "abc"
-            assert fake.calls[-1][3][0] == b"abc"
+            assert generic_task_uploaded["result"]["args"][0] == {"base64": "YWJj"}
+            assert fake.calls[-1][3][0] == {"base64": "YWJj"}
         finally:
             path.unlink(missing_ok=True)
             if old_allow_uploads is None:

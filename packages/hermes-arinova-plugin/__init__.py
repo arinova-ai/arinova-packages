@@ -31,15 +31,6 @@ def _csv(value):
     return str(value)
 
 
-def _env_if_unset(name: str, value) -> None:
-    if value is None or os.getenv(name):
-        return
-    normalized = _csv(value).strip()
-    if not normalized:
-        return
-    os.environ[name] = normalized
-
-
 def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
     extra = {}
     key_map = {
@@ -63,27 +54,26 @@ def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
         "control_max_body_bytes": "control_max_body_bytes",
         "sidecar_post_timeout_ms": "sidecar_post_timeout_ms",
         "max_consecutive_per_conversation": "max_consecutive_per_conversation",
+        "max_queued_tasks": "max_queued_tasks",
         "download_attachments": "download_attachments",
         "attachment_max_bytes": "attachment_max_bytes",
         "attachment_max_count": "attachment_max_count",
         "attachment_total_max_bytes": "attachment_total_max_bytes",
         "attachment_total_timeout_ms": "attachment_total_timeout_ms",
         "allow_bots": "allow_bots",
+        "allowed_users": "allowed_users",
+        "allow_from": "allowed_users",
+        "allow_all_users": "allow_all_users",
     }
     for yaml_key, extra_key in key_map.items():
         if yaml_key in platform_cfg:
             extra[extra_key] = platform_cfg[yaml_key]
 
-    yaml_token = platform_cfg.get("bot_token") or platform_cfg.get("token")
-    _env_if_unset("ARINOVA_SERVER_URL", platform_cfg.get("server_url"))
-    _env_if_unset("ARINOVA_BOT_TOKEN", yaml_token)
-    _env_if_unset("ARINOVA_NODE_BIN", platform_cfg.get("node_bin"))
-
     if "agent_skills_json" in platform_cfg:
         extra["agent_skills_json"] = platform_cfg["agent_skills_json"]
     elif "agent_skills" in platform_cfg:
         skills = platform_cfg["agent_skills"]
-        extra["agent_skills_json"] = skills if isinstance(skills, str) else json.dumps(skills)
+        extra["agent_skills_json"] = skills if isinstance(skills, str) else json.dumps(skills, allow_nan=False)
 
     home = platform_cfg.get("home_conversation") or platform_cfg.get("home_channel")
     if isinstance(home, dict):
@@ -91,16 +81,8 @@ def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
         name = home.get("name")
         if chat_id:
             extra["home_channel"] = {"chat_id": str(chat_id), "name": str(name or "Arinova Chat")}
-            _env_if_unset("ARINOVA_HOME_CONVERSATION", chat_id)
-        if name:
-            _env_if_unset("ARINOVA_HOME_CONVERSATION_NAME", name)
     elif home:
         extra["home_channel"] = {"chat_id": str(home), "name": "Arinova Chat"}
-        _env_if_unset("ARINOVA_HOME_CONVERSATION", home)
-
-    _env_if_unset("ARINOVA_ALLOWED_USERS", platform_cfg.get("allowed_users") or platform_cfg.get("allow_from"))
-    _env_if_unset("ARINOVA_ALLOW_ALL_USERS", platform_cfg.get("allow_all_users"))
-    _env_if_unset("ARINOVA_ALLOW_BOTS", platform_cfg.get("allow_bots"))
 
     return extra or None
 
@@ -112,8 +94,9 @@ def _install_send_message_compat() -> None:
     except Exception:
         return
 
-    if not getattr(send_message_tool._parse_target_ref, "_arinova_compat", False):
-        original_parse_target_ref = send_message_tool._parse_target_ref
+    parse_target = getattr(send_message_tool, "_parse_target_ref", None)
+    if parse_target is not None and not getattr(parse_target, "_arinova_compat", False):
+        original_parse_target_ref = parse_target
 
         @wraps(original_parse_target_ref)
         def parse_target_ref(platform_name: str, target_ref: str):
@@ -129,8 +112,9 @@ def _install_send_message_compat() -> None:
         parse_target_ref._arinova_compat = True
         send_message_tool._parse_target_ref = parse_target_ref
 
-    if not getattr(send_message_tool._send_to_platform, "_arinova_compat", False):
-        original_send_to_platform = send_message_tool._send_to_platform
+    send_to_platform_fn = getattr(send_message_tool, "_send_to_platform", None)
+    if send_to_platform_fn is not None and not getattr(send_to_platform_fn, "_arinova_compat", False):
+        original_send_to_platform = send_to_platform_fn
 
         @wraps(original_send_to_platform)
         async def send_to_platform(
@@ -245,7 +229,7 @@ def _active_report_context(adapter: Any, *, session_id: str, task_id: str) -> tu
     return None
 
 
-def _on_post_tool_call(**kwargs: Any) -> None:
+def _report_post_tool_call(**kwargs: Any) -> None:
     adapter = get_active_adapter()
     if adapter is None:
         return
@@ -307,6 +291,13 @@ def _on_post_tool_call(**kwargs: Any) -> None:
             logger.debug("Arinova: failed to report Hermes tool call %s: %s", tool_name, exc)
 
     future.add_done_callback(_log_failure)
+
+
+def _on_post_tool_call(**kwargs: Any) -> None:
+    try:
+        _report_post_tool_call(**kwargs)
+    except Exception as exc:
+        logger.debug("Arinova: post_tool_call hook failed: %s", exc, exc_info=True)
 
 
 def register(ctx):

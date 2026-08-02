@@ -1,5 +1,9 @@
 import http from "node:http";
 import { once } from "node:events";
+import { timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
+
+const sdkContract = JSON.parse(readFileSync(new URL("../sdk-contract.json", import.meta.url), "utf8"));
 
 const CONCURRENCY_MODES = new Set(["per-conversation", "agent-wide", "unbounded"]);
 const CONTROL_ENDPOINTS = new Set([
@@ -11,20 +15,9 @@ const CONTROL_ENDPOINTS = new Set([
   "/error",
   "/shutdown"
 ]);
-const DEFAULT_CONTROL_MAX_BODY_BYTES = 128 * 1024 * 1024;
+const DEFAULT_CONTROL_MAX_BODY_BYTES = 1024 * 1024;
 const DEFAULT_ADAPTER_POST_TIMEOUT_MS = 10_000;
-const MIME_TYPES = {
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  png: "image/png",
-  gif: "image/gif",
-  webp: "image/webp",
-  pdf: "application/pdf",
-  txt: "text/plain",
-  csv: "text/csv",
-  json: "application/json"
-};
-
+const MAX_PENDING_TASK_OUTPUTS = 256;
 export function intEnv(env, name) {
   const raw = env[name];
   const normalized = typeof raw === "string" ? raw.trim() : raw;
@@ -36,6 +29,12 @@ export function intEnv(env, name) {
   if (!Number.isInteger(value) || value < 0) {
     throw new Error(`${name} must be a non-negative integer`);
   }
+  return value;
+}
+
+export function positiveIntEnv(env, name) {
+  const value = intEnv(env, name);
+  if (value === 0) throw new Error(`${name} must be a positive integer`);
   return value;
 }
 
@@ -89,14 +88,16 @@ export function buildAgentOptions({ serverUrl, botToken, env = process.env }) {
   const skills = parseSkills(env);
   if (skills) options.skills = skills;
 
-  const reconnectInterval = intEnv(env, "ARINOVA_RECONNECT_INTERVAL_MS");
+  const reconnectInterval = positiveIntEnv(env, "ARINOVA_RECONNECT_INTERVAL_MS");
   if (reconnectInterval !== undefined) options.reconnectInterval = reconnectInterval;
-  const pingInterval = intEnv(env, "ARINOVA_PING_INTERVAL_MS");
+  const pingInterval = positiveIntEnv(env, "ARINOVA_PING_INTERVAL_MS");
   if (pingInterval !== undefined) options.pingInterval = pingInterval;
-  const pingTimeout = intEnv(env, "ARINOVA_PING_TIMEOUT_MS");
+  const pingTimeout = positiveIntEnv(env, "ARINOVA_PING_TIMEOUT_MS");
   if (pingTimeout !== undefined) options.pingTimeout = pingTimeout;
-  const maxConsecutive = intEnv(env, "ARINOVA_MAX_CONSECUTIVE_PER_CONVERSATION");
+  const maxConsecutive = positiveIntEnv(env, "ARINOVA_MAX_CONSECUTIVE_PER_CONVERSATION");
   if (maxConsecutive !== undefined) options.maxConsecutivePerConversation = maxConsecutive;
+  const maxQueuedTasks = positiveIntEnv(env, "ARINOVA_MAX_QUEUED_TASKS");
+  if (maxQueuedTasks !== undefined) options.maxQueuedTasks = maxQueuedTasks;
 
   const concurrencyMode = env.ARINOVA_CONCURRENCY_MODE || env.ARINOVA_AGENT_CONCURRENCY_MODE || "per-conversation";
   if (!CONCURRENCY_MODES.has(concurrencyMode)) {
@@ -108,11 +109,11 @@ export function buildAgentOptions({ serverUrl, botToken, env = process.env }) {
 
 export function buildControlServerOptions({ env = process.env } = {}) {
   const options = {};
-  const adapterPostTimeoutMs = intEnv(env, "ARINOVA_ADAPTER_POST_TIMEOUT_MS");
+  const adapterPostTimeoutMs = positiveIntEnv(env, "ARINOVA_ADAPTER_POST_TIMEOUT_MS");
   if (adapterPostTimeoutMs !== undefined) {
     options.adapterPostTimeoutMs = adapterPostTimeoutMs;
   }
-  const maxBodyBytes = intEnv(env, "ARINOVA_CONTROL_MAX_BODY_BYTES");
+  const maxBodyBytes = positiveIntEnv(env, "ARINOVA_CONTROL_MAX_BODY_BYTES");
   if (maxBodyBytes !== undefined) {
     options.maxBodyBytes = maxBodyBytes;
   }
@@ -228,10 +229,10 @@ const agentRequiredArgCounts = new Map([
   ["callAction", 2],
   ["uploadFile", 3],
   ["fetchHistory", 1],
-  ["listNotes", 1],
-  ["createNote", 2],
-  ["updateNote", 3],
-  ["deleteNote", 2],
+  ["listNotes", 0],
+  ["createNote", 1],
+  ["updateNote", 2],
+  ["deleteNote", 1],
   ["createCard", 1],
   ["updateCard", 2],
   ["createBoard", 1],
@@ -267,7 +268,7 @@ const agentMaxArgCounts = new Map([
   ["listBoards", 0],
   ["sendHud", 2],
   ["fetchHistory", 2],
-  ["listNotes", 2],
+  ["listNotes", 1],
   ["uploadFile", 4],
   ["callAction", 3],
   ["listCards", 1],
@@ -294,10 +295,10 @@ const agentArgTypes = new Map([
   ["callAction", ["string", "object", "object"]],
   ["uploadFile", ["string", "object", "string", "string"]],
   ["fetchHistory", ["string", "object"]],
-  ["listNotes", ["string", "object"]],
-  ["createNote", ["string", "object"]],
-  ["updateNote", ["string", "string", "object"]],
-  ["deleteNote", ["string", "string"]],
+  ["listNotes", ["object"]],
+  ["createNote", ["object"]],
+  ["updateNote", ["string", "object"]],
+  ["deleteNote", ["string"]],
   ["createCard", ["object"]],
   ["updateCard", ["string", "object"]],
   ["createBoard", ["object"]],
@@ -342,10 +343,10 @@ const agentArgNames = new Map([
   ["callAction", ["action", "action_args", "options"]],
   ["uploadFile", ["conversation_id", "file", "file_name", "file_type"]],
   ["fetchHistory", ["conversation_id", "options"]],
-  ["listNotes", ["conversation_id", "options"]],
-  ["createNote", ["conversation_id", "body"]],
-  ["updateNote", ["conversation_id", "note_id", "body"]],
-  ["deleteNote", ["conversation_id", "note_id"]],
+  ["listNotes", ["options"]],
+  ["createNote", ["body"]],
+  ["updateNote", ["note_id", "body"]],
+  ["deleteNote", ["note_id"]],
   ["createCard", ["body"]],
   ["updateCard", ["card_id", "body"]],
   ["createBoard", ["body"]],
@@ -678,9 +679,9 @@ const agentArgSchemas = new Map([
   ["reportToolCall", [toolCallReportSchema]],
   ["callAction", [null, null, actionOptionsSchema]],
   ["fetchHistory", [null, fetchHistoryOptionsSchema]],
-  ["listNotes", [null, listNotesOptionsSchema]],
-  ["createNote", [null, createNoteBodySchema]],
-  ["updateNote", [null, null, updateNoteBodySchema]],
+  ["listNotes", [listNotesOptionsSchema]],
+  ["createNote", [createNoteBodySchema]],
+  ["updateNote", [null, updateNoteBodySchema]],
   ["createCard", [createCardBodySchema]],
   ["updateCard", [null, updateCardBodySchema]],
   ["createBoard", [createBoardBodySchema]],
@@ -701,6 +702,46 @@ const taskArgSchemas = new Map([
   ["fetchHistory", [fetchHistoryOptionsSchema]],
   ["callAction", [null, null, taskActionOptionsSchema]]
 ]);
+
+function applySdkContract(scope, methods, requiredCounts, maxCounts, argTypes, argNames, argSchemas) {
+  const entries = Object.entries(sdkContract[scope]);
+  methods.clear();
+  requiredCounts.clear();
+  maxCounts.clear();
+  argTypes.clear();
+  argNames.clear();
+  argSchemas.clear();
+  for (const [method, definition] of entries) {
+    const schemas = definition.args.map((argument) =>
+      argument.schema["x-arinova-file"] ? uploadFileSchema : argument.schema
+    );
+    methods.add(method);
+    requiredCounts.set(method, definition.required);
+    maxCounts.set(method, definition.args.length);
+    argNames.set(method, definition.args.map((argument) => argument.name));
+    argTypes.set(method, schemas.map((schema) => schema.type || "object"));
+    argSchemas.set(method, schemas);
+  }
+}
+
+applySdkContract(
+  "agent",
+  agentMethods,
+  agentRequiredArgCounts,
+  agentMaxArgCounts,
+  agentArgTypes,
+  agentArgNames,
+  agentArgSchemas
+);
+applySdkContract(
+  "task",
+  taskMethods,
+  taskRequiredArgCounts,
+  taskMaxArgCounts,
+  taskArgTypes,
+  taskArgNames,
+  taskArgSchemas
+);
 
 function assertJsonCompliant(value, path = "response", seen = new Set()) {
   if (typeof value === "number" && !Number.isFinite(value)) {
@@ -733,6 +774,12 @@ export function jsonResponse(res, status, body) {
 
 function controlPath(req) {
   return new URL(req.url || "/", "http://127.0.0.1").pathname;
+}
+
+function tokensEqual(left, right) {
+  const leftBytes = Buffer.from(String(left || ""));
+  const rightBytes = Buffer.from(String(right || ""));
+  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
 }
 
 export async function readJson(req, maxBodyBytes = DEFAULT_CONTROL_MAX_BODY_BYTES) {
@@ -1103,353 +1150,6 @@ async function callAllowed(target, allowedMethods, method, args) {
   return await fn.apply(target, args);
 }
 
-function agentHttpConfig(agent) {
-  const serverUrl = typeof agent.serverUrl === "string" ? agent.serverUrl : "";
-  const botToken = typeof agent.botToken === "string" ? agent.botToken : "";
-  if (!serverUrl || !botToken) return null;
-  return {
-    httpUrl: serverUrl.replace(/^ws:/, "http:").replace(/^wss:/, "https:"),
-    botToken
-  };
-}
-
-function pathSegment(value) {
-  return encodeURIComponent(value);
-}
-
-function mimeFromFileName(name) {
-  const ext = String(name).split(".").pop()?.toLowerCase() ?? "";
-  return MIME_TYPES[ext] ?? "application/octet-stream";
-}
-
-function normalizeMemoryOrigin(source) {
-  if (!source) return undefined;
-  if (source === "user") return "self";
-  if (source === "system") return "system";
-  const match = String(source).match(/^shared-from-([0-9a-fA-F]{8})$/);
-  if (match) return `shared-from-${match[1].toLowerCase()}`;
-  return undefined;
-}
-
-async function readSdkHttpJson(res, method) {
-  const raw = await res.text();
-  try {
-    assertNoDuplicateJsonKeys(raw);
-    const parsed = JSON.parse(raw);
-    assertJsonCompliant(parsed, `${method} response`);
-    return parsed;
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`${method} returned malformed JSON: ${detail}`);
-  }
-}
-
-async function callMessageFileHistorySdk(agent, method, args) {
-  const config = agentHttpConfig(agent);
-  if (!config) {
-    return await callAllowed(agent, agentMethods, method, args);
-  }
-  if (method === "sendMessage") {
-    if (agent.ws?.readyState === 1) {
-      return await callAllowed(agent, agentMethods, method, args);
-    }
-    const res = await fetch(`${config.httpUrl}/api/v1/messages/send`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.botToken}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ conversationId: args[0], content: args[1] })
-    });
-    if (!res.ok) {
-      throw new Error(`sendMessage failed (${res.status}): ${await res.text()}`);
-    }
-    return undefined;
-  }
-  if (method === "uploadFile") {
-    const mime = args[3] || mimeFromFileName(args[2]);
-    const formData = new FormData();
-    formData.append("conversationId", args[0]);
-    const blob = new Blob([new Uint8Array(args[1])], { type: mime });
-    formData.append("file", blob, args[2]);
-    const res = await fetch(`${config.httpUrl}/api/v1/files/upload`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${config.botToken}` },
-      body: formData
-    });
-    if (!res.ok) {
-      throw new Error(`Upload failed (${res.status}): ${await res.text()}`);
-    }
-    return await readSdkHttpJson(res, "uploadFile");
-  }
-  if (method === "fetchHistory") {
-    const params = new URLSearchParams();
-    if (args[1]?.before) params.set("before", args[1].before);
-    if (args[1]?.after) params.set("after", args[1].after);
-    if (args[1]?.around) params.set("around", args[1].around);
-    if (args[1]?.limit != null) params.set("limit", String(args[1].limit));
-    const qs = params.toString();
-    const res = await fetch(`${config.httpUrl}/api/v1/messages/${pathSegment(args[0])}${qs ? `?${qs}` : ""}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${config.botToken}` }
-    });
-    if (!res.ok) {
-      throw new Error(`fetchHistory failed (${res.status}): ${await res.text()}`);
-    }
-    return await readSdkHttpJson(res, "fetchHistory");
-  }
-  return await callAllowed(agent, agentMethods, method, args);
-}
-
-async function callTaskMessageFileHistorySdk(agent, task, method, args) {
-  if (!agentHttpConfig(agent)) {
-    return await callAllowed(task, taskMethods, method, args);
-  }
-  const conversationId = typeof task.conversationId === "string" ? task.conversationId : "";
-  if (!conversationId) {
-    return await callAllowed(task, taskMethods, method, args);
-  }
-  if (method === "uploadFile") {
-    return await callMessageFileHistorySdk(agent, "uploadFile", [conversationId, args[0], args[1], args[2]]);
-  }
-  if (method === "fetchHistory") {
-    return await callMessageFileHistorySdk(agent, "fetchHistory", [conversationId, args[0]]);
-  }
-  return await callAllowed(task, taskMethods, method, args);
-}
-
-const kanbanVoidMethods = new Set([
-  "archiveBoard",
-  "deleteColumn",
-  "reorderColumns",
-  "linkCardNote",
-  "unlinkCardNote",
-  "deleteLabel",
-  "addCardLabel",
-  "removeCardLabel"
-]);
-
-async function callNoteSdk(agent, method, args) {
-  const config = agentHttpConfig(agent);
-  if (!config) {
-    return await callAllowed(agent, agentMethods, method, args);
-  }
-  const [, noteIdOrBody, maybeBody] = args;
-  let path = "/api/v1/notes";
-  let init = {
-    headers: { Authorization: `Bearer ${config.botToken}` },
-    method: "GET"
-  };
-  if (method === "listNotes") {
-    const options = noteIdOrBody;
-    const params = new URLSearchParams();
-    if (options?.before) params.set("before", options.before);
-    if (options?.limit != null) params.set("limit", String(options.limit));
-    if (options?.offset != null) params.set("offset", String(options.offset));
-    if (options?.tags?.length) params.set("tags", options.tags.join(","));
-    if (options?.archived) params.set("archived", "true");
-    const qs = params.toString();
-    path = `/api/v1/notes${qs ? `?${qs}` : ""}`;
-  } else if (method === "createNote") {
-    init = {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.botToken}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(noteIdOrBody)
-    };
-  } else if (method === "updateNote") {
-    path = `/api/v1/notes/${encodeURIComponent(noteIdOrBody)}`;
-    init = {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${config.botToken}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(maybeBody)
-    };
-  } else if (method === "deleteNote") {
-    path = `/api/v1/notes/${encodeURIComponent(noteIdOrBody)}`;
-    init = {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${config.botToken}` }
-    };
-  }
-  const res = await fetch(`${config.httpUrl}${path}`, init);
-  if (!res.ok) {
-    throw new Error(`${method} failed (${res.status}): ${await res.text()}`);
-  }
-  if (method === "deleteNote") return undefined;
-  return await readSdkHttpJson(res, method);
-}
-
-async function callKanbanSdk(agent, method, args) {
-  const config = agentHttpConfig(agent);
-  if (!config) {
-    return await callAllowed(agent, agentMethods, method, args);
-  }
-  let path = "";
-  let init = {
-    headers: { Authorization: `Bearer ${config.botToken}` },
-    method: "GET"
-  };
-  const jsonInit = (httpMethod, body) => ({
-    method: httpMethod,
-    headers: {
-      Authorization: `Bearer ${config.botToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
-  });
-  if (method === "listBoards") {
-    path = "/api/v1/kanban/boards";
-  } else if (method === "createBoard") {
-    path = "/api/v1/kanban/boards";
-    init = jsonInit("POST", args[0]);
-  } else if (method === "updateBoard") {
-    path = `/api/v1/kanban/boards/${pathSegment(args[0])}`;
-    init = jsonInit("PATCH", args[1]);
-  } else if (method === "archiveBoard") {
-    path = `/api/v1/kanban/boards/${pathSegment(args[0])}/archive`;
-    init = { method: "POST", headers: { Authorization: `Bearer ${config.botToken}` } };
-  } else if (method === "listColumns") {
-    path = `/api/v1/kanban/boards/${pathSegment(args[0])}/columns`;
-  } else if (method === "createColumn") {
-    path = `/api/v1/kanban/boards/${pathSegment(args[0])}/columns`;
-    init = jsonInit("POST", args[1]);
-  } else if (method === "updateColumn") {
-    path = `/api/v1/kanban/columns/${pathSegment(args[0])}`;
-    init = jsonInit("PATCH", args[1]);
-  } else if (method === "deleteColumn") {
-    path = `/api/v1/kanban/columns/${pathSegment(args[0])}`;
-    init = { method: "DELETE", headers: { Authorization: `Bearer ${config.botToken}` } };
-  } else if (method === "reorderColumns") {
-    path = `/api/v1/kanban/boards/${pathSegment(args[0])}/columns/reorder`;
-    init = jsonInit("POST", { columnIds: args[1] });
-  } else if (method === "createCard") {
-    path = "/api/v1/kanban/cards";
-    init = jsonInit("POST", args[0]);
-  } else if (method === "updateCard") {
-    path = `/api/v1/kanban/cards/${pathSegment(args[0])}`;
-    init = jsonInit("PATCH", args[1]);
-  } else if (method === "listCards") {
-    const options = args[0];
-    const params = new URLSearchParams();
-    if (options?.search) params.set("search", options.search);
-    if (options?.limit != null) params.set("limit", String(options.limit));
-    if (options?.offset != null) params.set("offset", String(options.offset));
-    const qs = params.toString();
-    path = `/api/v1/kanban/cards${qs ? `?${qs}` : ""}`;
-  } else if (method === "completeCard") {
-    path = `/api/v1/kanban/cards/${pathSegment(args[0])}/complete`;
-    init = { method: "POST", headers: { Authorization: `Bearer ${config.botToken}` } };
-  } else if (method === "listArchivedCards") {
-    const params = new URLSearchParams();
-    if (args[1]?.page != null) params.set("page", String(args[1].page));
-    if (args[1]?.limit != null) params.set("limit", String(args[1].limit));
-    const qs = params.toString();
-    path = `/api/v1/kanban/boards/${pathSegment(args[0])}/archived-cards${qs ? `?${qs}` : ""}`;
-  } else if (method === "addCardCommit") {
-    path = `/api/v1/kanban/cards/${pathSegment(args[0])}/commits`;
-    init = jsonInit("POST", args[1]);
-  } else if (method === "listCardCommits") {
-    path = `/api/v1/kanban/cards/${pathSegment(args[0])}/commits`;
-  } else if (method === "linkCardNote") {
-    path = `/api/v1/kanban/cards/${pathSegment(args[0])}/notes`;
-    init = jsonInit("POST", { noteId: args[1] });
-  } else if (method === "unlinkCardNote") {
-    path = `/api/v1/kanban/cards/${pathSegment(args[0])}/notes/${pathSegment(args[1])}`;
-    init = { method: "DELETE", headers: { Authorization: `Bearer ${config.botToken}` } };
-  } else if (method === "listCardNotes") {
-    path = `/api/v1/kanban/cards/${pathSegment(args[0])}/notes`;
-  } else if (method === "listLabels") {
-    path = `/api/v1/kanban/boards/${pathSegment(args[0])}/labels`;
-  } else if (method === "createLabel") {
-    path = `/api/v1/kanban/boards/${pathSegment(args[0])}/labels`;
-    init = jsonInit("POST", args[1]);
-  } else if (method === "updateLabel") {
-    path = `/api/v1/kanban/labels/${pathSegment(args[0])}`;
-    init = jsonInit("PATCH", args[1]);
-  } else if (method === "deleteLabel") {
-    path = `/api/v1/kanban/labels/${pathSegment(args[0])}`;
-    init = { method: "DELETE", headers: { Authorization: `Bearer ${config.botToken}` } };
-  } else if (method === "addCardLabel") {
-    path = `/api/v1/kanban/cards/${pathSegment(args[0])}/labels`;
-    init = jsonInit("POST", { labelId: args[1] });
-  } else if (method === "removeCardLabel") {
-    path = `/api/v1/kanban/cards/${pathSegment(args[0])}/labels/${pathSegment(args[1])}`;
-    init = { method: "DELETE", headers: { Authorization: `Bearer ${config.botToken}` } };
-  } else {
-    return await callAllowed(agent, agentMethods, method, args);
-  }
-  const res = await fetch(`${config.httpUrl}${path}`, init);
-  if (!res.ok) {
-    throw new Error(`${method} failed (${res.status}): ${await res.text()}`);
-  }
-  if (kanbanVoidMethods.has(method)) {
-    return undefined;
-  }
-  return await readSdkHttpJson(res, method);
-}
-
-async function callMemorySkillSdk(agent, method, args) {
-  const config = agentHttpConfig(agent);
-  if (!config) {
-    return await callAllowed(agent, agentMethods, method, args);
-  }
-  if (method === "queryMemory") {
-    const params = new URLSearchParams();
-    params.set("q", args[0].query);
-    if (args[0].limit != null) params.set("limit", String(args[0].limit));
-    const res = await fetch(`${config.httpUrl}/api/v1/memories/search?${params}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${config.botToken}` }
-    });
-    if (!res.ok) {
-      throw new Error(`queryMemory failed (${res.status}): ${await res.text()}`);
-    }
-    const raw = await readSdkHttpJson(res, "queryMemory");
-    return raw.map((entry) => {
-      const mapped = {
-        content: entry.summary + (entry.detail ? `\n${entry.detail}` : ""),
-        category: entry.category,
-        score: entry.score
-      };
-      const origin = normalizeMemoryOrigin(entry.source);
-      if (origin !== undefined) mapped.origin = origin;
-      return mapped;
-    });
-  }
-  if (method === "fetchSkillPrompt") {
-    const res = await fetch(`${config.httpUrl}/api/v1/skills/${pathSegment(args[0])}/prompt`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${config.botToken}` }
-    });
-    if (!res.ok) {
-      throw new Error(`fetchSkillPrompt failed (${res.status}): ${await res.text()}`);
-    }
-    return await readSdkHttpJson(res, "fetchSkillPrompt");
-  }
-  return await callAllowed(agent, agentMethods, method, args);
-}
-
-async function callShareNote(agent, args) {
-  const config = agentHttpConfig(agent);
-  if (!config) {
-    return await callAllowed(agent, agentMethods, "shareNote", args);
-  }
-  const noteId = args[1];
-  const res = await fetch(`${config.httpUrl}/api/v1/notes/${encodeURIComponent(noteId)}/share`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${config.botToken}` }
-  });
-  if (!res.ok) {
-    throw new Error(`shareNote failed (${res.status}): ${await res.text()}`);
-  }
-  return await readSdkHttpJson(res, "shareNote");
-}
-
 async function callAgentSdk(agent, body) {
   rejectUnknownFields(body, new Set(["method", "args"]));
   const method = requiredStringField(body, "method");
@@ -1463,47 +1163,6 @@ async function callAgentSdk(agent, body) {
   args = normalizeSdkArgs(method, args, agentArgNames);
   if (method === "uploadFile") {
     args = decodeUploadArgs(args, 1);
-  }
-  if (method === "sendMessage" || method === "uploadFile" || method === "fetchHistory") {
-    return await callMessageFileHistorySdk(agent, method, args);
-  }
-  if (["listNotes", "createNote", "updateNote", "deleteNote"].includes(method)) {
-    return await callNoteSdk(agent, method, args);
-  }
-  if ([
-    "listBoards",
-    "createCard",
-    "updateCard",
-    "createBoard",
-    "updateBoard",
-    "archiveBoard",
-    "listColumns",
-    "createColumn",
-    "updateColumn",
-    "deleteColumn",
-    "reorderColumns",
-    "listCards",
-    "completeCard",
-    "listArchivedCards",
-    "addCardCommit",
-    "listCardCommits",
-    "linkCardNote",
-    "unlinkCardNote",
-    "listCardNotes",
-    "listLabels",
-    "createLabel",
-    "updateLabel",
-    "deleteLabel",
-    "addCardLabel",
-    "removeCardLabel"
-  ].includes(method)) {
-    return await callKanbanSdk(agent, method, args);
-  }
-  if (method === "shareNote") {
-    return await callShareNote(agent, args);
-  }
-  if (method === "queryMemory" || method === "fetchSkillPrompt") {
-    return await callMemorySkillSdk(agent, method, args);
   }
   return await callAllowed(agent, agentMethods, method, args);
 }
@@ -1526,9 +1185,6 @@ async function callTaskSdk(agent, tasks, body) {
   }
   if (method === "uploadFile") {
     args = decodeUploadArgs(args, 0);
-  }
-  if (method === "uploadFile" || method === "fetchHistory") {
-    return await callTaskMessageFileHistorySdk(agent, task, method, args);
   }
   return await callAllowed(task, taskMethods, method, args);
 }
@@ -1597,6 +1253,7 @@ export function createControlServer({
   const pendingOnboardingSeeds = new Set();
   const forwardedOnboardingSeeds = new Set();
   let connected = false;
+  let lastAuthError = "";
 
   function forgetTask(taskId, { dropPending = false } = {}) {
     const cleanup = abortCleanups.get(taskId);
@@ -1625,8 +1282,13 @@ export function createControlServer({
     clearActiveTasks();
   }
 
-  function queueOrSendTaskOutput(taskId, sendOutput) {
+  function queueOrSendTaskOutput(taskId, sendOutput, terminal = false) {
     if (!connected) {
+      if (terminal) {
+        sendOutput();
+        return;
+      }
+      while (pendingTaskOutputs.length >= MAX_PENDING_TASK_OUTPUTS) pendingTaskOutputs.shift();
       pendingTaskOutputs.push({ taskId, sendOutput });
       return;
     }
@@ -1636,7 +1298,8 @@ export function createControlServer({
   function flushPendingTaskOutputs() {
     if (!connected) return;
     const outputs = pendingTaskOutputs.splice(0);
-    for (const { sendOutput } of outputs) {
+    for (const { taskId, sendOutput } of outputs) {
+      if (!tasks.has(taskId)) continue;
       try {
         sendOutput();
       } catch (error) {
@@ -1674,6 +1337,7 @@ export function createControlServer({
   agent.on("connected", () => {
     const wasConnected = connected;
     connected = true;
+    lastAuthError = "";
     flushPendingTaskOutputs();
     const agentId = typeof agent.getAgentId === "function" ? agent.getAgentId() : null;
     if (!wasConnected) {
@@ -1709,7 +1373,7 @@ export function createControlServer({
   });
 
   agent.on("auth_failed", () => {
-    forwardAuthFailed("Arinova SDK authentication failed", false);
+    if (!lastAuthError) forwardAuthFailed("Arinova SDK authentication failed", false);
   });
 
   agent.on("error", (error) => {
@@ -1720,6 +1384,7 @@ export function createControlServer({
       });
       return;
     }
+    lastAuthError = message;
     forwardAuthFailed(message, message.includes("retryable server error"));
   });
 
@@ -1758,7 +1423,7 @@ export function createControlServer({
 
   const controlServer = http.createServer(async (req, res) => {
     const path = controlPath(req);
-    if (req.headers["x-arinova-bridge-token"] !== sharedToken) {
+    if (!tokensEqual(req.headers["x-arinova-bridge-token"], sharedToken)) {
       jsonResponse(res, 401, { ok: false, error: "unauthorized" });
       return;
     }
@@ -1833,8 +1498,11 @@ export function createControlServer({
           : [];
         const options = mentions.length ? { mentions } : undefined;
         const content = requiredTextField(body, "content");
-        queueOrSendTaskOutput(taskId, () => task.sendComplete(content, options));
-        forgetTask(taskId);
+        try {
+          queueOrSendTaskOutput(taskId, () => task.sendComplete(content, options), true);
+        } finally {
+          forgetTask(taskId);
+        }
         jsonResponse(res, 200, { ok: true });
         return;
       }
@@ -1848,8 +1516,11 @@ export function createControlServer({
           throw new Error(`no active task: ${taskId}`);
         }
         const error = requiredTextField(body, "error");
-        queueOrSendTaskOutput(taskId, () => task.sendError(error));
-        forgetTask(taskId);
+        try {
+          queueOrSendTaskOutput(taskId, () => task.sendError(error), true);
+        } finally {
+          forgetTask(taskId);
+        }
         jsonResponse(res, 200, { ok: true });
         return;
       }
@@ -1858,15 +1529,7 @@ export function createControlServer({
         const body = await readJson(req, maxBodyBytes);
         rejectUnknownFields(body, new Set());
         jsonResponse(res, 200, { ok: true });
-        setTimeout(async () => {
-          try {
-            agent.disconnect();
-            clearControlState();
-            controlServer.close();
-          } finally {
-            onShutdown();
-          }
-        }, 25);
+        setTimeout(onShutdown, 25);
         return;
       }
 

@@ -1,0 +1,9 @@
+{
+  "name": "@arinova-ai/hermes-arinova-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "python3 scripts/check_local.py",
+    "check": "python3 scripts/check_local.py"
+  }
+}

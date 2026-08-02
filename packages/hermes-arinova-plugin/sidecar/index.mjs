@@ -22,6 +22,23 @@ if (!serverUrl || !botToken || !sharedToken) {
 
 const agentOptions = buildAgentOptions({ serverUrl, botToken });
 const agent = new ArinovaAgent(agentOptions);
+let shuttingDown = false;
+let controlServer;
+let clearControlState = () => {};
+
+function shutdown(exitCode = 0) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  try {
+    agent.disconnect();
+    clearControlState();
+  } finally {
+    if (controlServer) {
+      controlServer.close(() => process.exit(exitCode));
+    }
+    setTimeout(() => process.exit(exitCode), 2000).unref();
+  }
+}
 
 agent.on("connected", () => {
   console.log(`connected to ${serverUrl}`);
@@ -35,13 +52,14 @@ agent.on("error", (error) => {
   console.error(error?.stack || String(error));
 });
 
-const { controlServer, clearControlState } = createControlServer({
+({ controlServer, clearControlState } = createControlServer({
   agent,
   agentSkills: agentOptions.skills,
   adapterUrl,
   sharedToken,
-  ...buildControlServerOptions()
-});
+  ...buildControlServerOptions(),
+  onShutdown: () => shutdown(0)
+}));
 
 await listen(controlServer, port, bind);
 console.log(`control server listening on ${bind}:${port}`);
@@ -53,19 +71,5 @@ try {
   shutdown(1);
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
-
-let shuttingDown = false;
-
-function shutdown(exitCode = 0) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  try {
-    agent.disconnect();
-    clearControlState();
-  } finally {
-    controlServer.close(() => process.exit(exitCode));
-    setTimeout(() => process.exit(exitCode), 2000).unref();
-  }
-}
+process.on("SIGINT", () => shutdown(0));
+process.on("SIGTERM", () => shutdown(0));

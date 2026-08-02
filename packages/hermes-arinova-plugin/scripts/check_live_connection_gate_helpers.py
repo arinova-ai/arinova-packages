@@ -10,6 +10,7 @@ from check_live_connection_gate_fake_hermes import write_fake_hermes_root
 
 
 ROOT = Path(__file__).resolve().parents[1]
+COMMAND_TIMEOUT_SECONDS = 300
 LIVE_CHECK = ROOT / "scripts/check_live_connection.py"
 LOCAL_CHECK = ROOT / "scripts/check_local.py"
 SKIP_BOTH_MESSAGE = "live Arinova smoke skipped: missing ARINOVA_SERVER_URL, ARINOVA_BOT_TOKEN in env or Hermes config"
@@ -38,6 +39,7 @@ def run_live(*args: str, env: dict[str, str]) -> subprocess.CompletedProcess[str
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        timeout=COMMAND_TIMEOUT_SECONDS,
         check=False,
     )
 
@@ -50,6 +52,7 @@ def run_local(*args: str, env: dict[str, str]) -> subprocess.CompletedProcess[st
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        timeout=COMMAND_TIMEOUT_SECONDS,
         check=False,
     )
 
@@ -1437,5 +1440,3 @@ def run_basic_live_failure_cases(hermes_home: Path, fake_hermes_root: Path) -> N
         bad_hud_conversation_without_payload_marker,
         "bad sendHud conversation without payload live smoke",
     )
-
-

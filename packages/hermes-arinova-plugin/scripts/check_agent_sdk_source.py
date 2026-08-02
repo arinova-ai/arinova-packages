@@ -11,6 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+COMMAND_TIMEOUT_SECONDS = 300
 DEFAULT_SDK_ROOT = Path.home() / ".arinova-bridge/workspace/projects/arinova-packages/packages/agent-sdk"
 SDK_DIST_FILES = (
     "dist/client.d.ts",
@@ -79,6 +80,7 @@ def git_root(path: Path) -> Path | None:
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
+        timeout=COMMAND_TIMEOUT_SECONDS,
     )
     if probe.returncode != 0:
         return None
@@ -94,6 +96,7 @@ def assert_sdk_source_clean(sdk_root: Path, phase: str) -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        timeout=COMMAND_TIMEOUT_SECONDS,
     )
     if status.returncode != 0:
         raise RuntimeError(f"could not inspect local agent-sdk git status {phase}: {status.stderr.strip()}")
@@ -136,7 +139,7 @@ def assert_bundled_sdk_matches_source(sdk_root: Path) -> str:
 
 
 def run_sdk_command(sdk_root: Path, command: list[str]) -> None:
-    subprocess.run(command, cwd=sdk_root, check=True)
+    subprocess.run(command, cwd=sdk_root, check=True, timeout=COMMAND_TIMEOUT_SECONDS)
 
 
 def main() -> int:

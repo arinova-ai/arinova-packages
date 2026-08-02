@@ -455,6 +455,7 @@ assert.equal(adapterEvents.length, adapterEventsBeforeNonfiniteCallback);
 const agent = new FakeAgent();
 let shutdownCalls = 0;
 let controlClosedByShutdown = false;
+let shutdownClear = () => {};
 const { controlServer, tasks, clearControlState } = createControlServer({
   agent,
   agentSkills: [
@@ -465,10 +466,12 @@ const { controlServer, tasks, clearControlState } = createControlServer({
   sharedToken: token,
   onShutdown: () => {
     shutdownCalls += 1;
-    controlClosedByShutdown = true;
+    agent.disconnect();
+    shutdownClear();
   },
   maxBodyBytes: 512
 });
+shutdownClear = clearControlState;
 await listen(controlServer, 0, "127.0.0.1");
 const controlPort = controlServer.address().port;
 
@@ -1007,8 +1010,7 @@ try {
   assert.match(badShareNoteNoteArg.body.error, /args\[1\] must be a string/);
   const badScalarAgentStringCases = [
     ["sendHud", [{}, 123], 1],
-    ["deleteNote", [123, "note-1"], 0],
-    ["deleteNote", ["conv-1", 123], 1],
+    ["deleteNote", [123], 0],
     ["archiveBoard", [123], 0],
     ["listColumns", [123], 0],
     ["deleteColumn", [123], 0],
@@ -1262,58 +1264,58 @@ try {
   assert.match(badUpdateCardSortOrderType.body.error, /args\[1\]\.sortOrder must be a number/);
   const badCreateNoteTitleType = await post("/agent-sdk", {
     method: "createNote",
-    args: ["conv-1", { title: 123 }]
+    args: [{ title: 123 }]
   });
   assert.equal(badCreateNoteTitleType.status, 400);
-  assert.match(badCreateNoteTitleType.body.error, /args\[1\]\.title must be a string/);
+  assert.match(badCreateNoteTitleType.body.error, /args\[0\]\.title must be a string/);
   const badCreateNoteContentType = await post("/agent-sdk", {
     method: "createNote",
-    args: ["conv-1", { title: "Note", content: 123 }]
+    args: [{ title: "Note", content: 123 }]
   });
   assert.equal(badCreateNoteContentType.status, 400);
-  assert.match(badCreateNoteContentType.body.error, /args\[1\]\.content must be a string/);
+  assert.match(badCreateNoteContentType.body.error, /args\[0\]\.content must be a string/);
   const badCreateNoteNotebookIdType = await post("/agent-sdk", {
     method: "createNote",
-    args: ["conv-1", { title: "Note", notebookId: 123 }]
+    args: [{ title: "Note", notebookId: 123 }]
   });
   assert.equal(badCreateNoteNotebookIdType.status, 400);
-  assert.match(badCreateNoteNotebookIdType.body.error, /args\[1\]\.notebookId must be a string/);
+  assert.match(badCreateNoteNotebookIdType.body.error, /args\[0\]\.notebookId must be a string/);
   const badUpdateNoteContentType = await post("/agent-sdk", {
     method: "updateNote",
-    args: ["conv-1", "note-1", { content: 123 }]
+    args: ["note-1", { content: 123 }]
   });
   assert.equal(badUpdateNoteContentType.status, 400);
-  assert.match(badUpdateNoteContentType.body.error, /args\[2\]\.content must be a string/);
-  const badListNotesTagsType = await post("/agent-sdk", { method: "listNotes", args: ["conv-1", { tags: "work" }] });
+  assert.match(badUpdateNoteContentType.body.error, /args\[1\]\.content must be a string/);
+  const badListNotesTagsType = await post("/agent-sdk", { method: "listNotes", args: [{ tags: "work" }] });
   assert.equal(badListNotesTagsType.status, 400);
-  assert.match(badListNotesTagsType.body.error, /args\[1\]\.tags must be an array/);
-  const badListNotesBeforeType = await post("/agent-sdk", { method: "listNotes", args: ["conv-1", { before: 10 }] });
+  assert.match(badListNotesTagsType.body.error, /args\[0\]\.tags must be an array/);
+  const badListNotesBeforeType = await post("/agent-sdk", { method: "listNotes", args: [{ before: 10 }] });
   assert.equal(badListNotesBeforeType.status, 400);
-  assert.match(badListNotesBeforeType.body.error, /args\[1\]\.before must be a string/);
-  const badListNotesLimitType = await post("/agent-sdk", { method: "listNotes", args: ["conv-1", { limit: "10" }] });
+  assert.match(badListNotesBeforeType.body.error, /args\[0\]\.before must be a string/);
+  const badListNotesLimitType = await post("/agent-sdk", { method: "listNotes", args: [{ limit: "10" }] });
   assert.equal(badListNotesLimitType.status, 400);
-  assert.match(badListNotesLimitType.body.error, /args\[1\]\.limit must be a number/);
-  const badListNotesOffsetType = await post("/agent-sdk", { method: "listNotes", args: ["conv-1", { offset: "20" }] });
+  assert.match(badListNotesLimitType.body.error, /args\[0\]\.limit must be a number/);
+  const badListNotesOffsetType = await post("/agent-sdk", { method: "listNotes", args: [{ offset: "20" }] });
   assert.equal(badListNotesOffsetType.status, 400);
-  assert.match(badListNotesOffsetType.body.error, /args\[1\]\.offset must be a number/);
-  const badListNotesArchivedType = await post("/agent-sdk", { method: "listNotes", args: ["conv-1", { archived: "true" }] });
+  assert.match(badListNotesOffsetType.body.error, /args\[0\]\.offset must be a number/);
+  const badListNotesArchivedType = await post("/agent-sdk", { method: "listNotes", args: [{ archived: "true" }] });
   assert.equal(badListNotesArchivedType.status, 400);
-  assert.match(badListNotesArchivedType.body.error, /args\[1\]\.archived must be a boolean/);
-  const badListNotesTagsItemType = await post("/agent-sdk", { method: "listNotes", args: ["conv-1", { tags: ["work", 3] }] });
+  assert.match(badListNotesArchivedType.body.error, /args\[0\]\.archived must be a boolean/);
+  const badListNotesTagsItemType = await post("/agent-sdk", { method: "listNotes", args: [{ tags: ["work", 3] }] });
   assert.equal(badListNotesTagsItemType.status, 400);
-  assert.match(badListNotesTagsItemType.body.error, /args\[1\]\.tags items must be strings/);
+  assert.match(badListNotesTagsItemType.body.error, /args\[0\]\.tags items must be strings/);
   const badCreateNoteTagsType = await post("/agent-sdk", {
     method: "createNote",
-    args: ["conv-1", { title: "Note", tags: "work" }]
+    args: [{ title: "Note", tags: "work" }]
   });
   assert.equal(badCreateNoteTagsType.status, 400);
-  assert.match(badCreateNoteTagsType.body.error, /args\[1\]\.tags must be an array/);
+  assert.match(badCreateNoteTagsType.body.error, /args\[0\]\.tags must be an array/);
   const badCreateNoteTagsItemType = await post("/agent-sdk", {
     method: "createNote",
-    args: ["conv-1", { title: "Note", tags: ["work", 3] }]
+    args: [{ title: "Note", tags: ["work", 3] }]
   });
   assert.equal(badCreateNoteTagsItemType.status, 400);
-  assert.match(badCreateNoteTagsItemType.body.error, /args\[1\]\.tags items must be strings/);
+  assert.match(badCreateNoteTagsItemType.body.error, /args\[0\]\.tags items must be strings/);
   const trimmedStructuredHistoryCursors = await post("/agent-sdk", {
     method: "fetchHistory",
     args: ["  conv-sidecar-history  ", { before: "  msg-before  ", after: " msg-after ", around: " msg-around ", limit: 3 }]
@@ -1335,16 +1337,16 @@ try {
   ]);
   const badUpdateNoteTagsType = await post("/agent-sdk", {
     method: "updateNote",
-    args: ["conv-1", "note-1", { tags: "work" }]
+    args: ["note-1", { tags: "work" }]
   });
   assert.equal(badUpdateNoteTagsType.status, 400);
-  assert.match(badUpdateNoteTagsType.body.error, /args\[2\]\.tags must be an array/);
+  assert.match(badUpdateNoteTagsType.body.error, /args\[1\]\.tags must be an array/);
   const badUpdateNoteTagsItemType = await post("/agent-sdk", {
     method: "updateNote",
-    args: ["conv-1", "note-1", { tags: ["work", 3] }]
+    args: ["note-1", { tags: ["work", 3] }]
   });
   assert.equal(badUpdateNoteTagsItemType.status, 400);
-  assert.match(badUpdateNoteTagsItemType.body.error, /args\[2\]\.tags items must be strings/);
+  assert.match(badUpdateNoteTagsItemType.body.error, /args\[1\]\.tags items must be strings/);
   const badAgentActionNameType = await post("/agent-sdk", {
     method: "callAction",
     args: [123, {}]
@@ -1538,9 +1540,9 @@ try {
     }], "args[0]"],
     ["callAction", ["agent.action", {}, { unknown: true }], "args[2]"],
     ["fetchHistory", ["conv-1", { unknown: true }], "args[1]"],
-    ["listNotes", ["conv-1", { unknown: true }], "args[1]"],
-    ["createNote", ["conv-1", { title: "Note", unknown: true }], "args[1]"],
-    ["updateNote", ["conv-1", "note-1", { unknown: true }], "args[2]"],
+    ["listNotes", [{ unknown: true }], "args[0]"],
+    ["createNote", [{ title: "Note", unknown: true }], "args[0]"],
+    ["updateNote", ["note-1", { unknown: true }], "args[1]"],
     ["createCard", [{ title: "Card", unknown: true }], "args[0]"],
     ["updateCard", ["card-1", { unknown: true }], "args[1]"],
     ["createBoard", [{ name: "Board", unknown: true }], "args[0]"],
@@ -1871,10 +1873,10 @@ try {
   const failedComplete = await post("/complete", { taskId: "task-complete-failure", content: "retryable done" });
   assert.equal(failedComplete.status, 500);
   assert.match(failedComplete.body.error, /complete delivery failed/);
-  assert.deepEqual((await post("/healthz")).body, healthBody(true, 1));
+  assert.deepEqual((await post("/healthz")).body, healthBody(true, 0));
   completeFailureTask.throwComplete = false;
-  await post("/complete", { taskId: "task-complete-failure", content: "retryable done" });
-  assert.equal(completeFailureTask.completed, "retryable done");
+  assert.equal((await post("/complete", { taskId: "task-complete-failure", content: "retryable done" })).status, 500);
+  assert.equal(completeFailureTask.completed, null);
   assert.deepEqual((await post("/healthz")).body, healthBody(true, 0));
 
   const errorTask = new FakeTask();
@@ -1908,10 +1910,10 @@ try {
   const failedError = await post("/error", { taskId: "task-error-failure", error: "retryable error" });
   assert.equal(failedError.status, 500);
   assert.match(failedError.body.error, /error delivery failed/);
-  assert.deepEqual((await post("/healthz")).body, healthBody(true, 1));
+  assert.deepEqual((await post("/healthz")).body, healthBody(true, 0));
   errorFailureTask.throwError = false;
-  await post("/error", { taskId: "task-error-failure", error: "retryable error" });
-  assert.deepEqual(errorFailureTask.errors, ["retryable error"]);
+  assert.equal((await post("/error", { taskId: "task-error-failure", error: "retryable error" })).status, 500);
+  assert.deepEqual(errorFailureTask.errors, []);
   assert.deepEqual((await post("/healthz")).body, healthBody(true, 0));
 
   const falsyTask = new FakeTask();
@@ -1999,17 +2001,11 @@ try {
     })).status,
     200
   );
-  assert.equal(completeWhileDisconnectedTask.completed, null);
-  assert.equal(completeWhileDisconnectedTask.completeOptions, null);
+  assert.equal(completeWhileDisconnectedTask.completed, "queued complete");
+  assert.deepEqual(completeWhileDisconnectedTask.completeOptions, { mentions: ["user-offline"] });
   assert.deepEqual((await post("/healthz")).body, healthBody(false, 0));
   agent.emit("connected");
-  const completeReconnectDeadline = Date.now() + 1000;
-  while (
-    completeWhileDisconnectedTask.completed !== "queued complete"
-    && Date.now() < completeReconnectDeadline
-  ) {
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
+  await new Promise((resolve) => setTimeout(resolve, 25));
   assert.equal(completeWhileDisconnectedTask.completed, "queued complete");
   assert.deepEqual(completeWhileDisconnectedTask.completeOptions, { mentions: ["user-offline"] });
   assert.deepEqual((await post("/healthz")).body, healthBody(true, 0));
@@ -2026,7 +2022,7 @@ try {
   ) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  assert.equal((await post("/complete", { taskId: "task-failing-complete-while-disconnected", content: "queued failing complete" })).status, 200);
+  assert.equal((await post("/complete", { taskId: "task-failing-complete-while-disconnected", content: "queued failing complete" })).status, 500);
   agent.emit("connected");
   const failingCompleteReconnectDeadline = Date.now() + 1000;
   while (
@@ -2050,16 +2046,10 @@ try {
   }
   assert.deepEqual((await post("/healthz")).body, healthBody(false, 1));
   assert.equal((await post("/error", { taskId: "task-error-while-disconnected", error: "queued error" })).status, 200);
-  assert.deepEqual(errorWhileDisconnectedTask.errors, []);
+  assert.deepEqual(errorWhileDisconnectedTask.errors, ["queued error"]);
   assert.deepEqual((await post("/healthz")).body, healthBody(false, 0));
   agent.emit("connected");
-  const errorReconnectDeadline = Date.now() + 1000;
-  while (
-    errorWhileDisconnectedTask.errors.length === 0
-    && Date.now() < errorReconnectDeadline
-  ) {
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
+  await new Promise((resolve) => setTimeout(resolve, 25));
   assert.deepEqual(errorWhileDisconnectedTask.errors, ["queued error"]);
   assert.deepEqual((await post("/healthz")).body, healthBody(true, 0));
 
@@ -2075,7 +2065,7 @@ try {
   ) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  assert.equal((await post("/error", { taskId: "task-failing-error-while-disconnected", error: "queued failing error" })).status, 200);
+  assert.equal((await post("/error", { taskId: "task-failing-error-while-disconnected", error: "queued failing error" })).status, 500);
   agent.emit("connected");
   const failingErrorReconnectDeadline = Date.now() + 1000;
   while (

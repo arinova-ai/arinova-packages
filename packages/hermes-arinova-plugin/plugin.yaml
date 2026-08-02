@@ -145,6 +145,10 @@ optional_env:
     description: "SDK agent-wide scheduler max consecutive tasks per conversation"
     prompt: "Max consecutive tasks per conversation"
     password: false
+  - name: ARINOVA_MAX_QUEUED_TASKS
+    description: "SDK global queued-task limit before new tasks are rejected"
+    prompt: "Max queued tasks"
+    password: false
   - name: ARINOVA_CONNECT_TIMEOUT_MS
     description: "Hermes adapter wait time for sidecar SDK authentication (default 30000)"
     prompt: "Connect timeout (ms)"
@@ -169,3 +173,35 @@ optional_env:
     description: "Maximum bytes to download per inbound Arinova attachment (default 52428800)"
     prompt: "Attachment download byte limit"
     password: false
+  - name: ARINOVA_ATTACHMENT_MAX_COUNT
+    description: "Maximum number of inbound attachments downloaded per task"
+    prompt: "Attachment count limit"
+    password: false
+  - name: ARINOVA_ATTACHMENT_TOTAL_MAX_BYTES
+    description: "Aggregate inbound attachment byte limit per task"
+    prompt: "Attachment aggregate byte limit"
+    password: false
+  - name: ARINOVA_ATTACHMENT_TOTAL_TIMEOUT_MS
+    description: "Aggregate inbound attachment download timeout"
+    prompt: "Attachment aggregate timeout (ms)"
+    password: false
+  - name: ARINOVA_ALLOW_LOCAL_UPLOADS
+    description: "Enable workspace-scoped local path uploads"
+    prompt: "Allow local uploads?"
+    password: false
+  - name: ARINOVA_UPLOAD_ROOT
+    description: "Required root directory for local path uploads"
+    prompt: "Local upload root"
+    password: false
+  - name: ARINOVA_UPLOAD_MAX_BYTES
+    description: "Maximum bytes accepted from a local or base64 upload"
+    prompt: "Upload byte limit"
+    password: false
+  - name: ARINOVA_ADAPTER_URL
+    description: "Advanced sidecar callback URL override"
+    prompt: "Adapter callback URL"
+    password: false
+  - name: ARINOVA_BRIDGE_TOKEN
+    description: "Advanced pre-shared loopback bridge token"
+    prompt: "Bridge token"
+    password: true

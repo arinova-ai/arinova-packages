@@ -12,7 +12,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SDK_ROOT = Path.home() / ".arinova-bridge/workspace/projects/arinova-packages/packages/agent-sdk"
+DEFAULT_SDK_ROOT = ROOT.parent / "agent-sdk"
+COMMAND_TIMEOUT_SECONDS = 300
 LIVE_SKIP_PREFIX = "live Arinova smoke skipped"
 PY_COMPILE_FILES = (
     "adapter.py",
@@ -28,6 +29,7 @@ PY_COMPILE_FILES = (
     "scripts/check_live_connection_gate.py",
     "scripts/check_clean_install.py",
     "scripts/check_user_install.py",
+    "scripts/install_check_helpers.py",
 )
 
 
@@ -55,7 +57,7 @@ LIVE_CREDENTIAL_ENV_KEYS = (
 
 def run(command: list[str], *, cwd: Path = ROOT, env: dict[str, str] | None = None) -> int:
     print("+ " + " ".join(command), flush=True)
-    return subprocess.run(command, cwd=cwd, env=env).returncode
+    return subprocess.run(command, cwd=cwd, env=env, timeout=COMMAND_TIMEOUT_SECONDS).returncode
 
 
 def run_captured(command: list[str], *, cwd: Path = ROOT, env: dict[str, str] | None = None) -> tuple[int, str]:
@@ -67,6 +69,7 @@ def run_captured(command: list[str], *, cwd: Path = ROOT, env: dict[str, str] | 
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        timeout=COMMAND_TIMEOUT_SECONDS,
     )
     if process.stdout:
         print(process.stdout, end="" if process.stdout.endswith("\n") else "\n")
@@ -88,6 +91,7 @@ def assert_hermes_source_clean(hermes_root: Path, phase: str) -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        timeout=COMMAND_TIMEOUT_SECONDS,
     )
     if status.returncode != 0:
         raise RuntimeError(f"could not inspect Hermes source git status {phase}: {status.stderr.strip()}")
@@ -104,6 +108,7 @@ def git_root(path: Path) -> Path | None:
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
+        timeout=COMMAND_TIMEOUT_SECONDS,
     )
     if result.returncode != 0:
         return None
@@ -119,6 +124,7 @@ def assert_sdk_source_clean(sdk_root: Path, phase: str) -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        timeout=COMMAND_TIMEOUT_SECONDS,
     )
     if status.returncode != 0:
         raise RuntimeError(f"could not inspect local agent-sdk git status {phase}: {status.stderr.strip()}")
@@ -139,6 +145,7 @@ def _python_probe(command: str) -> tuple[int, int] | None:
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
+        timeout=COMMAND_TIMEOUT_SECONDS,
     )
     if probe.returncode != 0:
         return None

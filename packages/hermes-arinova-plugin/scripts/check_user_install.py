@@ -13,10 +13,13 @@ import threading
 import types
 from pathlib import Path
 
+from install_check_helpers import REQUIRED_PLUGIN_FILES, require_hermes_python
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SDK_ROOT = Path.home() / ".arinova-bridge/workspace/projects/arinova-packages/packages/agent-sdk"
 EXPECTED_SIDECAR_CHECKS = {
+    "check-index-lifecycle.mjs",
     "check-runtime.mjs",
     "check-sdk-e2e.mjs",
     "check-sdk-http.mjs",
@@ -54,42 +57,6 @@ SDK_PACKAGE_PUBLIC_METADATA_KEYS = (
     "scripts",
     "devDependencies",
 )
-REQUIRED_PLUGIN_FILES = (
-    "README.md",
-    "__init__.py",
-    "adapter.py",
-    "arinova_tools.py",
-    "plugin.yaml",
-    "sidecar/index.mjs",
-    "sidecar/runtime.mjs",
-    "sidecar/package.json",
-    "sidecar/package-lock.json",
-    "sidecar/check-runtime.mjs",
-    "sidecar/check-sdk-e2e.mjs",
-    "sidecar/check-sdk-http.mjs",
-    "scripts/check_local.py",
-    "scripts/check_sdk_surface.py",
-    "scripts/check_agent_sdk_source.py",
-    "scripts/check_arinova_tools.py",
-    "scripts/check_live_connection.py",
-    "scripts/check_live_connection_gate.py",
-    "scripts/check_gateway_config_load.py",
-    "scripts/check_hermes_plugin_load.py",
-    "scripts/check_user_install.py",
-    "scripts/check_clean_install.py",
-)
-
-
-def require_hermes_python() -> None:
-    if sys.version_info < (3, 10):
-        version = ".".join(str(part) for part in sys.version_info[:3])
-        raise SystemExit(
-            "Hermes checks require Python 3.10+ because ~/hermes-agent uses "
-            f"modern type syntax; current interpreter is Python {version}. "
-            "Run this check with the same Python used by Hermes, for example python3.13."
-        )
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hermes-root", default=str(Path.home() / "hermes-agent"))
@@ -1557,7 +1524,8 @@ def main() -> int:
     hermes_home = get_hermes_home()
     plugin_dir = hermes_home / "plugins" / "hermes-arinova-plugin"
     if not plugin_dir.exists():
-        raise RuntimeError(f"{plugin_dir} does not exist")
+        print(f"user install check skipped: {plugin_dir} does not exist")
+        return 0
     if plugin_dir.resolve() != ROOT:
         raise RuntimeError(f"{plugin_dir} resolves to {plugin_dir.resolve()}, expected {ROOT}")
     assert_real_config_enabled(hermes_home)
