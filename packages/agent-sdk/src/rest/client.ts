@@ -27,9 +27,11 @@ import type {
   MemoryEntry,
   MemoryOrigin,
   SkillPrompt,
+  ShareNoteResult,
 } from "../types.js";
 import { delayWithSignal, httpRetryDelayMs, toHttpBaseUrl } from "../transport.js";
 import { encodePathSegment } from "./path.js";
+import { parseJsonWithoutDuplicateKeys } from "./json.js";
 
 export class ArinovaApiError extends Error {
   readonly status: number;
@@ -64,6 +66,7 @@ export abstract class ArinovaRestClient {
       headers?: Record<string, string>;
       response?: "json" | "void";
       errorLabel?: string;
+      malformedJsonLabel?: string;
       signal?: AbortSignal;
       timeoutMs?: number;
       retries?: number;
@@ -149,7 +152,7 @@ export abstract class ArinovaRestClient {
       let body: unknown = text;
       if (text) {
         try {
-          body = JSON.parse(text);
+          body = parseJsonWithoutDuplicateKeys(text);
         } catch {
           // Preserve non-JSON bodies as text.
         }
@@ -162,7 +165,16 @@ export abstract class ArinovaRestClient {
       );
     }
     if (options.response === "void" || response.status === 204) return undefined as T;
-    return await response.json() as T;
+    const text = await response.text();
+    try {
+      return parseJsonWithoutDuplicateKeys(text) as T;
+    } catch (error) {
+      throw new ArinovaApiError(
+        `${options.malformedJsonLabel ?? options.errorLabel ?? "Request"} returned malformed JSON: ${error instanceof Error ? error.message : String(error)}`,
+        response.status,
+        text,
+      );
+    }
   }
 
   /**
@@ -187,6 +199,7 @@ export abstract class ArinovaRestClient {
     return this.request<UploadResult>("POST", "/api/v1/files/upload", {
       body: formData,
       errorLabel: "Upload",
+      malformedJsonLabel: "uploadFile",
     });
   }
 
@@ -252,6 +265,15 @@ export abstract class ArinovaRestClient {
       response: "void",
       errorLabel: "deleteNote",
     });
+  }
+
+  /** Share a note into a conversation and return the created message preview. */
+  async shareNote(conversationId: string, noteId: string): Promise<ShareNoteResult> {
+    return this.request<ShareNoteResult>(
+      "POST",
+      `/api/v1/notes/${encodePathSegment(noteId, "noteId")}/share`,
+      { body: { conversationId }, errorLabel: "shareNote" },
+    );
   }
 
   // ── Kanban API ────────────────────────────────────────────────
@@ -581,6 +603,10 @@ export abstract class ArinovaRestClient {
       score: number;
       source?: string;
     }>>("GET", `/api/v1/memories/search?${params}`, { errorLabel: "queryMemory" });
+
+    if (!Array.isArray(raw)) {
+      throw new ArinovaApiError("queryMemory returned a non-array response", 200, raw);
+    }
 
     return raw.map((r) => {
       const entry: MemoryEntry = {

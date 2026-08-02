@@ -150,6 +150,20 @@ describe("API client request builders", () => {
     ).rejects.toThrow("Upload failed (413): file too large");
   });
 
+  it("rejects duplicate keys in successful REST JSON responses", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response('{"url":"/first","url":"/second","fileName":"x.txt","fileType":"text/plain","fileSize":1}'),
+    );
+    const agent = new ArinovaAgent({
+      serverUrl: "ws://localhost:21001",
+      botToken: "ari_bot_token",
+    });
+
+    await expect(
+      agent.uploadFile("conv-1", new Uint8Array([1]), "x.txt"),
+    ).rejects.toThrow("uploadFile returned malformed JSON: JSON object contains duplicate key: url");
+  });
+
   it("fetchHistory builds paginated request with bearer auth and returns backend metadata", async () => {
     const response = {
       messages: [
@@ -266,6 +280,7 @@ describe("API client request builders", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ notes: [], hasMore: false }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: "n1", title: "Note" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ messageId: "m1", noteId: "n1", title: "Note", preview: "Preview", tags: [] }), { status: 200 }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     const agent = new ArinovaAgent({
       serverUrl: "wss://chat.example.test",
@@ -273,12 +288,15 @@ describe("API client request builders", () => {
     });
     await agent.listNotes({ limit: 10 });
     await agent.createNote({ title: "Note" });
+    await expect(agent.shareNote("conversation/1", "n1")).resolves.toMatchObject({ messageId: "m1" });
     await agent.deleteNote("n1");
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "https://chat.example.test/api/v1/notes?limit=10",
       "https://chat.example.test/api/v1/notes",
+      "https://chat.example.test/api/v1/notes/n1/share",
       "https://chat.example.test/api/v1/notes/n1",
     ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({ conversationId: "conversation/1" });
   });
 
   it("keeps attacker-controlled identifiers inside one encoded URL segment", async () => {

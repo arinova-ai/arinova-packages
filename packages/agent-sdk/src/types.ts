@@ -49,6 +49,14 @@ export interface ArinovaAgentOptions {
   logger?: Pick<Console, "warn" | "info" | "error">;
 }
 
+/** Runtime capability block sent during agent_auth. */
+export interface AgentRuntimeInfo {
+  name: string;
+  version: string;
+  language?: string;
+  platform?: string;
+}
+
 /** Options for an action_call frame. */
 export interface ActionCallOptions {
   /** Agent-side correlation id. If omitted a random call id is generated. */
@@ -243,6 +251,15 @@ export interface Note {
   updatedAt: string;
 }
 
+/** Note preview returned after sharing a note into a conversation. */
+export interface ShareNoteResult {
+  messageId: string;
+  noteId: string;
+  title: string;
+  preview: string;
+  tags: string[];
+}
+
 /** Options for listNotes(). */
 export interface ListNotesOptions {
   /** Cursor: fetch notes created before this note ID. */
@@ -336,6 +353,13 @@ export interface UpdateCardBody {
   priority?: string;
   columnId?: string;
   sortOrder?: number;
+}
+
+/** Result from listBoards(). */
+export interface ListBoardsResult {
+  boards: KanbanBoard[];
+  columns: KanbanColumn[];
+  cards: KanbanCard[];
 }
 
 /** Body for createBoard(). */
