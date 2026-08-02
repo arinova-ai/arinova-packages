@@ -45,8 +45,7 @@ export const EXPECTED_HTTP_SDK_METHODS = [
   "addCardLabel",
   "removeCardLabel",
   "queryMemory",
-  "fetchSkillPrompt",
-  "shareNote"
+  "fetchSkillPrompt"
 ];
 export function json(res, status, body) {
   const payload = Buffer.from(JSON.stringify(body));

@@ -12,7 +12,6 @@ export type {
   FetchHistoryOptions,
   FetchHistoryResult,
   Note,
-  ShareNoteResult,
   ListNotesOptions,
   ListNotesResult,
   CreateNoteBody,

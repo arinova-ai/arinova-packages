@@ -57,7 +57,6 @@ AGENT_METHODS: tuple[str, ...] = (
     "removeCardLabel",
     "queryMemory",
     "fetchSkillPrompt",
-    "shareNote",
 )
 
 # The bridge keeps the full SDK surface for trusted integration code, but model
@@ -128,7 +127,6 @@ METHOD_DESCRIPTIONS: dict[str, str] = {
     "removeCardLabel": "Remove a label from an Arinova kanban card.",
     "queryMemory": "Search Arinova agent memories.",
     "fetchSkillPrompt": "Fetch an installed Arinova skill prompt.",
-    "shareNote": "Share an Arinova note into a conversation.",
 }
 
 STRING_ARRAY_SCHEMA = {"type": "array", "items": {"type": "string"}}
@@ -449,7 +447,6 @@ ARG_SPECS: dict[str, tuple[tuple[str, dict[str, Any]], ...]] = {
     "removeCardLabel": (("card_id", {"type": "string"}), ("label_id", {"type": "string"})),
     "queryMemory": (("options", {**QUERY_MEMORY_OPTIONS_SCHEMA, "description": "Memory query options."}),),
     "fetchSkillPrompt": (("skill_slug", {"type": "string"}),),
-    "shareNote": (("conversation_id", {"type": "string"}), ("note_id", {"type": "string"})),
 }
 
 TASK_ARG_SPECS: dict[str, tuple[tuple[str, dict[str, Any]], ...]] = {
@@ -546,7 +543,6 @@ REQUIRED_ARG_COUNTS: dict[str, int] = {
     "removeCardLabel": 2,
     "queryMemory": 1,
     "fetchSkillPrompt": 1,
-    "shareNote": 2,
 }
 TASK_REQUIRED_ARG_COUNTS: dict[str, int] = {
     "uploadFile": 2,

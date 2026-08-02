@@ -220,8 +220,7 @@ export const agentMethods = new Set([
   "addCardLabel",
   "removeCardLabel",
   "queryMemory",
-  "fetchSkillPrompt",
-  "shareNote"
+  "fetchSkillPrompt"
 ]);
 
 export const taskMethods = new Set(["uploadFile", "fetchHistory", "callAction"]);
@@ -263,8 +262,7 @@ const agentRequiredArgCounts = new Map([
   ["addCardLabel", 2],
   ["removeCardLabel", 2],
   ["queryMemory", 1],
-  ["fetchSkillPrompt", 1],
-  ["shareNote", 2]
+  ["fetchSkillPrompt", 1]
 ]);
 
 const agentMaxArgCounts = new Map([
@@ -330,8 +328,7 @@ const agentArgTypes = new Map([
   ["addCardLabel", ["string", "string"]],
   ["removeCardLabel", ["string", "string"]],
   ["queryMemory", ["object"]],
-  ["fetchSkillPrompt", ["string"]],
-  ["shareNote", ["string", "string"]]
+  ["fetchSkillPrompt", ["string"]]
 ]);
 
 const taskArgTypes = new Map([
@@ -378,8 +375,7 @@ const agentArgNames = new Map([
   ["addCardLabel", ["card_id", "label_id"]],
   ["removeCardLabel", ["card_id", "label_id"]],
   ["queryMemory", ["options"]],
-  ["fetchSkillPrompt", ["skill_slug"]],
-  ["shareNote", ["conversation_id", "note_id"]]
+  ["fetchSkillPrompt", ["skill_slug"]]
 ]);
 
 const taskArgNames = new Map([

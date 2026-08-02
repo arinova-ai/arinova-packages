@@ -725,15 +725,12 @@ try {
   });
   assert.equal(trimmedAgentMessageArgs.status, 200);
   assert.deepEqual(agent.calls.at(-1), ["sendMessage", "conv-sidecar-trim", " hello sidecar trim "]);
-  const trimmedAgentShareNoteArgs = await post("/agent-sdk", {
-    method: "shareNote",
-    args: ["  conv-share-sidecar-trim  ", "  note-share-sidecar-trim  "]
+  const trimmedAgentLinkCardNoteArgs = await post("/agent-sdk", {
+    method: "linkCardNote",
+    args: ["  card-link-sidecar-trim  ", "  note-link-sidecar-trim  "]
   });
-  assert.equal(trimmedAgentShareNoteArgs.status, 200);
-  assert.deepEqual(trimmedAgentShareNoteArgs.body.result, {
-    conversationId: "conv-share-sidecar-trim",
-    noteId: "note-share-sidecar-trim"
-  });
+  assert.equal(trimmedAgentLinkCardNoteArgs.status, 200);
+  assert.deepEqual(agent.calls.at(-1), ["linkCardNote", "card-link-sidecar-trim", "note-link-sidecar-trim"]);
   const badAgentMethodObjectArgs = await post("/agent-sdk", { method: "notAllowed", args: {} });
   assert.equal(badAgentMethodObjectArgs.status, 400);
   assert.match(badAgentMethodObjectArgs.body.error, /unsupported SDK method/);
@@ -1038,12 +1035,6 @@ try {
   const badFetchSkillPromptArg = await post("/agent-sdk", { method: "fetchSkillPrompt", args: [123] });
   assert.equal(badFetchSkillPromptArg.status, 400);
   assert.match(badFetchSkillPromptArg.body.error, /args\[0\] must be a string/);
-  const badShareNoteConversationArg = await post("/agent-sdk", { method: "shareNote", args: [123, "note-1"] });
-  assert.equal(badShareNoteConversationArg.status, 400);
-  assert.match(badShareNoteConversationArg.body.error, /args\[0\] must be a string/);
-  const badShareNoteNoteArg = await post("/agent-sdk", { method: "shareNote", args: ["conv-1", 123] });
-  assert.equal(badShareNoteNoteArg.status, 400);
-  assert.match(badShareNoteNoteArg.body.error, /args\[1\] must be a string/);
   const badScalarAgentStringCases = [
     ["sendHud", [{}, 123], 1],
     ["deleteNote", [123], 0],

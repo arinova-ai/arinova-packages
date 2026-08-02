@@ -206,7 +206,6 @@ NOTE_FIELDS = {
 }
 CARD_COMMIT_FIELDS = {"cardId", "commitHash", "message", "createdAt"}
 CARD_NOTE_FIELDS = {"id", "title", "tags", "createdAt"}
-SHARE_NOTE_RESULT_FIELDS = {"messageId", "noteId", "title", "preview", "tags"}
 ONBOARDING_SEED_FIELDS = {"kind", "seedId", "agentId", "action", "prompt"}
 
 
@@ -669,15 +668,6 @@ def _sdk_card_note(value: object) -> bool:
     )
 
 
-def _sdk_share_note_result(value: object) -> bool:
-    return (
-        isinstance(value, dict)
-        and all(isinstance(value.get(field), str) for field in ("messageId", "noteId", "title", "preview"))
-        and isinstance(value.get("tags"), list)
-        and all(isinstance(tag, str) for tag in value.get("tags"))
-    )
-
-
 ACTION_ERROR_FIELDS = {"code", "message", "details"}
 ACTION_CONFIRMATION_FIELDS = {"confirmationId", "title", "summary", "expiresAt"}
 ACTION_CALL_RESULT_FIELDS = {
@@ -1027,16 +1017,6 @@ def parse_args() -> argparse.Namespace:
         "--list-card-notes-card",
         default="",
         help="Optional card id for a read-only SDK listCardNotes() probe.",
-    )
-    parser.add_argument(
-        "--share-note-conversation",
-        default="",
-        help="Optional conversation id for an SDK shareNote() probe.",
-    )
-    parser.add_argument(
-        "--share-note-id",
-        default="",
-        help="Optional note id for an SDK shareNote() probe.",
     )
     parser.add_argument(
         "--create-note-conversation",
@@ -1709,20 +1689,6 @@ async def main() -> int:
                     if not _sdk_card_note(note):
                         raise RuntimeError(f"SDK listCardNotes() returned malformed card notes result: {notes!r}")
                 print(f"live Arinova listCardNotes OK: card_id={list_card_notes_card} notes={len(notes)}")
-            share_note_conversation = str(args.share_note_conversation or "").strip()
-            share_note_id = str(args.share_note_id or "").strip()
-            if share_note_conversation or share_note_id:
-                if not share_note_conversation or not share_note_id:
-                    raise RuntimeError("SDK shareNote() probe requires both conversation id and note id")
-                share_result = await adapter.call_agent_sdk("shareNote", share_note_conversation, share_note_id)
-                if (
-                    not _sdk_share_note_result(share_result)
-                ):
-                    raise RuntimeError(f"SDK shareNote() returned malformed share result: {share_result!r}")
-                print(
-                    "live Arinova shareNote OK: "
-                    f"conversation_id={share_note_conversation} note_id={share_note_id}"
-                )
             create_note_conversation = str(args.create_note_conversation or "").strip()
             create_note_body_json = str(args.create_note_body_json or "").strip()
             if create_note_conversation or create_note_body_json:

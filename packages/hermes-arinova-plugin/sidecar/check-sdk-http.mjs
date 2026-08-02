@@ -148,22 +148,6 @@ const backend = createServer(async (req, res) => {
     res.writeHead(204);
     return res.end();
   }
-  if (url.pathname === "/api/v1/notes/note-1/share") {
-    return json(res, 200, { messageId: "msg-1", noteId: "note-1", title: "Note", preview: "Preview", tags: [] });
-  }
-  if (url.pathname === "/api/v1/notes/note%2Fslash/share") {
-    return json(res, 200, { messageId: "msg-slash", noteId: "note/slash", title: "Slash", preview: "Preview", tags: [] });
-  }
-  if (url.pathname === "/api/v1/notes/note-share-missing/share") {
-    res.writeHead(404, {
-      "Content-Type": "text/plain",
-      "Content-Length": "18"
-    });
-    return res.end("share note missing");
-  }
-  if (url.pathname === "/api/v1/notes/note-duplicate-json/share") {
-    return rawJson(res, 200, '{"messageId":"msg-1","messageId":"msg-2","noteId":"note-duplicate-json"}');
-  }
   if (url.pathname === "/api/v1/kanban/boards" && req.method === "GET") {
     if (duplicateNextListBoards) {
       duplicateNextListBoards = false;
@@ -809,28 +793,6 @@ try {
     await sdkError("fetchSkillPrompt", ["duplicate-json"]),
     /fetchSkillPrompt returned malformed JSON: JSON object contains duplicate key: promptContent/
   );
-  assert.deepEqual(await sdk("shareNote", ["conv-1", "note-1"]), {
-    messageId: "msg-1",
-    noteId: "note-1",
-    title: "Note",
-    preview: "Preview",
-    tags: []
-  });
-  assert.deepEqual(await sdk("shareNote", ["conv-1", "note/slash"]), {
-    messageId: "msg-slash",
-    noteId: "note/slash",
-    title: "Slash",
-    preview: "Preview",
-    tags: []
-  });
-  assert.match(
-    await sdkError("shareNote", ["conv-1", "note-share-missing"]),
-    /shareNote failed \(404\): share note missing/
-  );
-  assert.match(
-    await sdkError("shareNote", ["conv-1", "note-duplicate-json"]),
-    /shareNote returned malformed JSON: JSON object contains duplicate key: messageId/
-  );
 
   assert.deepEqual(jsonBody(requestFor("POST", "/api/v1/messages/send")), { conversationId: "conv-1", content: "hello" });
   assert.deepEqual(jsonBody(requestsFor("POST", "/api/v1/messages/send")[1]), { conversationId: "conv-empty", content: "" });
@@ -925,10 +887,6 @@ try {
   assertEmptyBody(requestFor("DELETE", "/api/v1/notes/note-1"));
   assert.deepEqual(Object.fromEntries(searchParams(requestFor("DELETE", "/api/v1/notes/note-missing"))), {});
   assertEmptyBody(requestFor("DELETE", "/api/v1/notes/note-missing"));
-  assert.deepEqual(jsonBody(requestFor("POST", "/api/v1/notes/note-1/share")), { conversationId: "conv-1" });
-  assert.deepEqual(jsonBody(requestFor("POST", "/api/v1/notes/note%2Fslash/share")), { conversationId: "conv-1" });
-  assert.deepEqual(jsonBody(requestFor("POST", "/api/v1/notes/note-share-missing/share")), { conversationId: "conv-1" });
-  assert.deepEqual(jsonBody(requestFor("POST", "/api/v1/notes/note-duplicate-json/share")), { conversationId: "conv-1" });
   assertEmptyBody(requestFor("GET", "/api/v1/kanban/boards"));
   assert.deepEqual(jsonBody(requestFor("POST", "/api/v1/kanban/cards")), {
     title: "Card",

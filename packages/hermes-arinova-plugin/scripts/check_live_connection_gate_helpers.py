@@ -483,10 +483,6 @@ def run_full_env_import_probe_case(hermes_home: Path, fake_hermes_root: Path) ->
         "card-live",
         "--list-card-notes-card",
         "card-live",
-        "--share-note-conversation",
-        "conv-share",
-        "--share-note-id",
-        "note-share",
         "--create-note-conversation",
         "conv-note",
         "--create-note-body-json",
@@ -620,8 +616,6 @@ def run_full_env_import_probe_case(hermes_home: Path, fake_hermes_root: Path) ->
         raise RuntimeError(f"fake Hermes root listCardCommits probe message missing: {env_import_path.stdout!r}")
     if "live Arinova listCardNotes OK: card_id=card-live notes=0" not in env_import_path.stdout:
         raise RuntimeError(f"fake Hermes root listCardNotes probe message missing: {env_import_path.stdout!r}")
-    if "live Arinova shareNote OK: conversation_id=conv-share note_id=note-share" not in env_import_path.stdout:
-        raise RuntimeError(f"fake Hermes root shareNote probe message missing: {env_import_path.stdout!r}")
     if "live Arinova createNote OK: conversation_id=conv-note note_id=note-live" not in env_import_path.stdout:
         raise RuntimeError(f"fake Hermes root createNote probe message missing: {env_import_path.stdout!r}")
     if "live Arinova updateNote OK: conversation_id=conv-note note_id=note-live" not in env_import_path.stdout:
@@ -770,11 +764,6 @@ def run_full_env_import_probe_case(hermes_home: Path, fake_hermes_root: Path) ->
     assert_sdk_call(
         env_import_calls,
         {"method": "listCardNotes", "args": ["card-live"]},
-        "env credential live smoke",
-    )
-    assert_sdk_call(
-        env_import_calls,
-        {"method": "shareNote", "args": ["conv-share", "note-share"]},
         "env credential live smoke",
     )
     assert_sdk_call(

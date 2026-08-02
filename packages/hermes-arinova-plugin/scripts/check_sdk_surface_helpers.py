@@ -173,7 +173,6 @@ EXPECTED_SDK_README_METHOD_HEADINGS = {
     "agent.createNote",
     "agent.updateNote",
     "agent.deleteNote",
-    "agent.shareNote",
     "agent.listBoards",
     "agent.createBoard",
     "agent.updateBoard",
@@ -217,7 +216,6 @@ EXPECTED_SDK_README_NOTE_METHOD_HEADINGS = {
     "agent.createNote",
     "agent.updateNote",
     "agent.deleteNote",
-    "agent.shareNote",
 }
 EXPECTED_SDK_README_KANBAN_METHOD_HEADINGS = {
     "agent.listBoards",

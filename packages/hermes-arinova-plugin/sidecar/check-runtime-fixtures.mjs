@@ -144,9 +144,9 @@ export class FakeAgent {
     return { action, args, options, status: "success" };
   }
 
-  async shareNote(conversationId, noteId) {
-    this.calls.push(["shareNote", conversationId, noteId]);
-    return { conversationId, noteId };
+  async linkCardNote(cardId, noteId) {
+    this.calls.push(["linkCardNote", cardId, noteId]);
+    return null;
   }
 }
 

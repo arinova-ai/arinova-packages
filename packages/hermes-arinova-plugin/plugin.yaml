@@ -51,7 +51,6 @@ provides_tools:
   - arinova_remove_card_label
   - arinova_query_memory
   - arinova_fetch_skill_prompt
-  - arinova_share_note
   - arinova_task_upload_file
   - arinova_task_fetch_history
   - arinova_task_call_action

@@ -27,7 +27,6 @@ import type {
   MemoryEntry,
   MemoryOrigin,
   SkillPrompt,
-  ShareNoteResult,
 } from "../types.js";
 import { delayWithSignal, httpRetryDelayMs, toHttpBaseUrl } from "../transport.js";
 import { encodePathSegment } from "./path.js";
@@ -265,15 +264,6 @@ export abstract class ArinovaRestClient {
       response: "void",
       errorLabel: "deleteNote",
     });
-  }
-
-  /** Share a note into a conversation and return the created message preview. */
-  async shareNote(conversationId: string, noteId: string): Promise<ShareNoteResult> {
-    return this.request<ShareNoteResult>(
-      "POST",
-      `/api/v1/notes/${encodePathSegment(noteId, "noteId")}/share`,
-      { body: { conversationId }, errorLabel: "shareNote" },
-    );
   }
 
   // ── Kanban API ────────────────────────────────────────────────

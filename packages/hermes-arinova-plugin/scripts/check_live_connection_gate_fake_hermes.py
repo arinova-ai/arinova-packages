@@ -398,39 +398,6 @@ def write_fake_hermes_root(hermes_root: Path) -> None:
                         if os.getenv("ARINOVA_FAKE_BAD_LIST_CARD_NOTES_TAGS") == "1":
                             return [{"id": "note-live", "title": "Note", "tags": None, "createdAt": "now"}]
                         return []
-                    if method == "shareNote":
-                        if os.getenv("ARINOVA_FAKE_BAD_SHARE_NOTE") == "1":
-                            return {"messageId": "msg-1", "noteId": args[1], "title": "missing-preview"}
-                        if os.getenv("ARINOVA_FAKE_BAD_SHARE_NOTE_MISSING_TAGS") == "1":
-                            return {
-                                "messageId": "msg-live",
-                                "noteId": args[1],
-                                "title": "Shared note",
-                                "preview": "Preview",
-                            }
-                        if os.getenv("ARINOVA_FAKE_BAD_SHARE_NOTE_TAGS") == "1":
-                            return {
-                                "messageId": "msg-live",
-                                "noteId": args[1],
-                                "title": "Shared note",
-                                "preview": "Preview",
-                                "tags": ["live", 1],
-                            }
-                        if os.getenv("ARINOVA_FAKE_BAD_SHARE_NOTE_NULL_TAGS") == "1":
-                            return {
-                                "messageId": "msg-live",
-                                "noteId": args[1],
-                                "title": "Shared note",
-                                "preview": "Preview",
-                                "tags": None,
-                            }
-                        return {
-                            "messageId": "msg-live",
-                            "noteId": args[1],
-                            "title": "Shared note",
-                            "preview": "Preview",
-                            "tags": [],
-                        }
                     if method == "createNote":
                         if os.getenv("ARINOVA_FAKE_BAD_CREATE_NOTE") == "1":
                             return {"id": "note-live", "title": "missing-content"}

@@ -251,15 +251,6 @@ export interface Note {
   updatedAt: string;
 }
 
-/** Note preview returned after sharing a note into a conversation. */
-export interface ShareNoteResult {
-  messageId: string;
-  noteId: string;
-  title: string;
-  preview: string;
-  tags: string[];
-}
-
 /** Options for listNotes(). */
 export interface ListNotesOptions {
   /** Cursor: fetch notes created before this note ID. */

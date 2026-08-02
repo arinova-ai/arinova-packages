@@ -198,7 +198,6 @@ for every supported `agent-sdk` method:
 - `arinova_remove_card_label`
 - `arinova_query_memory`
 - `arinova_fetch_skill_prompt`
-- `arinova_share_note`
 - `arinova_task_upload_file`
 - `arinova_task_fetch_history`
 - `arinova_task_call_action`
@@ -303,10 +302,9 @@ file and forwards bytes to the sidecar:
 
 SDK rich-card scope:
 
-- the current agent SDK rich preview card API is `shareNote()`; this plugin
-  exposes it through the generic and named SDK tools plus the live smoke probe.
-  Additional rich outbound card types should be added here when the SDK exports
-  concrete methods for them.
+- the agent SDK currently exports no rich preview card API, so this plugin
+  exposes none. Rich outbound card types should be added here when the SDK
+  exports concrete methods for them.
 
 ## Development checks
 
@@ -634,12 +632,6 @@ SDK MemoryEntry scoring contract counts,
 installed SDK MemoryEntry content contract counts,
 installed SDK MemoryEntry classification contract counts,
 installed SDK MemoryEntry scoring contract counts,
-SDK ShareNoteResult identity contract counts,
-SDK ShareNoteResult display contract counts,
-SDK ShareNoteResult tag contract counts,
-installed SDK ShareNoteResult identity contract counts,
-installed SDK ShareNoteResult display contract counts,
-installed SDK ShareNoteResult tag contract counts,
 SDK SkillPrompt content contract counts,
 SDK SkillPrompt template contract counts,
 SDK SkillPrompt parameter contract counts,
@@ -976,10 +968,6 @@ authentication and verifies the returned commit list shape.
 For a read-only linked card-note check, pass a real card id with
 `--list-card-notes-card <card-id>`; this calls SDK `listCardNotes()` after
 authentication and verifies the returned note list shape.
-For an explicit note-share delivery check, pass a real conversation id and note
-id with `--share-note-conversation <conversation-id>` and
-`--share-note-id <note-id>`; this calls SDK `shareNote()` after authentication
-and verifies the returned share result shape.
 For an explicit note creation check, pass a real conversation id with
 `--create-note-conversation <conversation-id>` and
 `--create-note-body-json '<json-object>'`; this calls SDK `createNote()` after
@@ -1107,5 +1095,5 @@ required-gate failure, config fallback, env-over-config precedence,
 `--hermes-root` import handling, optional send-telemetry, send-hud, send-task-update,
 report-tool-call, query-memory, fetch-skill-prompt, list-boards, list-cards,
 list-notes, list-columns, list-labels, list-archived-cards, list-card-commits,
-list-card-notes, share-note, create-note, update-note, delete-note, create-board, update-board, archive-board, create-card, update-card, complete-card, create-column, update-column, delete-column, reorder-columns, add-card-commit, link-card-note, unlink-card-note, create-label, update-label, delete-label, add-card-label, remove-card-label, send-message, fetch-history, upload-file, call-action, task-fetch-history, task-upload-file, and task-call-action probes, and
+list-card-notes, create-note, update-note, delete-note, create-board, update-board, archive-board, create-card, update-card, complete-card, create-column, update-column, delete-column, reorder-columns, add-card-commit, link-card-note, unlink-card-note, create-label, update-label, delete-label, add-card-label, remove-card-label, send-message, fetch-history, upload-file, call-action, task-fetch-history, task-upload-file, and task-call-action probes, and
 `--skip-telemetry` modes without touching `~/hermes-agent`.

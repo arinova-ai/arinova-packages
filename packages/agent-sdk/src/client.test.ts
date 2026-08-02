@@ -288,15 +288,12 @@ describe("API client request builders", () => {
     });
     await agent.listNotes({ limit: 10 });
     await agent.createNote({ title: "Note" });
-    await expect(agent.shareNote("conversation/1", "n1")).resolves.toMatchObject({ messageId: "m1" });
     await agent.deleteNote("n1");
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "https://chat.example.test/api/v1/notes?limit=10",
       "https://chat.example.test/api/v1/notes",
-      "https://chat.example.test/api/v1/notes/n1/share",
       "https://chat.example.test/api/v1/notes/n1",
     ]);
-    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({ conversationId: "conversation/1" });
   });
 
   it("keeps attacker-controlled identifiers inside one encoded URL segment", async () => {

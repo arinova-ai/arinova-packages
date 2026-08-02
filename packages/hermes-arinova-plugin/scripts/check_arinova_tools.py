@@ -81,7 +81,6 @@ async def main() -> int:
             "removeCardLabel": ["card-all", "label-all"],
             "queryMemory": [{"query": "all"}],
             "fetchSkillPrompt": ["memo"],
-            "shareNote": ["conv-all", "note-all"],
         }
         assert set(sample_agent_args) == set(arinova_tools.AGENT_METHODS)
         assert set(arinova_tools.MODEL_AGENT_METHODS) == set(arinova_tools.AGENT_METHODS) - {"callAction"}
@@ -577,12 +576,6 @@ async def main() -> int:
             await arinova_tools._agent_handler("fetchSkillPrompt")({"skill_slug": "memo"})
         )
         assert named_skill_prompt["result"]["args"] == ["memo"]
-        named_share_note = assert_success(
-            await arinova_tools._agent_handler("shareNote")(
-                {"conversation_id": "conv-1", "note_id": "note-1"}
-            )
-        )
-        assert named_share_note["result"]["args"] == ["conv-1", "note-1"]
         query_schema = arinova_tools._method_schema("arinova_query_memory", "queryMemory")
         query_options_schema = query_schema["parameters"]["properties"]["options"]
         assert query_options_schema["required"] == ["query"]
@@ -940,24 +933,29 @@ async def main() -> int:
             "method": "sendMessage",
             "error": "args cannot be combined with named arguments: conversation_id, content",
         }
-        generic_named_share_note = assert_success(
+        fake.return_void_agent_results = True
+        generic_named_link_card_note = assert_success(
             await arinova_tools._handle_sdk_call(
-                {"method": "shareNote", "conversationId": "conv-camel", "noteId": "note-camel"}
+                {"method": "linkCardNote", "cardId": "card-camel", "noteId": "note-camel"}
             )
         )
-        assert generic_named_share_note["result"]["args"] == ["conv-camel", "note-camel"]
-        generic_trimmed_share_note_arg = assert_success(
+        assert generic_named_link_card_note["result"] is None
+        assert fake.calls[-1] == ("agent", "linkCardNote", ("card-camel", "note-camel"))
+        generic_trimmed_link_card_note_arg = assert_success(
             await arinova_tools._handle_sdk_call(
-                {"method": "shareNote", "conversationId": "  conv-camel-trim  ", "noteId": "  note-camel-trim  "}
+                {"method": "linkCardNote", "cardId": "  card-camel-trim  ", "noteId": "  note-camel-trim  "}
             )
         )
-        assert generic_trimmed_share_note_arg["result"]["args"] == ["conv-camel-trim", "note-camel-trim"]
-        generic_trimmed_positional_share_note_arg = assert_success(
+        assert generic_trimmed_link_card_note_arg["result"] is None
+        assert fake.calls[-1] == ("agent", "linkCardNote", ("card-camel-trim", "note-camel-trim"))
+        generic_trimmed_positional_link_card_note_arg = assert_success(
             await arinova_tools._handle_sdk_call(
-                {"method": "shareNote", "args": ["  conv-pos-trim  ", "  note-pos-trim  "]}
+                {"method": "linkCardNote", "args": ["  card-pos-trim  ", "  note-pos-trim  "]}
             )
         )
-        assert generic_trimmed_positional_share_note_arg["result"]["args"] == ["conv-pos-trim", "note-pos-trim"]
+        assert generic_trimmed_positional_link_card_note_arg["result"] is None
+        assert fake.calls[-1] == ("agent", "linkCardNote", ("card-pos-trim", "note-pos-trim"))
+        fake.return_void_agent_results = False
 
         agent_id = assert_success(await arinova_tools._agent_handler("getAgentId")({"args": []}))
         assert agent_id["result"] == "agent-1"
@@ -2162,16 +2160,6 @@ async def main() -> int:
             "success": False,
             "method": "fetchSkillPrompt",
             "error": "skill_slug must be a string",
-        }
-        bad_share_note_note_id_type = json.loads(
-            await arinova_tools._agent_handler("shareNote")(
-                {"conversation_id": "conv-1", "note_id": 123}
-            )
-        )
-        assert bad_share_note_note_id_type == {
-            "success": False,
-            "method": "shareNote",
-            "error": "note_id must be a string",
         }
         bad_update_card_id_type = json.loads(
             await arinova_tools._agent_handler("updateCard")(

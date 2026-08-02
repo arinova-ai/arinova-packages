@@ -752,23 +752,6 @@
       ],
       "required": 2
     },
-    "shareNote": {
-      "args": [
-        {
-          "name": "conversation_id",
-          "schema": {
-            "type": "string"
-          }
-        },
-        {
-          "name": "note_id",
-          "schema": {
-            "type": "string"
-          }
-        }
-      ],
-      "required": 2
-    },
     "unlinkCardNote": {
       "args": [
         {
