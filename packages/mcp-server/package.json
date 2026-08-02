@@ -37,6 +37,11 @@
     "tools"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arinova-ai/arinova-packages.git",
+    "directory": "packages/mcp-server"
+  },
   "engines": {
     "node": ">=20.10"
   },

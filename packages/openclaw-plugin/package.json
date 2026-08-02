@@ -3,6 +3,11 @@
   "version": "0.0.74",
   "description": "OpenClaw plugin for Arinova Chat — channel (A2A streaming) + Virtual Office (agent status tracking via SSE)",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arinova-ai/arinova-packages.git",
+    "directory": "packages/openclaw-plugin"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
