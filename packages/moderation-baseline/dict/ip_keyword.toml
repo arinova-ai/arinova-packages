@@ -10,6 +10,7 @@ review_cadence = "monthly"
 key      = "米老鼠"
 aliases  = ["Mickey Mouse"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]
 
@@ -17,6 +18,7 @@ applies  = ["image_gen.input"]
 key      = "迪士尼"
 aliases  = ["Disney"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "warn"
 applies  = ["image_gen.input"]
 note     = "brand name — warn rather than block; combinations with character names = block"
@@ -25,6 +27,7 @@ note     = "brand name — warn rather than block; combinations with character n
 key      = "冰雪奇緣"
 aliases  = ["Frozen", "Elsa", "艾莎"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]
 
@@ -32,6 +35,7 @@ applies  = ["image_gen.input"]
 key      = "玩具總動員"
 aliases  = ["Toy Story", "Woody", "Buzz"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]
 
@@ -40,6 +44,7 @@ applies  = ["image_gen.input"]
 key      = "鋼鐵人"
 aliases  = ["Iron Man", "Tony Stark"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]
 
@@ -47,6 +52,7 @@ applies  = ["image_gen.input"]
 key      = "蜘蛛人"
 aliases  = ["Spider-Man", "Peter Parker"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]
 
@@ -54,6 +60,7 @@ applies  = ["image_gen.input"]
 key      = "蝙蝠俠"
 aliases  = ["Batman"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]
 
@@ -61,14 +68,17 @@ applies  = ["image_gen.input"]
 key      = "超人"
 aliases  = ["Superman"]
 locale   = ["zh-TW", "zh-CN", "en"]
-severity = "block"
+category = "copyrighted-character"
+severity = "warn"
 applies  = ["image_gen.input"]
+note     = "generic Chinese phrase; require a character/co-occurrence marker before blocking"
 
 # Nintendo
 [[entries]]
 key      = "瑪利歐"
 aliases  = ["Mario", "Super Mario"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]
 
@@ -76,13 +86,15 @@ applies  = ["image_gen.input"]
 key      = "皮卡丘"
 aliases  = ["Pikachu"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]
 
 [[entries]]
 key      = "寶可夢"
-aliases  = ["Pokémon", "神奇寶貝"]
+aliases  = ["Pokémon", "Pokemon", "神奇寶貝"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]
 
@@ -90,6 +102,7 @@ applies  = ["image_gen.input"]
 key      = "薩爾達"
 aliases  = ["Zelda", "Link"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]
 
@@ -98,6 +111,7 @@ applies  = ["image_gen.input"]
 key      = "龍貓"
 aliases  = ["Totoro"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]
 
@@ -105,6 +119,7 @@ applies  = ["image_gen.input"]
 key      = "神隱少女"
 aliases  = ["Spirited Away"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]
 
@@ -112,6 +127,7 @@ applies  = ["image_gen.input"]
 key      = "魔女宅急便"
 aliases  = ["Kiki's Delivery Service"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]
 
@@ -120,6 +136,7 @@ applies  = ["image_gen.input"]
 key      = "Hello Kitty"
 aliases  = ["凱蒂貓"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]
 
@@ -127,5 +144,6 @@ applies  = ["image_gen.input"]
 key      = "美樂蒂"
 aliases  = ["My Melody"]
 locale   = ["zh-TW", "zh-CN", "en"]
+category = "copyrighted-character"
 severity = "block"
 applies  = ["image_gen.input"]

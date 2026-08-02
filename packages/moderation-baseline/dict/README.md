@@ -33,6 +33,16 @@ mtime of `dict/*.toml` and rebuild internal tries on change. No service restart
 needed. File writes MUST use write-temp + rename atomic pattern to avoid
 partial-write parser crashes.
 
+## Matching normalization
+
+Consumers normalize keys, aliases, and candidate text to Unicode NFC and then
+lowercase them before matching. Entries with non-ASCII spellings should include
+an ASCII alias when one is commonly used (for example, `Pokémon` also ships
+`Pokemon`). Pattern entries are TOML literal strings so regex backslashes cannot
+turn into control characters during parsing. The schema permits only these
+closed `applies` targets: `image_gen.input`, `voice_tts.input`,
+`web_search.output`, and `username.input`.
+
 ## Audit
 
 Every dict hit is logged per Web PRD §7.5 audit module.
