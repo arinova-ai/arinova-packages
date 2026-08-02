@@ -488,21 +488,26 @@ def main() -> int:
         adapter.node_bin = "node"
         adapter.agent_sdk_root = None
         original_agent_sdk_root_env = os.environ.get("ARINOVA_AGENT_SDK_ROOT")
+        # Track the real pin so a release does not require touching fixtures.
+        sidecar_sdk_version = json.loads(
+            (ROOT / "sidecar/package.json").read_text(encoding="utf-8")
+        )["dependencies"]["@arinova-ai/agent-sdk"]
         fake_sidecar_package = {
             "name": "hermes-arinova-sidecar",
             "version": "0.1.0",
-            "dependencies": {"@arinova-ai/agent-sdk": "0.0.19"},
+            "dependencies": {"@arinova-ai/agent-sdk": sidecar_sdk_version},
             "engines": {"node": ">=22"},
         }
         (fake_sidecar / "package.json").write_text(json.dumps(fake_sidecar_package), encoding="utf-8")
 
         def write_fake_lockfile(
             *,
-            version: str = "0.0.19",
+            version: str | None = None,
             resolved: str | None = None,
             license: str = "MIT",
             integrity: str | None = "sha512-test",
         ) -> None:
+            version = version or sidecar_sdk_version
             locked_package = {
                 "version": version,
                 "resolved": resolved or f"https://registry.npmjs.org/@arinova-ai/agent-sdk/-/agent-sdk-{version}.tgz",
@@ -558,7 +563,7 @@ def main() -> int:
                     {
                         "name": "@arinova-ai/agent-sdk",
                         "description": "SDK for connecting AI agents to Arinova Chat",
-                        "version": "0.0.19",
+                        "version": sidecar_sdk_version,
                         "type": "module",
                         "main": "./dist/client.js",
                         "types": "./dist/client.d.ts",
@@ -603,7 +608,7 @@ def main() -> int:
                     {
                         "name": "@arinova-ai/agent-sdk",
                         "description": "SDK for connecting AI agents to Arinova Chat",
-                        "version": "0.0.19",
+                        "version": sidecar_sdk_version,
                         "type": "module",
                         "main": "./dist/index.js",
                         "types": "./dist/index.d.ts",
