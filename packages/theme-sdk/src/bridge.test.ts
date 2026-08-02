@@ -7,7 +7,7 @@ const bridgeSource = readFileSync(new URL("./bridge.js", import.meta.url), "utf8
 const typesSource = readFileSync(new URL("./types.d.ts", import.meta.url), "utf8");
 const readmeSource = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const runtimeSource = bridgeSource.replace(/^\/\*\*[\s\S]*?\*\/\s*/, "").trim();
-const BRIDGE_SHA256 = "2f3f656f769e5b0e01282a064d5b4f0c132d17872592d4bce54a407f731a999f";
+const BRIDGE_SHA256 = "0dd653af7648b276eccbb3987ea6cbe34765d6054ce04e296c2243252eabed0c";
 
 type Runtime = ReturnType<typeof loadBridge>;
 const runtimes: Runtime[] = [];
@@ -153,15 +153,26 @@ describe("bridge trust boundary", () => {
     expect(init).toHaveBeenCalledOnce();
   });
 
-  it("accepts a configured rollout origin but always sends to the primary origin", async () => {
+  it("fans ready across the allowlist, then pins sends to the origin that spoke", async () => {
     const runtime = loadBridge({ parentOrigins: ["https://chat.test", "https://preview.test"] });
-    const init = vi.fn();
+    // Before any inbound message the parent's origin is unknown: the ready
+    // handshake must reach every allowlisted origin (never "*").
+    const readyTargets = runtime.postMessage.mock.calls
+      .filter(([payload]) => payload.type === "ready")
+      .map(([, target]) => target);
+    expect(readyTargets.sort()).toEqual(["https://chat.test", "https://preview.test"]);
+    expect(runtime.postMessage.mock.calls.some(([, target]) => target === "*")).toBe(false);
+
+    let sdk: Record<string, any> | undefined;
+    const init = vi.fn((value: Record<string, any>) => { sdk = value; });
     runtime.win.__ARINOVA_REGISTER_THEME__({ init });
     runtime.send({ type: "init", bridgeToken: runtime.token }, { origin: "https://preview.test" });
     await Promise.resolve();
     expect(init).toHaveBeenCalledOnce();
-    expect(runtime.postMessage.mock.calls.every(([, target]) => target === "https://chat.test")).toBe(true);
-    expect(runtime.postMessage.mock.calls.some(([, target]) => target === "*")).toBe(false);
+    runtime.postMessage.mockClear();
+    sdk!.navigate("/home");
+    const laterTargets = runtime.postMessage.mock.calls.map(([, target]) => target);
+    expect(laterTargets).toEqual(["https://preview.test"]);
   });
 
   it.each([
@@ -224,6 +235,36 @@ describe("theme lifecycle", () => {
     initialized.postMessage.mockClear();
     await vi.advanceTimersByTimeAsync(12_000);
     expect(initialized.postMessage.mock.calls.some(([message]) => message.type === "theme:error")).toBe(false);
+  });
+
+  it("recovers when init arrives after a handshake timeout", async () => {
+    vi.useFakeTimers();
+    const runtime = loadBridge();
+    vi.spyOn(runtime.win.console, "error").mockImplementation(() => {});
+    const theme = { init: vi.fn() };
+    runtime.win.__ARINOVA_REGISTER_THEME__(theme);
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(runtime.postMessage.mock.calls.some(
+      ([message]) => message.type === "theme:error" && message.stage === "handshake",
+    )).toBe(true);
+
+    // A throttled tab or slow parent can complete the handshake late — the
+    // theme must still boot instead of staying blank until an iframe reload.
+    runtime.send({ type: "init", bridgeToken: runtime.token });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(theme.init).toHaveBeenCalledOnce();
+    expect(runtime.postMessage.mock.calls.some(([message]) => message.type === "theme:ready")).toBe(true);
+  });
+
+  it("keeps a host-declared isMobile across resizes", async () => {
+    const runtime = loadBridge();
+    let sdk: Record<string, any> | undefined;
+    runtime.win.__ARINOVA_REGISTER_THEME__({ init: (value: Record<string, any>) => { sdk = value; } });
+    runtime.send({ type: "init", bridgeToken: runtime.token, width: 1024, height: 768, isMobile: true });
+    await Promise.resolve();
+    expect(sdk!.isMobile).toBe(true);
+    runtime.send({ type: "resize", bridgeToken: runtime.token, width: 1400, height: 900 });
+    expect(sdk!.isMobile).toBe(true);
   });
 
   it("guards duplicate bridge loads and reports post-ready runtime failures", async () => {
@@ -301,7 +342,7 @@ describe("SDK behavior", () => {
     expect(sdk.assetUrl(relative)).toBe(expected);
   });
 
-  it.each(["../secret.json", "/icon.png", "nested/icon.png", "https://evil.test/x", "a\\b.png"])(
+  it.each(["../secret.json", "nested/icon.png", "https://evil.test/x", "a\\b.png"])(
     "rejects non-flat asset path %s",
     async (relative) => {
       const runtime = loadBridge();
@@ -309,6 +350,15 @@ describe("SDK behavior", () => {
       expect(() => sdk.assetUrl(relative)).toThrow(/flat filename/);
     },
   );
+
+  it("normalizes a leading slash to a flat asset and rejects it via loadJSON, not a sync throw", async () => {
+    const runtime = loadBridge();
+    const { sdk } = await initialize(runtime);
+    expect(sdk.assetUrl("/icon.png")).toBe(sdk.assetUrl("icon.png"));
+    // loadJSON's contract is Promise<T>: an invalid path must reject, never
+    // throw synchronously out of the call.
+    await expect(sdk.loadJSON("nested/data.json")).rejects.toThrow(/flat filename/);
+  });
 
   it("snapshot-broadcasts through unsubscribe and isolates callback failures", async () => {
     const runtime = loadBridge();

@@ -7,8 +7,9 @@
  *
  * Runs inside the theme iframe. It:
  *  - reads a per-iframe `bridgeToken` from the URL hash and the parent origin
- *    from `window.__ARINOVA_PARENT_ORIGIN__`, then stamps the token on every
- *    outbound message and posts only to that origin;
+ *    allowlist from `window.__ARINOVA_PARENT_ORIGIN(S)__`, stamps the token on
+ *    every outbound message, fans outbound posts across the allowlist until
+ *    the first validated inbound message pins the real parent origin;
  *  - rejects any inbound message whose source, origin, or token does not match;
  *  - passes an immutable-view `sdk` object to theme code via `theme.init(sdk, container)`.
  *
@@ -95,8 +96,14 @@
     }
   }
 
+  // Until the parent has spoken we cannot know which allowlisted origin it is
+  // on, so outbound messages fan out to every allowlisted origin (the browser
+  // drops mismatched targetOrigin posts); afterwards they pin to the origin
+  // the first validated inbound message arrived from.
+  var activeParentOrigin = null;
+
   function send(type, body) {
-    if (!OUTBOUND_TYPES[type]) {
+    if (!Object.prototype.hasOwnProperty.call(OUTBOUND_TYPES, type)) {
       console.error("[arinova-sdk] refused unknown outbound message type " + type);
       return;
     }
@@ -107,10 +114,13 @@
       }
     }
     payload.bridgeToken = BRIDGE_TOKEN;
-    try {
-      window.parent.postMessage(payload, PARENT_ORIGIN);
-    } catch (err) {
-      console.error("[arinova-sdk] failed to post " + type, err);
+    var targets = activeParentOrigin ? [activeParentOrigin] : PARENT_ORIGINS;
+    for (var t = 0; t < targets.length; t++) {
+      try {
+        window.parent.postMessage(payload, targets[t]);
+      } catch (err) {
+        console.error("[arinova-sdk] failed to post " + type, err);
+      }
     }
   }
 
@@ -118,7 +128,8 @@
     if (!ASSET_BASE) throw new Error("Asset base is unavailable");
     var base = new URL(ASSET_BASE.replace(/\/?$/, "/"), window.location.href);
     if (!rel) return base.href;
-    var clean = String(rel);
+    // A leading slash was always code-supported for flat assets — keep it.
+    var clean = String(rel).replace(/^\/+/, "");
     if (/[/\\:]/.test(clean) || clean.indexOf("..") !== -1 || clean === ".") {
       throw new Error("Asset path must be a single flat filename");
     }
@@ -155,7 +166,12 @@
     assetUrl: joinAsset,
     getAgent: function (id) { return state.agents.find(function (a) { return a.id === id; }); },
     loadJSON: function (rel) {
-      return fetch(sdk.assetUrl(rel)).then(function (r) {
+      // assetUrl can throw; the declared contract is Promise<T>, so route the
+      // failure into a rejection instead of a synchronous exception.
+      return Promise.resolve().then(function () {
+        var url = sdk.assetUrl(rel);
+        return fetch(url);
+      }).then(function (r) {
         if (!r.ok) throw new Error("Failed to load " + rel);
         return r.json();
       });
@@ -189,10 +205,12 @@
     return message.replace(/[\r\n\t]+/g, " ").slice(0, 300);
   }
 
+  var failedStage = null;
+
   function reportThemeError(stage, err) {
     if (themeFailed) return;
-    if (!themeReady) themeFailed = true;
-    if (!ERROR_STAGES[stage]) stage = "runtime";
+    if (!Object.prototype.hasOwnProperty.call(ERROR_STAGES, stage)) stage = "runtime";
+    if (!themeReady) { themeFailed = true; failedStage = stage; }
     var message = errorMessage(err);
     console.error("[arinova-sdk] theme failed during " + stage, err);
     send("theme:error", { stage: stage, message: message });
@@ -226,8 +244,17 @@
   };
   window.__ARINOVA_REPORT_THEME_ERROR__ = reportThemeError;
 
+  var explicitIsMobile = null;
+
   function applyInit(data) {
     if (handshakeTimer !== null) { clearTimeout(handshakeTimer); handshakeTimer = null; }
+    // A host that completes the handshake late (throttled tab, slow parent)
+    // must still get a working theme — only the handshake failure is
+    // recoverable, and only while the theme never started.
+    if (themeFailed && failedStage === "handshake" && !themeStarted && !themeReady) {
+      themeFailed = false;
+      failedStage = null;
+    }
     if (typeof data.themeId === "string" && data.themeId) state.themeId = data.themeId;
     if (typeof data.themeVersion === "string" && data.themeVersion) state.themeVersion = data.themeVersion;
     if (data.user && typeof data.user === "object" && typeof data.user.id === "string") state.user = data.user;
@@ -236,8 +263,13 @@
     if (Array.isArray(data.connectedAgents)) state.connectedAgents = data.connectedAgents;
     if (typeof data.width === "number" && isFinite(data.width)) state.width = data.width;
     if (typeof data.height === "number" && isFinite(data.height)) state.height = data.height;
-    if (typeof data.isMobile === "boolean") state.isMobile = data.isMobile;
-    else state.isMobile = state.width < 768;
+    if (typeof data.isMobile === "boolean") {
+      state.isMobile = data.isMobile;
+      explicitIsMobile = data.isMobile;
+    } else {
+      state.isMobile = state.width < 768;
+      explicitIsMobile = null;
+    }
     if (typeof data.pixelRatio === "number" && isFinite(data.pixelRatio) && data.pixelRatio > 0) state.pixelRatio = data.pixelRatio;
     if (!hostReady) {
       hostReady = true;
@@ -271,7 +303,9 @@
     apply: function (d) {
       if (typeof d.width === "number") state.width = d.width;
       if (typeof d.height === "number") state.height = d.height;
-      state.isMobile = state.width < 768;
+      // A host that classified the device explicitly in init keeps that
+      // classification; only derived values are recomputed on resize.
+      state.isMobile = explicitIsMobile !== null ? explicitIsMobile : state.width < 768;
       broadcast("resize", { width: state.width, height: state.height });
     }
   };
@@ -295,7 +329,10 @@
 
   window.addEventListener("message", function (e) {
     var inbound = validateInbound(e);
-    if (inbound) inbound.entry.apply(inbound.data);
+    if (inbound) {
+      if (activeParentOrigin === null) activeParentOrigin = e.origin;
+      inbound.entry.apply(inbound.data);
+    }
   });
 
   handshakeTimer = setTimeout(function () {
