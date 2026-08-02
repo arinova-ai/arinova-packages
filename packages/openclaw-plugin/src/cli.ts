@@ -219,6 +219,7 @@ export function registerCli(api: OpenClawPluginApi): void {
         .command("update")
         .description("Update a note")
         .requiredOption("--note-id <id>", "Note ID")
+        .option("--notebook-id <id>", "Deprecated: ignored (note IDs are global)")
         .option("--title <text>", "New title")
         .option("--content <text>", "New content (markdown)")
         .option("--tags <tags>", "Replace tags (comma-separated)")
@@ -240,6 +241,7 @@ export function registerCli(api: OpenClawPluginApi): void {
         .command("delete")
         .description("Delete a note")
         .requiredOption("--note-id <id>", "Note ID")
+        .option("--notebook-id <id>", "Deprecated: ignored (note IDs are global)")
         .action(async (opts: { noteId: string }) => {
           const { account, execute } = defineApiCommand(arinova.opts());
           await execute({

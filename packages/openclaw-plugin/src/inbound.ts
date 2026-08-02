@@ -459,7 +459,10 @@ export async function handleArinovaChatInbound(params: {
   // quiet outcomes, not generation failures.
   if ((deliverySuppressed || silentReplySkipped) && !relay.finalText.trim()) {
     completionSent = true;
-    sendComplete(relay.hasStreamed ? relay.visibleText : "");
+    // A silent-reply skip must stay silent: committing already-streamed noise
+    // (the NO_REPLY sentinel, tool-progress blocks) would defeat the policy.
+    // Only a suppressed stale delivery keeps what the user already saw.
+    sendComplete(!silentReplySkipped && relay.hasStreamed ? relay.visibleText : "");
     return;
   }
 

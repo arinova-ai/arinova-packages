@@ -128,6 +128,33 @@ describe("arinovaChatPlugin channel contract", () => {
     }
   });
 
+  it("accepts and strips legacy credential keys from existing configs", () => {
+    const result = ArinovaChatConfigSchema.safeParse({
+      botToken: "bot-1",
+      allowFrom: ["*"],
+      email: "old@example.com",
+      password: "hunter2",
+      sessionToken: "legacy-session",
+      accounts: {
+        second: {
+          botToken: "bot-2",
+          allowFrom: ["*"],
+          email: "old2@example.com",
+          sessionToken: "legacy-session-2",
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).not.toHaveProperty("email");
+      expect(result.data).not.toHaveProperty("password");
+      expect(result.data).not.toHaveProperty("sessionToken");
+      expect(result.data.accounts?.second).not.toHaveProperty("email");
+      expect(result.data.accounts?.second).not.toHaveProperty("sessionToken");
+    }
+  });
+
   it("describes configured and missing account secrets without leaking values", () => {
     expect(plugin.config.describeAccount({
       accountId: "named",

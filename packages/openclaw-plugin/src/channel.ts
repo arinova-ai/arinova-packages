@@ -313,14 +313,20 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
       });
 
       let rejectLifetime: ((error: Error) => void) | undefined;
+      let onAbort: (() => void) | undefined;
       const lifetime = new Promise<void>((resolve, reject) => {
         rejectLifetime = reject;
-        ctx.abortSignal.addEventListener("abort", () => {
+        onAbort = () => {
           removeAgentInstance(account.accountId, agent);
           agent.disconnect();
           resolve();
-        }, { once: true });
+        };
+        ctx.abortSignal.addEventListener("abort", onAbort, { once: true });
       });
+      // auth_failed fires synchronously inside agent.connect() below when the
+      // bot token is rejected — at that point nobody awaits `lifetime` yet, so
+      // observe the rejection here or it becomes an unhandledRejection.
+      void lifetime.catch(() => undefined);
       agent.on("auth_failed", () => {
         removeAgentInstance(account.accountId, agent);
         agent.disconnect();
@@ -333,6 +339,7 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
       try {
         await agent.connect();
       } catch (error) {
+        if (onAbort) ctx.abortSignal.removeEventListener("abort", onAbort);
         removeAgentInstance(account.accountId, agent);
         agent.disconnect();
         throw error;

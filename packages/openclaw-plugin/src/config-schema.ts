@@ -5,6 +5,18 @@ import {
 } from "openclaw/plugin-sdk/channel-config-schema";
 import { z } from "openclaw/plugin-sdk/zod";
 
+// Credential-based auth (email/password/sessionToken) was removed in favor of
+// botToken-only auth, but existing configs still carry the old keys and the
+// schemas are strict — strip them instead of hard-failing channel startup.
+const LEGACY_CREDENTIAL_KEYS = ["email", "password", "sessionToken"];
+
+function stripLegacyCredentialKeys(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = { ...(value as Record<string, unknown>) };
+  for (const key of LEGACY_CREDENTIAL_KEYS) delete record[key];
+  return record;
+}
+
 export const ArinovaChatAccountSchemaBase = z
   .object({
     name: z.string().optional(),
@@ -19,7 +31,9 @@ export const ArinovaChatAccountSchemaBase = z
   })
   .strict();
 
-export const ArinovaChatAccountSchema = ArinovaChatAccountSchemaBase.superRefine((value, ctx) => {
+export const ArinovaChatAccountSchema = z.preprocess(
+  stripLegacyCredentialKeys,
+  ArinovaChatAccountSchemaBase.superRefine((value, ctx) => {
   requireOpenAllowFrom({
     policy: value.dmPolicy,
     allowFrom: value.allowFrom,
@@ -36,11 +50,14 @@ export const ArinovaChatAccountSchema = ArinovaChatAccountSchemaBase.superRefine
     message:
       'channels.openclaw-arinova-ai.dmPolicy="allowlist" requires channels.openclaw-arinova-ai.allowFrom to contain at least one sender',
   });
-});
+  }),
+);
 
-export const ArinovaChatConfigSchema = ArinovaChatAccountSchemaBase.extend({
-  accounts: z.record(z.string(), ArinovaChatAccountSchema.optional()).optional(),
-}).superRefine((value, ctx) => {
+export const ArinovaChatConfigSchema = z.preprocess(
+  stripLegacyCredentialKeys,
+  ArinovaChatAccountSchemaBase.extend({
+    accounts: z.record(z.string(), ArinovaChatAccountSchema.optional()).optional(),
+  }).superRefine((value, ctx) => {
   requireOpenAllowFrom({
     policy: value.dmPolicy,
     allowFrom: value.allowFrom,
@@ -57,4 +74,5 @@ export const ArinovaChatConfigSchema = ArinovaChatAccountSchemaBase.extend({
     message:
       'channels.openclaw-arinova-ai.dmPolicy="allowlist" requires channels.openclaw-arinova-ai.allowFrom to contain at least one sender',
   });
-});
+  }),
+);

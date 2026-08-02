@@ -14,6 +14,9 @@
           "enabled": { "type": "boolean" },
           "apiUrl": { "type": "string" },
           "botToken": { "type": "string" },
+          "email": { "type": "string", "deprecated": true, "description": "Ignored — legacy credential auth was removed; use botToken." },
+          "password": { "type": "string", "deprecated": true, "description": "Ignored — legacy credential auth was removed; use botToken." },
+          "sessionToken": { "type": "string", "deprecated": true, "description": "Ignored — legacy credential auth was removed; use botToken." },
           "agentId": { "type": "string", "format": "uuid" },
           "dmPolicy": {
             "type": "string",
@@ -39,6 +42,9 @@
                 "enabled": { "type": "boolean" },
                 "apiUrl": { "type": "string" },
                 "botToken": { "type": "string" },
+                "email": { "type": "string", "deprecated": true, "description": "Ignored — legacy credential auth was removed; use botToken." },
+                "password": { "type": "string", "deprecated": true, "description": "Ignored — legacy credential auth was removed; use botToken." },
+                "sessionToken": { "type": "string", "deprecated": true, "description": "Ignored — legacy credential auth was removed; use botToken." },
                 "agentId": { "type": "string", "format": "uuid" },
                 "dmPolicy": {
                   "type": "string",
@@ -60,7 +66,9 @@
         }
       },
       "uiHints": {
-        "botToken": { "sensitive": true }
+        "botToken": { "sensitive": true },
+        "password": { "sensitive": true },
+        "sessionToken": { "sensitive": true }
       }
     }
   },
