@@ -1,4 +1,4 @@
-import { request, ArinovaError, stripTrailingSlash, parseScopes, parseError } from "./http.js";
+import { request, requestStream, ArinovaError, stripTrailingSlash, parseScopes } from "./http.js";
 import { randomString, pkceChallenge } from "./pkce.js";
 import type {
   ArinovaConfig,
@@ -17,7 +17,9 @@ import type {
   AgentChatResponse,
   AgentChatEvent,
   ArinovaScope,
+  RequestOptions,
 } from "./types.js";
+import { sessionFromToken } from "./types.js";
 
 const DEFAULT_API_URL = "https://api.chat.arinova.ai";
 const DEFAULT_AUTH_URL = "https://chat.arinova.ai";
@@ -37,16 +39,25 @@ export class Arinova {
   readonly redirectUri: string;
   readonly scopes: string[];
   private _session: ArinovaSession | null = null;
+  private loginInFlight: Promise<ArinovaSession | void> | null = null;
 
   constructor(config: ArinovaConfig) {
-    if (!config || !config.clientId) throw new Error("Arinova: `clientId` is required");
+    if (!config || !config.clientId) {
+      throw new ArinovaError("Arinova: `clientId` is required", 0, "invalid_config");
+    }
     this.clientId = config.clientId;
     this.apiUrl = stripTrailingSlash(config.apiUrl ?? DEFAULT_API_URL);
     this.authUrl = stripTrailingSlash(config.authUrl ?? DEFAULT_AUTH_URL);
     this.redirectUri =
       config.redirectUri ??
       (typeof window !== "undefined" ? `${window.location.origin}/callback` : "");
-    this.scopes = (config.scopes && config.scopes.length ? [...config.scopes] : ["profile"]) as string[];
+    try {
+      const redirect = new URL(this.redirectUri);
+      if (!redirect.protocol.startsWith("http") || !redirect.host) throw new Error();
+    } catch {
+      throw new ArinovaError("Arinova: `redirectUri` must be an absolute HTTP(S) URL", 0, "invalid_redirect_uri");
+    }
+    this.scopes = config.scopes && config.scopes.length ? [...config.scopes] : ["profile"];
   }
 
   /** The current session, or null. */
@@ -63,7 +74,9 @@ export class Arinova {
   }
 
   // ── connect: one environment-aware entry point ──────────────────
-  async connect(options: ConnectOptions = {}): Promise<ArinovaSession> {
+  connect(options: ConnectOptions & { mode: "redirect" }): Promise<void>;
+  connect(options?: ConnectOptions): Promise<ArinovaSession>;
+  async connect(options: ConnectOptions = {}): Promise<ArinovaSession | void> {
     const mode = options.mode ?? "auto";
     const embedded = typeof window !== "undefined" && window.self !== window.top;
     if (mode === "iframe" || (mode === "auto" && embedded)) {
@@ -71,10 +84,9 @@ export class Arinova {
     }
     if (mode === "redirect") {
       await this.login({ mode: "redirect" });
-      // Page navigates away; never resolves.
-      return new Promise<ArinovaSession>(() => {});
+      return;
     }
-    return (await this.login({ mode: "popup" })) as ArinovaSession;
+    return this.login({ mode: "popup" });
   }
 
   /** Embedded (iframe) mode: wait for an origin-validated `arinova:auth`. */
@@ -87,9 +99,9 @@ export class Arinova {
    * scope (e.g. "economy"). The host shows a consent prompt and, on approval,
    * re-sends `arinova:auth` with the widened scope. Embedded mode only.
    */
-  requestScope(scope: ArinovaScope | string, options: { timeout?: number } = {}): Promise<ArinovaSession> {
+  requestScope(scope: ArinovaScope, options: { timeout?: number } = {}): Promise<ArinovaSession> {
     if (typeof window === "undefined" || window.self === window.top) {
-      return Promise.reject(new ArinovaError("requestScope() is only available inside an embedded Space", 0));
+      return Promise.reject(new ArinovaError("requestScope() is only available inside an embedded Space", 0, "embedded_only"));
     }
     const target = new URL(this.authUrl).origin;
     window.parent.postMessage({ type: "arinova:request-scope", payload: { scope } }, target);
@@ -111,6 +123,9 @@ export class Arinova {
     timeoutMessage = "connect timeout — this origin may not be authorized to receive Arinova auth",
     deniedScope?: string,
   ): Promise<ArinovaSession> {
+    if (typeof window === "undefined") {
+      return Promise.reject(new ArinovaError("Iframe authentication requires a browser window", 0, "browser_required"));
+    }
     const expectedOrigin = new URL(this.authUrl).origin;
     return new Promise<ArinovaSession>((resolve, reject) => {
       let settled = false;
@@ -121,7 +136,7 @@ export class Arinova {
         window.removeEventListener("message", onMessage);
         fn();
       };
-      const timer = setTimeout(() => finish(() => reject(new ArinovaError(timeoutMessage, 0))), timeout);
+      const timer = setTimeout(() => finish(() => reject(new ArinovaError(timeoutMessage, 0, "auth_timeout"))), timeout);
       const onMessage = (event: MessageEvent): void => {
         // Reject anything not from the expected Arinova parent window.
         if (event.origin !== expectedOrigin || event.source !== window.parent) return;
@@ -148,14 +163,22 @@ export class Arinova {
           spaceId?: string;
         };
         if (!p.accessToken) {
-          finish(() => reject(new ArinovaError("Arinova did not issue an access token", 0)));
+          finish(() => reject(new ArinovaError("Arinova did not issue an access token", 0, "missing_access_token")));
+          return;
+        }
+        if (!p.user || typeof p.user !== "object" || typeof p.user.id !== "string") {
+          finish(() => reject(new ArinovaError("Arinova sent an invalid user payload", 0, "invalid_auth_payload")));
+          return;
+        }
+        if (typeof p.expiresAt !== "number" || !Number.isFinite(p.expiresAt)) {
+          finish(() => reject(new ArinovaError("Arinova sent no valid token expiry", 0, "invalid_auth_payload")));
           return;
         }
         const session: ArinovaSession = {
-          user: p.user as ArinovaUser,
+          user: p.user,
           accessToken: p.accessToken,
           tokenType: "Bearer",
-          expiresAt: p.expiresAt ?? Date.now() + 7 * 24 * 3600 * 1000,
+          expiresAt: p.expiresAt,
           scopes: parseScopes(p.scope),
           agents: p.agents ?? [],
           spaceId: p.spaceId,
@@ -171,10 +194,39 @@ export class Arinova {
   }
 
   // ── PKCE login (standalone) ─────────────────────────────────────
-  async login(options: LoginOptions = {}): Promise<ArinovaSession | void> {
-    const verifier = randomString(32);
-    const challenge = await pkceChallenge(verifier);
-    const state = randomString(16);
+  login(options: LoginOptions & { mode: "redirect" }): Promise<void>;
+  login(options?: LoginOptions & { mode?: "popup" }): Promise<ArinovaSession>;
+  login(options: LoginOptions = {}): Promise<ArinovaSession | void> {
+    if (this.loginInFlight) return this.loginInFlight;
+    const operation = this.startLogin(options);
+    this.loginInFlight = operation;
+    void operation.finally(() => {
+      if (this.loginInFlight === operation) this.loginInFlight = null;
+    }).catch(() => undefined);
+    return operation;
+  }
+
+  private async startLogin(options: LoginOptions): Promise<ArinovaSession | void> {
+    if (typeof window === "undefined" || typeof sessionStorage === "undefined") {
+      throw new ArinovaError("Login requires a browser window with session storage", 0, "browser_required");
+    }
+    try {
+      const probe = "arinova_storage_probe";
+      sessionStorage.setItem(probe, "1");
+      sessionStorage.removeItem(probe);
+    } catch {
+      throw new ArinovaError("Session storage is unavailable", 0, "storage_unavailable");
+    }
+    let verifier: string;
+    let challenge: string;
+    let state: string;
+    try {
+      verifier = randomString(32);
+      challenge = await pkceChallenge(verifier);
+      state = randomString(16);
+    } catch {
+      throw new ArinovaError("Web Crypto is unavailable", 0, "crypto_unavailable");
+    }
     sessionStorage.setItem(VERIFIER_KEY, verifier);
     sessionStorage.setItem(STATE_KEY, state);
 
@@ -202,49 +254,68 @@ export class Arinova {
       const popup = window.open(authorizeUrl, "arinova_auth", "width=500,height=680");
       if (!popup) {
         window.location.href = authorizeUrl;
-        reject(new ArinovaError("Popup blocked — redirecting instead", 0));
+        reject(new ArinovaError("Popup blocked — redirecting instead", 0, "popup_blocked"));
         return;
       }
-      const interval = setInterval(() => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout>;
+      let interval: ReturnType<typeof setInterval>;
+      const cleanup = (): void => {
+        clearInterval(interval);
+        clearTimeout(timeout);
+        sessionStorage.removeItem(VERIFIER_KEY);
+        sessionStorage.removeItem(STATE_KEY);
+      };
+      const finish = (fn: () => void): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        fn();
+      };
+      interval = setInterval(() => {
         try {
           if (popup.closed) {
-            clearInterval(interval);
-            reject(new ArinovaError("Login cancelled", 0));
+            finish(() => reject(new ArinovaError("Login cancelled", 0, "login_cancelled")));
             return;
           }
-          if (!popup.location.href.startsWith(this.redirectUri)) return;
-          clearInterval(interval);
           const url = new URL(popup.location.href);
+          const redirect = new URL(this.redirectUri);
+          if (url.origin !== redirect.origin || url.pathname !== redirect.pathname) return;
           popup.close();
           const code = url.searchParams.get("code");
           const returnedState = url.searchParams.get("state");
-          if (returnedState !== state) {
-            reject(new ArinovaError("State mismatch — possible CSRF", 0));
+          if (!returnedState || returnedState !== state) {
+            finish(() => reject(new ArinovaError("State mismatch — possible CSRF", 0, "state_mismatch")));
             return;
           }
           if (!code) {
-            reject(new ArinovaError(url.searchParams.get("error_description") ?? "No authorization code", 0));
+            finish(() => reject(new ArinovaError(url.searchParams.get("error_description") ?? "No authorization code", 0, "missing_authorization_code")));
             return;
           }
-          this.exchangeCode(code, verifier).then(resolve, reject);
+          this.exchangeCode(code, verifier).then(
+            (session) => finish(() => resolve(session)),
+            (error) => finish(() => reject(error)),
+          );
         } catch {
           // Cross-origin while the popup is on the consent host — keep polling.
         }
       }, 200);
-      setTimeout(() => {
-        clearInterval(interval);
+      timeout = setTimeout(() => {
         try {
           popup.close();
         } catch {
           /* ignore */
         }
-        reject(new ArinovaError("Login timed out", 0));
+        finish(() => reject(new ArinovaError("Login timed out", 0, "login_timeout")));
       }, POPUP_TIMEOUT_MS);
     });
   }
 
   /** Complete the redirect flow — call on your redirect_uri page. */
   async handleCallback(): Promise<ArinovaSession> {
+    if (typeof window === "undefined" || typeof sessionStorage === "undefined") {
+      throw new ArinovaError("OAuth callback handling requires a browser window", 0, "browser_required");
+    }
     const url = new URL(window.location.href);
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
@@ -253,10 +324,16 @@ export class Arinova {
     sessionStorage.removeItem(VERIFIER_KEY);
     sessionStorage.removeItem(STATE_KEY);
 
-    if (!code) throw new ArinovaError(url.searchParams.get("error_description") ?? "No authorization code", 0);
-    if (state !== expectedState) throw new ArinovaError("State mismatch", 0);
-    if (!verifier) throw new ArinovaError("No PKCE verifier found — did you call login()?", 0);
-    return this.exchangeCode(code, verifier);
+    if (!verifier) throw new ArinovaError("No PKCE verifier found — did you call login()?", 0, "missing_pkce_verifier");
+    if (!state || !expectedState || state !== expectedState) throw new ArinovaError("State mismatch", 0, "state_mismatch");
+    if (!code) throw new ArinovaError(url.searchParams.get("error_description") ?? "No authorization code", 0, "missing_authorization_code");
+    const session = await this.exchangeCode(code, verifier);
+    url.searchParams.delete("code");
+    url.searchParams.delete("state");
+    url.searchParams.delete("error");
+    url.searchParams.delete("error_description");
+    window.history?.replaceState?.(null, "", url.toString());
+    return session;
   }
 
   private async exchangeCode(code: string, codeVerifier: string): Promise<ArinovaSession> {
@@ -270,18 +347,15 @@ export class Arinova {
         code_verifier: codeVerifier,
       }),
     });
-    const session: ArinovaSession = {
-      user: token.user,
-      accessToken: token.access_token,
-      tokenType: token.token_type,
-      expiresAt: Date.now() + token.expires_in * 1000,
-      scopes: parseScopes(token.scope),
-      agents: [],
-    };
+    const session = sessionFromToken(token);
     this._session = session;
     if (session.scopes.includes("agents")) {
       try {
-        session.agents = await this.user.agents();
+        const response = await request<{ agents: AgentInfo[] }>(`${this.apiUrl}/api/v1/user/agents`, {
+          method: "GET",
+          token: session.accessToken,
+        });
+        session.agents = response.agents;
       } catch {
         /* agents are best-effort */
       }
@@ -293,103 +367,127 @@ export class Arinova {
   private requireToken(): string {
     const token = this._session?.accessToken;
     if (!token) {
-      throw new ArinovaError("Not connected — call connect(), login(), or handleCallback() first", 0);
+      throw new ArinovaError("Not connected — call connect(), login(), or handleCallback() first", 0, "not_connected");
+    }
+    if (this._session!.expiresAt <= Date.now()) {
+      throw new ArinovaError("Session token has expired — authenticate again", 401, "token_expired");
     }
     return token;
   }
 
-  private async apiGet<T>(path: string): Promise<T> {
+  private async apiGet<T>(path: string, options: RequestOptions = {}): Promise<T> {
     const token = this.requireToken();
-    return request<T>(`${this.apiUrl}${path}`, { method: "GET", token });
+    return request<T>(`${this.apiUrl}${path}`, { method: "GET", token, ...options });
   }
-  private async apiPost<T>(path: string, body: unknown): Promise<T> {
+  private async apiPost<T>(path: string, body: unknown, options: RequestOptions = {}): Promise<T> {
     const token = this.requireToken();
-    return request<T>(`${this.apiUrl}${path}`, { method: "POST", token, body: JSON.stringify(body) });
+    return request<T>(`${this.apiUrl}${path}`, { method: "POST", token, body: JSON.stringify(body), ...options });
   }
 
-  // ── user namespace ──────────────────────────────────────────────
-  readonly user = {
-    /** The authenticated user's profile. */
-    profile: (): Promise<ArinovaUser> => this.apiGet<ArinovaUser>("/api/v1/user/profile"),
-    /** The user's agents. Requires the `agents` scope. */
-    agents: (): Promise<AgentInfo[]> =>
-      this.apiGet<{ agents: AgentInfo[] }>("/api/v1/user/agents").then((r) => r.agents),
-  };
+  readonly user = new UserApi(this as unknown as ClientTransport);
+  readonly economy = new EconomyApi(this as unknown as ClientTransport);
+  readonly agent = new AgentApi(this as unknown as ClientTransport);
 
-  // ── economy namespace (user OAuth token) ────────────────────────
-  readonly economy = {
-    /** The user's coin balance. Requires the `economy` scope. */
-    balance: (): Promise<BalanceResponse> => this.apiGet<BalanceResponse>("/api/v1/economy/balance"),
-    /** Charge coins from the user's balance. Requires the `economy` scope. */
-    purchase: (params: PurchaseParams): Promise<PurchaseResponse> =>
-      this.apiPost<PurchaseResponse>("/api/v1/economy/purchase", params),
-    /** The user's transaction history. Requires the `economy` scope. */
-    transactions: (params: TransactionsParams = {}): Promise<TransactionsResponse> => {
-      const q = new URLSearchParams();
-      if (params.limit != null) q.set("limit", String(params.limit));
-      if (params.offset != null) q.set("offset", String(params.offset));
-      const qs = q.toString();
-      return this.apiGet<TransactionsResponse>(`/api/v1/economy/transactions${qs ? `?${qs}` : ""}`);
-    },
-  };
-
-  // ── agent namespace (requires `agents` scope) ───────────────────
-  readonly agent = {
-    /** Send a prompt/messages to a user's agent; get a complete response. */
-    chat: (params: AgentChatParams): Promise<AgentChatResponse> =>
-      this.apiPost<AgentChatResponse>("/api/v1/agent/chat", params),
-    /** Stream a response via SSE; yields `{type:"chunk"|"done"|"error"}` events. */
-    chatStream: (params: AgentChatParams): AsyncGenerator<AgentChatEvent> => this.streamChat(params),
-  };
-
-  private async *streamChat(params: AgentChatParams): AsyncGenerator<AgentChatEvent> {
-    const res = await fetch(`${this.apiUrl}/api/v1/agent/chat/stream`, {
+  private async *streamChat(params: AgentChatParams, options: RequestOptions = {}): AsyncGenerator<AgentChatEvent> {
+    const handle = await requestStream(`${this.apiUrl}/api/v1/agent/chat/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.requireToken()}` },
       body: JSON.stringify(params),
+      ...options,
     });
-    if (!res.ok || !res.body) {
-      const body = await res.json().catch(() => undefined);
-      const error = parseError(body, `Agent chat stream failed (${res.status})`);
-      throw new ArinovaError(error.message, res.status, error.code);
-    }
-    const reader = res.body.getReader();
+    const res = handle.response;
+    const reader = res.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) {
-        buffer += decoder.decode();
-      } else {
-        buffer += decoder.decode(value, { stream: true });
-      }
-      let nl: number;
-      while ((nl = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, nl).trim();
-        buffer = buffer.slice(nl + 1);
-        if (!line.startsWith("data:")) continue;
-        const payload = line.slice(5).trim();
-        if (!payload) continue;
-        try {
-          yield JSON.parse(payload) as AgentChatEvent;
-        } catch {
-          /* ignore malformed frame */
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          buffer += decoder.decode();
+        } else {
+          buffer += decoder.decode(value, { stream: true });
         }
-      }
-      if (done) {
-        const line = buffer.trim();
-        if (line.startsWith("data:")) {
+        let nl: number;
+        while ((nl = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line.startsWith("data:")) continue;
           const payload = line.slice(5).trim();
-          if (payload) {
-            try {
-              yield JSON.parse(payload) as AgentChatEvent;
-            } catch {
-              /* ignore malformed final frame */
-            }
+          if (!payload) continue;
+          try {
+            yield JSON.parse(payload) as AgentChatEvent;
+          } catch {
+            /* ignore malformed frame */
           }
         }
-        break;
+        if (done) {
+          const line = buffer.trim();
+          if (line.startsWith("data:")) {
+            const payload = line.slice(5).trim();
+            if (payload) {
+              try {
+                yield JSON.parse(payload) as AgentChatEvent;
+              } catch {
+                /* ignore malformed final frame */
+              }
+            }
+          }
+          break;
+        }
       }
+    } catch (error) {
+      const abortCode = handle.abortCode();
+      if (abortCode) {
+        throw new ArinovaError(abortCode === "timeout" ? "Request timed out" : "Request aborted", 0, abortCode);
+      }
+      throw error;
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+      handle.close();
     }
+  }
+}
+
+interface ClientTransport {
+  apiGet<T>(path: string, options?: RequestOptions): Promise<T>;
+  apiPost<T>(path: string, body: unknown, options?: RequestOptions): Promise<T>;
+  streamChat(params: AgentChatParams, options?: RequestOptions): AsyncGenerator<AgentChatEvent>;
+}
+
+class UserApi {
+  constructor(private readonly client: ClientTransport) {}
+  profile(options?: RequestOptions): Promise<ArinovaUser> {
+    return this.client.apiGet<ArinovaUser>("/api/v1/user/profile", options);
+  }
+  agents(options?: RequestOptions): Promise<AgentInfo[]> {
+    return this.client.apiGet<{ agents: AgentInfo[] }>("/api/v1/user/agents", options).then((response) => response.agents);
+  }
+}
+
+class EconomyApi {
+  constructor(private readonly client: ClientTransport) {}
+  balance(options?: RequestOptions): Promise<BalanceResponse> {
+    return this.client.apiGet<BalanceResponse>("/api/v1/economy/balance", options);
+  }
+  purchase(params: PurchaseParams, options?: RequestOptions): Promise<PurchaseResponse> {
+    return this.client.apiPost<PurchaseResponse>("/api/v1/economy/purchase", params, options);
+  }
+  transactions(params: TransactionsParams = {}, options?: RequestOptions): Promise<TransactionsResponse> {
+    const query = new URLSearchParams();
+    if (params.limit != null) query.set("limit", String(params.limit));
+    if (params.offset != null) query.set("offset", String(params.offset));
+    const suffix = query.toString();
+    return this.client.apiGet<TransactionsResponse>(`/api/v1/economy/transactions${suffix ? `?${suffix}` : ""}`, options);
+  }
+}
+
+class AgentApi {
+  constructor(private readonly client: ClientTransport) {}
+  chat(params: AgentChatParams, options?: RequestOptions): Promise<AgentChatResponse> {
+    return this.client.apiPost<AgentChatResponse>("/api/v1/agent/chat", params, options);
+  }
+  chatStream(params: AgentChatParams, options?: RequestOptions): AsyncGenerator<AgentChatEvent> {
+    return this.client.streamChat(params, options);
   }
 }

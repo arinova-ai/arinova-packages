@@ -20,7 +20,16 @@ export interface ArinovaConfig {
   /** OAuth redirect URI. Default: `${location.origin}/callback`. */
   redirectUri?: string;
   /** Requested OAuth scopes (joined with spaces). Default: ["profile"]. */
-  scopes?: ArinovaScope[] | string[];
+  scopes?: ArinovaScope[];
+}
+
+/** Per-request cancellation and deadline controls. */
+export interface RequestOptions {
+  signal?: AbortSignal;
+  /** Total request deadline in milliseconds. Default: 15 seconds. */
+  timeoutMs?: number;
+  /** Retry count for transient network, 429, and 5xx failures. Default: 0. */
+  retries?: number;
 }
 
 /** Server-side (secret-bearing) config — never use in a browser bundle. */
@@ -32,7 +41,7 @@ export interface ArinovaServerConfig {
 }
 
 /** Scopes the server recognizes (space-separated on the wire). */
-export type ArinovaScope = "profile" | "email" | "agents" | "economy";
+export type ArinovaScope = "profile" | "email" | "agents" | "economy" | (string & {});
 
 // ── User / session ───────────────────────────────────────────────
 export interface ArinovaUser {
@@ -64,6 +73,18 @@ export interface ArinovaSession {
   spaceId?: string;
 }
 
+/** Convert the OAuth wire response into the SDK's public session shape. */
+export function sessionFromToken(token: TokenResponse): ArinovaSession {
+  return {
+    user: token.user,
+    accessToken: token.access_token,
+    tokenType: token.token_type,
+    expiresAt: Date.now() + token.expires_in * 1000,
+    scopes: (token.scope ?? "").split(/[ ,]+/).filter(Boolean),
+    agents: [],
+  };
+}
+
 // ── Auth options ─────────────────────────────────────────────────
 export type ConnectMode = "auto" | "iframe" | "popup" | "redirect";
 export interface ConnectOptions {
@@ -83,7 +104,8 @@ export interface TokenResponse {
   token_type: string;
   expires_in: number;
   scope: string;
-  user: { id: string; name: string; email: string | null; image: string | null };
+  refresh_token?: string;
+  user: ArinovaUser;
 }
 
 // ── Economy ──────────────────────────────────────────────────────

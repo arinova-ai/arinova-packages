@@ -45,7 +45,7 @@ describe("Arinova config", () => {
   });
 
   it("trims trailing slashes and requires clientId", () => {
-    const c = new Arinova({ clientId: "x", apiUrl: "https://api.test//" });
+    const c = new Arinova({ clientId: "x", apiUrl: "https://api.test//", redirectUri: "https://app.test/callback" });
     expect(c.apiUrl).toBe("https://api.test");
     expect(() => new Arinova({} as never)).toThrow(/clientId/);
   });
@@ -279,6 +279,7 @@ describe("login modes", () => {
     vi.stubGlobal("sessionStorage", {
       setItem: (k: string, v: string) => void store.set(k, v),
       getItem: (k: string) => store.get(k) ?? null,
+      removeItem: (k: string) => void store.delete(k),
     });
     const location = { origin: "https://app.test", href: "https://app.test/start" };
     const win: Record<string, unknown> = { location, open };
@@ -359,7 +360,7 @@ describe("connect() iframe mode — origin validation", () => {
     dispatch({
       origin: "https://ui.test",
       source: parentWindow as Window,
-      data: { type: "arinova:auth", payload: { user: { id: "u1", name: "A", email: null, image: null }, accessToken: "tok", agents: [], scope: "profile agents" } },
+      data: { type: "arinova:auth", payload: { user: { id: "u1", name: "A", email: null, image: null }, accessToken: "tok", expiresAt: Date.now() + 60_000, agents: [], scope: "profile agents" } },
     });
     const session = await p;
     expect(session.accessToken).toBe("tok");
@@ -393,8 +394,8 @@ describe("connect() iframe mode — origin validation", () => {
       "https://ui.test",
     );
     // A re-auth still lacking economy is ignored; the one that carries it resolves.
-    dispatch({ origin: "https://ui.test", source: parentWindow as Window, data: { type: "arinova:auth", payload: { user: {}, accessToken: "t1", scope: "profile agents" } } });
-    dispatch({ origin: "https://ui.test", source: parentWindow as Window, data: { type: "arinova:auth", payload: { user: {}, accessToken: "t2", scope: "profile agents economy" } } });
+    dispatch({ origin: "https://ui.test", source: parentWindow as Window, data: { type: "arinova:auth", payload: { user: { id: "u1" }, accessToken: "t1", expiresAt: Date.now() + 60_000, scope: "profile agents" } } });
+    dispatch({ origin: "https://ui.test", source: parentWindow as Window, data: { type: "arinova:auth", payload: { user: { id: "u1" }, accessToken: "t2", expiresAt: Date.now() + 60_000, scope: "profile agents economy" } } });
     const session = await p;
     expect(session.accessToken).toBe("t2");
     expect(session.scopes).toContain("economy");
@@ -409,7 +410,7 @@ describe("connect() iframe mode — origin validation", () => {
       source: parentWindow as Window,
       data: {
         type: "arinova:auth",
-        payload: { user: {}, accessToken: "profile-token", scope: "profile", spaceId: "space-1" },
+        payload: { user: { id: "u1" }, accessToken: "profile-token", expiresAt: Date.now() + 60_000, scope: "profile", spaceId: "space-1" },
       },
     });
     expect(c.session).toMatchObject({ accessToken: "profile-token", spaceId: "space-1" });

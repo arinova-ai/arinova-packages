@@ -92,6 +92,9 @@ importers:
 
   packages/spaces-sdk:
     devDependencies:
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.6.0
       typescript:
         specifier: ^5.4.0
         version: 5.9.3

@@ -1,9 +1,12 @@
-import { request, stripTrailingSlash, parseScopes } from "./http.js";
+import { request, stripTrailingSlash, ArinovaError } from "./http.js";
 import type {
   ArinovaServerConfig,
   TokenResponse,
   ArinovaSession,
 } from "./types.js";
+import { sessionFromToken } from "./types.js";
+
+export { ArinovaError } from "./http.js";
 
 const DEFAULT_API_URL = "https://api.chat.arinova.ai";
 
@@ -20,7 +23,7 @@ export class ArinovaServer {
 
   constructor(config: ArinovaServerConfig) {
     if (!config || !config.clientId || !config.clientSecret) {
-      throw new Error("ArinovaServer: `clientId` and `clientSecret` are required");
+      throw new ArinovaError("ArinovaServer: `clientId` and `clientSecret` are required", 0, "invalid_config");
     }
     this.clientId = config.clientId;
     this.clientSecret = config.clientSecret;
@@ -47,13 +50,6 @@ export class ArinovaServer {
         code_verifier: params.codeVerifier,
       }),
     });
-    return {
-      user: token.user,
-      accessToken: token.access_token,
-      tokenType: token.token_type,
-      expiresAt: Date.now() + token.expires_in * 1000,
-      scopes: parseScopes(token.scope),
-      agents: [],
-    };
+    return sessionFromToken(token);
   }
 }

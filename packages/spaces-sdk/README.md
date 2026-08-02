@@ -15,7 +15,7 @@ Arinova runs on two origins, and the SDK talks to both:
 | **API** | `https://api.chat.arinova.ai` | `/oauth/token`, all `/api/v1/*` — the SDK's default `apiUrl` |
 | **Consent UI** | `https://chat.arinova.ai` | the login/consent page — the SDK's default `authUrl` |
 
-`GET api.chat.arinova.ai/oauth/authorize` 302-redirects to the consent page, so you always point the SDK at the **API** host and it handles the rest. (The old `chat.arinova.ai` default did not serve the API and 404'd.)
+`GET api.chat.arinova.ai/oauth/authorize` 302-redirects to the consent page, so you always point the SDK at the **API** host and it handles the rest.
 
 ## Quick start
 
@@ -84,7 +84,7 @@ const session = await server.exchangeCode({ code, redirectUri });
 
 **Auth**
 
-- `connect(options?)` → `Promise<ArinovaSession>` — one entry point. In an iframe: origin-validated `postMessage` auth. Standalone: PKCE popup (`mode:"popup"`, default) or `mode:"redirect"`. Rejects with a clear error on timeout / unauthorized origin / empty token.
+- `connect(options?)` → `Promise<ArinovaSession>` for iframe/popup, or `Promise<void>` for `mode:"redirect"` after navigation starts. Rejects with a typed error on timeout, unauthorized origin, or an invalid auth payload.
 - `login(options?)` → popup resolves with a session; `mode:"redirect"` navigates away.
 - `handleCallback()` → `Promise<ArinovaSession>` — call on your `redirectUri` page (redirect mode).
 - `session` (getter) · `accessToken` (getter) · `logout()`.
@@ -99,7 +99,7 @@ const session = await server.exchangeCode({ code, redirectUri });
 | `economy.purchase({ spaceId, productId?, amount, description?, idempotencyKey? })` | `economy` | `{ transactionId, newBalance, spaceId, creatorShare, idempotentReplay }` |
 | `economy.transactions({ limit?, offset? })` | `economy` | `{ transactions, total, limit, offset }` |
 | `agent.chat({ agentId, prompt?\|messages?, systemPrompt?, context? })` | `agents` | `{ response, agentId }` |
-| `agent.chatStream(params)` | `agents` | `AsyncGenerator<AgentChatEvent>` |
+| `agent.chatStream(params, requestOptions?)` | `agents` | `AsyncGenerator<AgentChatEvent>` |
 
 ```js
 for await (const ev of arinova.agent.chatStream({ agentId, prompt: "Hi" })) {
@@ -107,6 +107,12 @@ for await (const ev of arinova.agent.chatStream({ agentId, prompt: "Hi" })) {
   if (ev.type === "done") console.log("\n[done]");
 }
 ```
+
+Resource calls accept an optional final `{ signal, timeoutMs, retries }` argument.
+Requests time out after 15 seconds by default; retries are opt-in and limited to
+transient network, `429`, and `5xx` failures. SDK failures are `ArinovaError`
+instances with stable `code` values such as `timeout`, `aborted`,
+`network_error`, `invalid_response`, and `token_expired`.
 
 ### `new ArinovaServer(config)` — `@arinova-ai/spaces-sdk/server`
 
