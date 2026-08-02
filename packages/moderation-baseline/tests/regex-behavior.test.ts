@@ -6,8 +6,24 @@ import { parse as parseToml } from "smol-toml";
 
 const DICT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "dict");
 
-type Entry = { key?: string; pattern?: string; pattern_stub?: string; aliases?: string[]; family?: string };
+type Entry = { key?: string; pattern?: string; pattern_stub?: string; aliases?: string[]; family?: string; except?: string[] };
 const entries = (file: string): Entry[] => (parseToml(readFileSync(join(DICT_DIR, file), "utf8")).entries ?? []) as Entry[];
+
+/**
+ * Mirrors the consumer's `except` semantics: every listed safe word is removed
+ * from the text before the entry's term or pattern is applied, so `bitchute`
+ * stays usable while `bitchboy` is still blocked.
+ */
+const applyExcept = (value: string, entry: Entry): string =>
+  (entry.except ?? []).reduce((text, safe) => text.split(safe).join(""), value);
+
+const entryBlocks = (entry: Entry, value: string): boolean => {
+  const text = applyExcept(value, entry);
+  if (entry.key) {
+    return text.includes(entry.key) || (entry.aliases ?? []).some((alias) => text.includes(alias));
+  }
+  return new RegExp((entry.pattern ?? entry.pattern_stub)!, "iu").test(text);
+};
 
 const FIXTURES = new Map<string, { match: string; reject: string }>([
   ["代收驗證碼", { match: "請幫忙代收驗證碼", reject: "請勿分享密碼" }],
@@ -27,7 +43,7 @@ const FIXTURES = new Map<string, { match: string; reject: string }>([
   ["(^|[^a-z])moderator", { match: "moderator_1", reject: "model_user" }],
   ["(^|[^a-z])official", { match: "official_news", reject: "office_user" }],
   ["(^|[^a-z])support", { match: "support_1", reject: "sport_user" }],
-  ["(^|[^a-z])system([^a-z]|$)", { match: "system_1", reject: "systematic" }],
+  ["(^|[^a-z])system", { match: "system_1", reject: "systematic" }],
   ["(^|[^a-z])staff([^a-z]|$)", { match: "staff_1", reject: "staffan" }],
   ["(^|[^a-z])security", { match: "security_team", reject: "secure_user" }],
   ["(^|[^a-z])helpdesk", { match: "helpdesk_1", reject: "helper" }],
@@ -36,8 +52,8 @@ const FIXTURES = new Map<string, { match: string; reject: string }>([
   ["(^|[^a-z])root([^a-z]|$)", { match: "root_1", reject: "rootbeer" }],
   ["(^|[^a-z])superuser", { match: "superuser_1", reject: "superman" }],
   ["(^|[^a-z])verif", { match: "verified_user", reject: "very_good" }],
-  ["(^|[^a-z])cunt([^a-z]|$)", { match: "cunt_1", reject: "scunthorpe" }],
-  ["(^|[^a-z])bitch([^a-z]|$)", { match: "bitch_1", reject: "bitchute" }],
+  ["(^|[^a-z])cunt", { match: "cunt_1", reject: "scunthorpe" }],
+  ["(^|[^a-z])bitch", { match: "bitch_1", reject: "bitchute" }],
   ["(^|[^a-z])shit", { match: "shit_user", reject: "shiitake" }],
   ["(^|[^a-z])whore", { match: "whore_1", reject: "shoreline" }],
   ["(^|[^a-z])slut", { match: "slut_1", reject: "salute" }],
@@ -48,7 +64,7 @@ const FIXTURES = new Map<string, { match: string; reject: string }>([
   ["(^|[^a-z])cock([^a-z]|$)", { match: "cock_1", reject: "peacock" }],
   ["(^|[^a-z])dick([^a-z]|$)", { match: "dick_1", reject: "dickens" }],
   ["(^|[^a-z])cum([^a-z]|$)", { match: "cum_1", reject: "cucumber" }],
-  ["(^|[^a-z])penis([^a-z]|$)", { match: "penis_1", reject: "penistone" }],
+  ["(^|[^a-z])penis", { match: "penis_1", reject: "penistone" }],
   ["(^|[^a-z])vagina", { match: "vagina_1", reject: "vanilla" }],
   ["(^|[^a-z])nazi([^a-z]|$)", { match: "nazi_1", reject: "nazir" }],
   ["(^|[^a-z])jiba([^a-z]|$)", { match: "jiba_1", reject: "jibade" }],
@@ -67,21 +83,28 @@ describe("moderation regex behavior", () => {
       expect(pattern).not.toMatch(/[\u0000-\u001f\u007f]/);
       const fixture = FIXTURES.get(pattern);
       expect(fixture, `missing behavior fixture for ${pattern}`).toBeDefined();
-      const regex = new RegExp(pattern, "iu");
-      expect(regex.test(fixture!.match), `${pattern} should match ${fixture!.match}`).toBe(true);
-      expect(regex.test(fixture!.reject), `${pattern} should reject ${fixture!.reject}`).toBe(false);
+      expect(entryBlocks(entry, fixture!.match), `${pattern} should match ${fixture!.match}`).toBe(true);
+      expect(entryBlocks(entry, fixture!.reject), `${pattern} should reject ${fixture!.reject}`).toBe(false);
     }
   });
 
   it("keeps documented innocent usernames usable across key and pattern entries", () => {
     const guards = entries("username_guard.toml");
-    const blocked = (value: string) => guards.some((entry) =>
-      entry.key ? value.includes(entry.key) || (entry.aliases ?? []).some((alias) => value.includes(alias)) : new RegExp(entry.pattern!, "iu").test(value));
+    const blocked = (value: string) => guards.some((entry) => entryBlocks(entry, value));
     for (const safe of [
-      "scunthorpe", "bitchute", "penistone", "systematic", "therapist", "grapefruit", "analyst",
-      "sussex", "peacock", "dickens", "cucumber", "shiitake", "staffan", "rootbeer", "nazir",
+      "scunthorpe", "bitchute", "penistone", "systematic", "systemic", "ecosystem", "therapist",
+      "grapefruit", "analyst", "sussex", "peacock", "dickens", "cucumber", "shiitake", "staffan",
+      "rootbeer", "nazir",
     ]) {
       expect(blocked(safe), `${safe} must remain usable`).toBe(false);
+    }
+  });
+
+  it("blocks compound handles that a trailing token bound used to let through", () => {
+    const guards = entries("username_guard.toml");
+    const blocked = (value: string) => guards.some((entry) => entryBlocks(entry, value));
+    for (const handle of ["cuntface", "bitchboy", "penishead", "systemadmin", "systemsupport"]) {
+      expect(blocked(handle), `${handle} must be blocked`).toBe(true);
     }
   });
 

@@ -45,6 +45,13 @@ when omitted, the Rust consumer applies the entry to every Tier-1 action input
 schema permits only these closed targets: `image_gen.input`, `voice_tts.input`,
 `web_search.input`, `web_search.output`, and `username.input`.
 
+The optional `except` field lists real words that a term would otherwise
+false-positive on. The consumer removes every listed occurrence from the
+candidate text before matching the entry, which is what lets `bitchute` stay
+usable while `bitchboy` is still blocked — a trailing `([^a-z]|$)` bound would
+have exempted both. Keep these lists short and literal; each value is an
+exemption from a safety rule.
+
 ## Audit
 
 Every dict hit is logged per Web PRD §7.5 audit module.

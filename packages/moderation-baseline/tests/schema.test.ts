@@ -115,6 +115,20 @@ describe("moderation-baseline/dict — schema validation", () => {
           expect(entry.applies.length).toBeGreaterThan(0);
           for (const applies of entry.applies) expect(VALID_APPLIES.has(applies)).toBe(true);
         }
+        // `except` carves specific real words out of a term that would
+        // otherwise false-positive (bitchute vs bitchboy). The consumer
+        // removes every listed occurrence before matching, so entries must
+        // stay literal, lowercase, and non-empty — an empty or stray value
+        // would silently widen the exemption.
+        if (entry.except !== undefined) {
+          expect(Array.isArray(entry.except)).toBe(true);
+          expect(entry.except.length).toBeGreaterThan(0);
+          for (const safe of entry.except) {
+            expect(safe).toBeTypeOf("string");
+            expect(safe.length).toBeGreaterThan(0);
+            expect(safe).toBe(safe.toLowerCase());
+          }
+        }
         for (const alias of entry.aliases ?? []) expect(alias).toBeTypeOf("string");
         for (const locale of entry.locale ?? []) expect(locale).toBeTypeOf("string");
         if (entry.audit !== undefined) expect(entry.audit).toBeTypeOf("string");

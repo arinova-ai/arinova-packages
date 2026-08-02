@@ -22,6 +22,14 @@ review_cadence = "monthly"
 # `badminton` does not. Plain `key` entries are substring matches;
 # only terms that essentially never occur inside innocent words go in
 # as keys.
+#
+# A trailing ([^a-z]|$) bound also lets a compound handle through
+# (`bitchboy`, `systemadmin`), so terms whose only false positives are
+# a handful of real words drop the trailing bound and list those words
+# in `except` instead: the consumer removes every `except` occurrence
+# from the username before matching, so `bitchute` stays free while
+# `bitchboy` is blocked. Keep `except` lists short and literal — they
+# are exemptions from a safety rule, not a spellcheck dictionary.
 
 # ── reserved-handle ─────────────────────────────────────────────────
 
@@ -50,7 +58,8 @@ severity = "block"
 applies  = ["username.input"]
 
 [[entries]]
-pattern  = '(^|[^a-z])system([^a-z]|$)'
+pattern  = '(^|[^a-z])system'
+except   = ["systematic", "systemic", "ecosystem", "filesystem", "subsystem"]
 category = "reserved-handle"
 severity = "block"
 applies  = ["username.input"]
@@ -146,13 +155,14 @@ severity = "block"
 applies  = ["username.input"]
 
 [[entries]]
-pattern  = '(^|[^a-z])cunt([^a-z]|$)'
+pattern  = '(^|[^a-z])cunt'
 category = "profanity-en"
 severity = "block"
 applies  = ["username.input"]
 
 [[entries]]
-pattern  = '(^|[^a-z])bitch([^a-z]|$)'
+pattern  = '(^|[^a-z])bitch'
+except   = ["bitchute"]
 category = "profanity-en"
 severity = "block"
 applies  = ["username.input"]
@@ -249,7 +259,8 @@ severity = "block"
 applies  = ["username.input"]
 
 [[entries]]
-pattern  = '(^|[^a-z])penis([^a-z]|$)'
+pattern  = '(^|[^a-z])penis'
+except   = ["penistone"]
 category = "profanity-en"
 severity = "block"
 applies  = ["username.input"]
