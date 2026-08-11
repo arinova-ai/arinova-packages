@@ -50,7 +50,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      actions: write
       contents: write
       pull-requests: write
     outputs:
@@ -103,18 +102,6 @@ jobs:
             echo "has_unpublished=true" >> "$GITHUB_OUTPUT"
             echo "Unpublished packages: $unpublished"
           fi
-
-      - name: Start CI for the version-packages PR
-        if: >-
-          steps.changesets.outputs.hasChangesets == 'true' &&
-          steps.changesets.outputs.pullRequestNumber != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
-        run: |
-          set -euo pipefail
-          pr_branch="$(gh pr view "$PR_NUMBER" --json headRefName --jq .headRefName)"
-          gh workflow run ci.yml --ref "$pr_branch"
 
   release-gate:
     name: Hermes and live Arinova release gate
