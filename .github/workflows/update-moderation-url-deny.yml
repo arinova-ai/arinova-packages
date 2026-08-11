@@ -6,7 +6,6 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: write
   contents: write
   pull-requests: write
 
@@ -71,8 +70,3 @@ jobs:
               --base main \
               --head "$branch"
           fi
-
-          # PRs created with GITHUB_TOKEN may wait for approval before their
-          # pull_request run starts. workflow_dispatch is allowed to run
-          # immediately and produces the same required CI check on this SHA.
-          gh workflow run ci.yml --ref "$branch"

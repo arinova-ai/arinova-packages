@@ -4,26 +4,39 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Bot-created PRs use this entry point because workflow_dispatch events
-  # triggered with GITHUB_TOKEN are allowed to start immediately.
+  # GITHUB_TOKEN-created PRs leave pull_request runs awaiting approval.
+  # This trusted-base event is restricted again at every job to same-repo
+  # github-actions[bot] automation branches. Test jobs stay read-only.
+  pull_request_target:
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   check:
     name: Build, lint, and test all packages
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      (
+        github.event.pull_request.user.login == 'github-actions[bot]' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        startsWith(github.event.pull_request.head.ref, 'automation/')
+      )
     # Public repo: always GitHub-hosted runners, never self-hosted
     # (fork PRs would execute arbitrary code on our infrastructure).
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -53,10 +66,20 @@ jobs:
 
   hermes-integration:
     name: Hermes host integration
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      (
+        github.event.pull_request.user.login == 'github-actions[bot]' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        startsWith(github.event.pull_request.head.ref, 'automation/')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       # Pin the host revision so upstream changes cannot silently change this
       # repository's required CI gate. Update the SHA deliberately after the
@@ -100,7 +123,16 @@ jobs:
 
   required:
     name: CI required gate
-    if: always()
+    if: >-
+      always() &&
+      (
+        github.event_name != 'pull_request_target' ||
+        (
+          github.event.pull_request.user.login == 'github-actions[bot]' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          startsWith(github.event.pull_request.head.ref, 'automation/')
+        )
+      )
     needs:
       - check
       - hermes-integration
@@ -115,5 +147,42 @@ jobs:
           set -euo pipefail
           if [[ "$CHECK_RESULT" != "success" || "$HERMES_RESULT" != "success" ]]; then
             echo "CI failed: package checks=$CHECK_RESULT, Hermes integration=$HERMES_RESULT" >&2
+            exit 1
+          fi
+
+  automation-status:
+    name: Publish trusted automation PR status
+    if: >-
+      always() &&
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.user.login == 'github-actions[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'automation/')
+    needs: required
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    # The workflow definition comes from the protected base branch, and this
+    # job never checks out or executes PR-controlled code.
+    permissions:
+      statuses: write
+    steps:
+      - name: Publish the aggregate result on the PR head SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUIRED_RESULT: ${{ needs.required.result }}
+          TARGET_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          gate_state=failure
+          if [[ "$REQUIRED_RESULT" == "success" ]]; then
+            gate_state=success
+          fi
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/statuses/$TARGET_SHA" \
+            -f state="$gate_state" \
+            -f context="CI required gate" \
+            -f description="Trusted automation PR CI: $gate_state" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if [[ "$gate_state" != "success" ]]; then
             exit 1
           fi
