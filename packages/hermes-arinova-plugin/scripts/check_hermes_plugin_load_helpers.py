@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -177,10 +178,16 @@ def assert_model_tools_enabled_toolset(module, expected_tools: set[str]) -> None
     try:
         _clear_tool_defs_cache()
         invalidate_check_fn_cache()
-        definitions = get_tool_definitions(
-            enabled_toolsets=["hermes-arinova"],
-            quiet_mode=True,
-        )
+        definition_kwargs = {
+            "enabled_toolsets": ["hermes-arinova"],
+            "quiet_mode": True,
+        }
+        # Newer Hermes releases defer non-core plugin tools behind the
+        # tool-search bridge by default. This first assertion verifies the
+        # underlying registered toolset; bridge behavior is checked below.
+        if "skip_tool_search_assembly" in inspect.signature(get_tool_definitions).parameters:
+            definition_kwargs["skip_tool_search_assembly"] = True
+        definitions = get_tool_definitions(**definition_kwargs)
     finally:
         module.adapter._active_adapter = previous
         _clear_tool_defs_cache()

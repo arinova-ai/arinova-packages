@@ -5032,17 +5032,25 @@ def main() -> int:
             pre_tool_block_checked=False,
             skip_tool_request_middleware=False,
             tool_request_middleware_trace=None,
+            skip_tool_execution_middleware=False,
         ):
+            invoke_kwargs = {
+                "tool_call_id": tool_call_id,
+                "messages": messages,
+                "pre_tool_block_checked": pre_tool_block_checked,
+                "skip_tool_request_middleware": skip_tool_request_middleware,
+                "tool_request_middleware_trace": list(tool_request_middleware_trace or []),
+            }
+            if "skip_tool_execution_middleware" in inspect.signature(
+                run_agent.AIAgent._invoke_tool
+            ).parameters:
+                invoke_kwargs["skip_tool_execution_middleware"] = skip_tool_execution_middleware
             return run_agent.AIAgent._invoke_tool(
                 self,
                 function_name,
                 function_args,
                 effective_task_id,
-                tool_call_id=tool_call_id,
-                messages=messages,
-                pre_tool_block_checked=pre_tool_block_checked,
-                skip_tool_request_middleware=skip_tool_request_middleware,
-                tool_request_middleware_trace=list(tool_request_middleware_trace or []),
+                **invoke_kwargs,
             )
 
     class OutOfScopeToolExecutorAgent(FakeToolExecutorAgent):

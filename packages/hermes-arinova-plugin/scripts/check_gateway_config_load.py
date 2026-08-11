@@ -58,10 +58,20 @@ def assert_conversation_loop_tool_validation_contract(hermes_root: Path) -> None
         "tc.function.name = repaired",
         "invalid_tool_calls = [",
         "if invalid_tool_calls:",
-        "available = \", \".join(sorted(agent.valid_tool_names))",
         "agent._execute_tool_calls(assistant_message, messages, effective_task_id, api_call_count)",
     ]
     missing = [item for item in required if item not in source]
+    inline_error_contract = 'available = ", ".join(sorted(agent.valid_tool_names))' in source
+    helper_error_contract = all(
+        item in source
+        for item in (
+            "def _invalid_tool_name_error_content(name: str, valid_tool_names)",
+            'available = ", ".join(sorted(valid_tool_names))',
+            "_invalid_tool_name_error_content(",
+        )
+    )
+    if not inline_error_contract and not helper_error_contract:
+        missing.append("invalid-tool error lists agent.valid_tool_names")
     if missing:
         raise RuntimeError(
             "Hermes conversation loop no longer validates model tool calls against "
