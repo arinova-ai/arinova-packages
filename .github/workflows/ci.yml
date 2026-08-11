@@ -4,30 +4,81 @@ on:
   push:
     branches: [main]
   pull_request:
-  # GITHUB_TOKEN-created PRs leave pull_request runs awaiting approval.
-  # This trusted-base event is restricted again at every job to same-repo
-  # github-actions[bot] automation branches. Test jobs stay read-only.
-  pull_request_target:
-    types: [opened, synchronize, reopened]
+  # GITHUB_TOKEN-created PRs leave pull_request runs awaiting approval. Their
+  # creator dispatches this trusted-base event, which validates live PR
+  # metadata before any head commit is checked out.
+  repository_dispatch:
+    types: [trusted-automation-pr-ci]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.client_payload.pull_request_number || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  validate-automation:
+    name: Validate trusted automation PR
+    if: github.event_name == 'repository_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+    steps:
+      - id: pr
+        name: Match the dispatched payload to the live PR
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+          PAYLOAD_HEAD_SHA: ${{ github.event.client_payload.head_sha }}
+          PR_NUMBER: ${{ github.event.client_payload.pull_request_number }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "Invalid automation PR number" >&2
+            exit 1
+          fi
+          if ! [[ "$PAYLOAD_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid automation PR head SHA" >&2
+            exit 1
+          fi
+
+          pr_json="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          actual_author="$(jq -r .user.login <<<"$pr_json")"
+          actual_base_ref="$(jq -r .base.ref <<<"$pr_json")"
+          actual_head_ref="$(jq -r .head.ref <<<"$pr_json")"
+          actual_head_repo="$(jq -r .head.repo.full_name <<<"$pr_json")"
+          actual_head_sha="$(jq -r .head.sha <<<"$pr_json")"
+          actual_state="$(jq -r .state <<<"$pr_json")"
+
+          if [[ "$actual_author" != "github-actions[bot]" ||
+                "$actual_base_ref" != "$DEFAULT_BRANCH" ||
+                "$actual_head_repo" != "$GITHUB_REPOSITORY" ||
+                "$actual_head_sha" != "$PAYLOAD_HEAD_SHA" ||
+                "$actual_state" != "open" ]]; then
+            echo "Repository dispatch does not match a live same-repo automation PR" >&2
+            exit 1
+          fi
+          case "$actual_head_ref" in
+            automation/*|changeset-release/*) ;;
+            *)
+              echo "Untrusted automation PR branch: $actual_head_ref" >&2
+              exit 1
+              ;;
+          esac
+          echo "head_sha=$actual_head_sha" >> "$GITHUB_OUTPUT"
+
   check:
     name: Build, lint, and test all packages
+    needs: validate-automation
     if: >-
-      github.event_name != 'pull_request_target' ||
-      (
-        github.event.pull_request.user.login == 'github-actions[bot]' &&
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        startsWith(github.event.pull_request.head.ref, 'automation/')
-      )
+      always() &&
+      (github.event_name != 'repository_dispatch' || needs.validate-automation.result == 'success')
     # Public repo: always GitHub-hosted runners, never self-hosted
     # (fork PRs would execute arbitrary code on our infrastructure).
     runs-on: ubuntu-latest
@@ -35,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event_name == 'repository_dispatch' && needs.validate-automation.outputs.head_sha || github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -66,19 +117,16 @@ jobs:
 
   hermes-integration:
     name: Hermes host integration
+    needs: validate-automation
     if: >-
-      github.event_name != 'pull_request_target' ||
-      (
-        github.event.pull_request.user.login == 'github-actions[bot]' &&
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        startsWith(github.event.pull_request.head.ref, 'automation/')
-      )
+      always() &&
+      (github.event_name != 'repository_dispatch' || needs.validate-automation.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event_name == 'repository_dispatch' && needs.validate-automation.outputs.head_sha || github.sha }}
           persist-credentials: false
 
       # Pin the host revision so upstream changes cannot silently change this
@@ -125,15 +173,9 @@ jobs:
     name: CI required gate
     if: >-
       always() &&
-      (
-        github.event_name != 'pull_request_target' ||
-        (
-          github.event.pull_request.user.login == 'github-actions[bot]' &&
-          github.event.pull_request.head.repo.full_name == github.repository &&
-          startsWith(github.event.pull_request.head.ref, 'automation/')
-        )
-      )
+      (github.event_name != 'repository_dispatch' || needs.validate-automation.result == 'success')
     needs:
+      - validate-automation
       - check
       - hermes-integration
     runs-on: ubuntu-latest
@@ -154,11 +196,11 @@ jobs:
     name: Publish trusted automation PR status
     if: >-
       always() &&
-      github.event_name == 'pull_request_target' &&
-      github.event.pull_request.user.login == 'github-actions[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.event.pull_request.head.ref, 'automation/')
-    needs: required
+      github.event_name == 'repository_dispatch' &&
+      needs.validate-automation.result == 'success'
+    needs:
+      - validate-automation
+      - required
     runs-on: ubuntu-latest
     timeout-minutes: 2
     # The workflow definition comes from the protected base branch, and this
@@ -170,7 +212,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REQUIRED_RESULT: ${{ needs.required.result }}
-          TARGET_SHA: ${{ github.event.pull_request.head.sha }}
+          TARGET_SHA: ${{ needs.validate-automation.outputs.head_sha }}
         run: |
           set -euo pipefail
           gate_state=failure
