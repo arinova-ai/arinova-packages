@@ -89,6 +89,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Request trusted CI for the version-packages PR
+        if: >-
+          steps.changesets.outputs.hasChangesets == 'true' &&
+          steps.changesets.outputs.pullRequestNumber != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
+        run: |
+          set -euo pipefail
+          head_sha="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)"
+          jq -n \
+            --argjson pull_request_number "$PR_NUMBER" \
+            --arg head_sha "$head_sha" \
+            '{
+              event_type: "trusted-automation-pr-ci",
+              client_payload: {
+                pull_request_number: $pull_request_number,
+                head_sha: $head_sha
+              }
+            }' | gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" --input -
+
       - id: unpublished
         name: Detect versions that are not on npm
         if: steps.changesets.outputs.hasChangesets == 'false'
