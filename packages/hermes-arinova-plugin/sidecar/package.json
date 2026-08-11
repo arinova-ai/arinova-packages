@@ -12,6 +12,6 @@
     "check": "node --check index.mjs && node --check runtime.mjs && node --check check-index-lifecycle.mjs && node --check check-runtime.mjs && node --check check-sdk-e2e.mjs && node --check check-sdk-http.mjs && node check-index-lifecycle.mjs && node check-runtime.mjs && node check-sdk-e2e.mjs && node check-sdk-http.mjs"
   },
   "dependencies": {
-    "@arinova-ai/agent-sdk": "0.0.19"
+    "@arinova-ai/agent-sdk": "0.1.0"
   }
 }
