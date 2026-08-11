@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Bot-created PRs use this entry point because workflow_dispatch events
+  # triggered with GITHUB_TOKEN are allowed to start immediately.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -47,3 +50,70 @@ jobs:
 
       - name: Test
         run: pnpm -r test
+
+  hermes-integration:
+    name: Hermes host integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Pin the host revision so upstream changes cannot silently change this
+      # repository's required CI gate. Update the SHA deliberately after the
+      # plugin passes against a newer Hermes revision.
+      - name: Check out the pinned Hermes host
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NousResearch/hermes-agent
+          ref: f51aa6a9b5ce514e15f8e337777f522fd5cc6fa2
+          path: .ci/hermes-agent
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm install -g pnpm@10.28.2
+          pnpm install --frozen-lockfile
+          python -m pip install --disable-pip-version-check -e \
+            "git+https://github.com/NousResearch/hermes-agent.git@f51aa6a9b5ce514e15f8e337777f522fd5cc6fa2#egg=hermes-agent"
+
+      - name: Build and sync the workspace SDK
+        run: |
+          set -euo pipefail
+          pnpm -r build
+          packages/hermes-arinova-plugin/scripts/sync-sidecar-sdk.sh
+
+      - name: Verify the plugin against Hermes
+        run: |
+          set -euo pipefail
+          python packages/hermes-arinova-plugin/scripts/check_local.py \
+            --hermes-root "$GITHUB_WORKSPACE/.ci/hermes-agent" \
+            --hermes-python "$(command -v python)"
+
+  required:
+    name: CI required gate
+    if: always()
+    needs:
+      - check
+      - hermes-integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every CI job to pass
+        env:
+          CHECK_RESULT: ${{ needs.check.result }}
+          HERMES_RESULT: ${{ needs.hermes-integration.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$CHECK_RESULT" != "success" || "$HERMES_RESULT" != "success" ]]; then
+            echo "CI failed: package checks=$CHECK_RESULT, Hermes integration=$HERMES_RESULT" >&2
+            exit 1
+          fi

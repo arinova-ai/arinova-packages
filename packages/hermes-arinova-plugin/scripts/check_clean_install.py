@@ -415,10 +415,13 @@ def assert_model_tools_enabled_toolset(module, expected_tools: set[str]) -> None
     try:
         _clear_tool_defs_cache()
         invalidate_check_fn_cache()
-        definitions = get_tool_definitions(
-            enabled_toolsets=["hermes-arinova"],
-            quiet_mode=True,
-        )
+        definition_kwargs = {
+            "enabled_toolsets": ["hermes-arinova"],
+            "quiet_mode": True,
+        }
+        if "skip_tool_search_assembly" in inspect.signature(get_tool_definitions).parameters:
+            definition_kwargs["skip_tool_search_assembly"] = True
+        definitions = get_tool_definitions(**definition_kwargs)
     finally:
         module.adapter._active_adapter = previous
         _clear_tool_defs_cache()
@@ -957,17 +960,25 @@ def assert_agent_runtime_invokes_enabled_toolset(module) -> None:
             pre_tool_block_checked=False,
             skip_tool_request_middleware=False,
             tool_request_middleware_trace=None,
+            skip_tool_execution_middleware=False,
         ):
+            invoke_kwargs = {
+                "tool_call_id": tool_call_id,
+                "messages": messages,
+                "pre_tool_block_checked": pre_tool_block_checked,
+                "skip_tool_request_middleware": skip_tool_request_middleware,
+                "tool_request_middleware_trace": list(tool_request_middleware_trace or []),
+            }
+            if "skip_tool_execution_middleware" in inspect.signature(
+                run_agent.AIAgent._invoke_tool
+            ).parameters:
+                invoke_kwargs["skip_tool_execution_middleware"] = skip_tool_execution_middleware
             return run_agent.AIAgent._invoke_tool(
                 self,
                 function_name,
                 function_args,
                 effective_task_id,
-                tool_call_id=tool_call_id,
-                messages=messages,
-                pre_tool_block_checked=pre_tool_block_checked,
-                skip_tool_request_middleware=skip_tool_request_middleware,
-                tool_request_middleware_trace=list(tool_request_middleware_trace or []),
+                **invoke_kwargs,
             )
 
     class OutOfScopeToolExecutorAgent(FakeToolExecutorAgent):
