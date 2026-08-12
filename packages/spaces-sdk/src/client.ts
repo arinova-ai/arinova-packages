@@ -9,10 +9,15 @@ import type {
   LoginOptions,
   TokenResponse,
   BalanceResponse,
-  PurchaseParams,
-  PurchaseResponse,
   TransactionsParams,
   TransactionsResponse,
+  SpaceProductsResponse,
+  SpaceInventoryResponse,
+  ConsumeInventoryParams,
+  ConsumeInventoryResponse,
+  SpacePurchaseResult,
+  SpaceStorageEntry,
+  SpaceStorageListResponse,
   AgentChatParams,
   AgentChatResponse,
   AgentChatEvent,
@@ -40,6 +45,7 @@ export class Arinova {
   readonly scopes: string[];
   private _session: ArinovaSession | null = null;
   private loginInFlight: Promise<ArinovaSession | void> | null = null;
+  private purchaseInFlight: Promise<SpacePurchaseResult> | null = null;
 
   constructor(config: ArinovaConfig) {
     if (!config || !config.clientId) {
@@ -112,8 +118,13 @@ export class Arinova {
     if (typeof window === "undefined" || window.self === window.top) {
       return Promise.reject(new ArinovaError("requestScope() is only available inside an embedded Space", 0, "embedded_only"));
     }
+    const bridgeToken = this.requireBridgeToken();
     const target = new URL(this.authUrl).origin;
-    window.parent.postMessage({ type: "arinova:request-scope", payload: { scope } }, target);
+    window.parent.postMessage({
+      type: "arinova:request-scope",
+      bridgeToken,
+      payload: { scope, protocolVersion: 1 },
+    }, target);
     return this.awaitAuth(
       options.timeout ?? 30000,
       (session) => session.scopes.includes(scope),
@@ -136,6 +147,7 @@ export class Arinova {
       return Promise.reject(new ArinovaError("Iframe authentication requires a browser window", 0, "browser_required"));
     }
     const expectedOrigin = new URL(this.authUrl).origin;
+    const expectedBridgeToken = this.bridgeToken();
     return new Promise<ArinovaSession>((resolve, reject) => {
       let settled = false;
       const finish = (fn: () => void): void => {
@@ -149,8 +161,22 @@ export class Arinova {
       const onMessage = (event: MessageEvent): void => {
         // Reject anything not from the expected Arinova parent window.
         if (event.origin !== expectedOrigin || event.source !== window.parent) return;
-        const data = event.data as { type?: string; payload?: Record<string, unknown> };
+        const data = event.data as {
+          type?: string;
+          bridgeToken?: string;
+          payload?: Record<string, unknown>;
+        };
         if (!data) return;
+        if (expectedBridgeToken && data.bridgeToken !== expectedBridgeToken) return;
+        const protocolVersion = data.payload?.protocolVersion;
+        if (protocolVersion !== undefined && protocolVersion !== 1) {
+          finish(() => reject(new ArinovaError(
+            `Unsupported Space bridge protocol version: ${String(protocolVersion)}`,
+            0,
+            "protocol_mismatch",
+          )));
+          return;
+        }
         if (data.type === "arinova:scope-denied") {
           const denied = (data.payload ?? {}) as { scope?: string; reason?: string };
           if (!accept || !denied.scope || denied.scope === deniedScope) {
@@ -384,6 +410,37 @@ export class Arinova {
     return token;
   }
 
+  private bridgeToken(): string | null {
+    if (typeof window === "undefined") return null;
+    const hash = typeof window.location?.hash === "string" ? window.location.hash : "";
+    return new URLSearchParams(hash.replace(/^#/, "")).get("bridgeToken");
+  }
+
+  private requireBridgeToken(): string {
+    const token = this.bridgeToken();
+    if (!token) {
+      throw new ArinovaError(
+        "The managed Space bridge token is missing from the URL fragment",
+        0,
+        "missing_bridge_token",
+      );
+    }
+    return token;
+  }
+
+  private requireSpaceId(): string {
+    this.requireToken();
+    const spaceId = this._session?.spaceId;
+    if (!spaceId) {
+      throw new ArinovaError(
+        "This operation requires a Space-bound OAuth session",
+        0,
+        "space_session_required",
+      );
+    }
+    return spaceId;
+  }
+
   private async apiGet<T>(path: string, options: RequestOptions = {}): Promise<T> {
     const token = this.requireToken();
     return request<T>(`${this.apiUrl}${path}`, { method: "GET", token, ...options });
@@ -392,10 +449,116 @@ export class Arinova {
     const token = this.requireToken();
     return request<T>(`${this.apiUrl}${path}`, { method: "POST", token, body: JSON.stringify(body), ...options });
   }
+  private async apiPut<T>(path: string, body: unknown, options: RequestOptions = {}): Promise<T> {
+    const token = this.requireToken();
+    return request<T>(`${this.apiUrl}${path}`, { method: "PUT", token, body: JSON.stringify(body), ...options });
+  }
+  private async apiDelete<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const token = this.requireToken();
+    return request<T>(`${this.apiUrl}${path}`, { method: "DELETE", token, ...options });
+  }
 
   readonly user = new UserApi(this as unknown as ClientTransport);
   readonly economy = new EconomyApi(this as unknown as ClientTransport);
+  readonly commerce = new CommerceApi(this as unknown as ClientTransport);
+  readonly storage = new StorageApi(this as unknown as ClientTransport);
   readonly agent = new AgentApi(this as unknown as ClientTransport);
+
+  /** Request a native host-confirmed purchase from an embedded managed Space. */
+  private requestPurchaseBridge(productKey: string, options: { timeout?: number } = {}): Promise<SpacePurchaseResult> {
+    if (typeof window === "undefined" || window.self === window.top) {
+      return Promise.reject(new ArinovaError(
+        "requestPurchase() is only available inside an embedded Space",
+        0,
+        "embedded_only",
+      ));
+    }
+    if (!validProductKey(productKey)) {
+      return Promise.reject(new ArinovaError(
+        "productKey must use 1–64 ASCII letters, numbers, dots, underscores, or hyphens and start with a letter or number",
+        0,
+        "invalid_product_key",
+      ));
+    }
+    if (this.purchaseInFlight) {
+      return Promise.reject(new ArinovaError(
+        "Another Space purchase request is already pending",
+        0,
+        "purchase_pending",
+      ));
+    }
+    let bridgeToken: string;
+    try {
+      bridgeToken = this.requireBridgeToken();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const timeout = options.timeout ?? 60_000;
+    if (!Number.isFinite(timeout) || timeout <= 0) {
+      return Promise.reject(new ArinovaError("timeout must be a positive number", 0, "invalid_timeout"));
+    }
+    const expectedOrigin = new URL(this.authUrl).origin;
+    const operation = new Promise<SpacePurchaseResult>((resolve, reject) => {
+      let settled = false;
+      const finish = (fn: () => void): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        window.removeEventListener("message", onMessage);
+        fn();
+      };
+      const onMessage = (event: MessageEvent): void => {
+        if (event.origin !== expectedOrigin || event.source !== window.parent) return;
+        const data = event.data as {
+          type?: string;
+          bridgeToken?: string;
+          payload?: Partial<SpacePurchaseResult>;
+        };
+        if (!data || data.type !== "arinova:purchase-result") return;
+        if (data.bridgeToken !== bridgeToken) return;
+        const payload = data.payload;
+        if (payload?.protocolVersion !== undefined && payload.protocolVersion !== 1) {
+          finish(() => reject(new ArinovaError(
+            `Unsupported Space bridge protocol version: ${String(payload.protocolVersion)}`,
+            0,
+            "protocol_mismatch",
+          )));
+          return;
+        }
+        if (!payload || payload.productKey !== productKey) return;
+        if (!matchesPurchaseStatus(payload.status)) {
+          finish(() => reject(new ArinovaError(
+            "Arinova sent an invalid purchase result",
+            0,
+            "invalid_purchase_result",
+          )));
+          return;
+        }
+        finish(() => resolve({
+          ...payload,
+          productKey,
+          status: payload.status,
+          protocolVersion: 1,
+        } as SpacePurchaseResult));
+      };
+      const timer = setTimeout(() => finish(() => reject(new ArinovaError(
+        "Space purchase confirmation timed out",
+        0,
+        "purchase_timeout",
+      ))), timeout);
+      window.addEventListener("message", onMessage);
+      window.parent.postMessage({
+        type: "arinova:purchase-request",
+        bridgeToken,
+        payload: { productKey, protocolVersion: 1 },
+      }, expectedOrigin);
+    });
+    this.purchaseInFlight = operation;
+    void operation.finally(() => {
+      if (this.purchaseInFlight === operation) this.purchaseInFlight = null;
+    }).catch(() => undefined);
+    return operation;
+  }
 
   private async *streamChat(params: AgentChatParams, options: RequestOptions = {}): AsyncGenerator<AgentChatEvent> {
     const handle = await requestStream(`${this.apiUrl}/api/v1/agent/chat/stream`, {
@@ -461,7 +624,36 @@ export class Arinova {
 interface ClientTransport {
   apiGet<T>(path: string, options?: RequestOptions): Promise<T>;
   apiPost<T>(path: string, body: unknown, options?: RequestOptions): Promise<T>;
+  apiPut<T>(path: string, body: unknown, options?: RequestOptions): Promise<T>;
+  apiDelete<T>(path: string, options?: RequestOptions): Promise<T>;
+  requireSpaceId(): string;
+  requestPurchaseBridge(productKey: string, options?: { timeout?: number }): Promise<SpacePurchaseResult>;
   streamChat(params: AgentChatParams, options?: RequestOptions): AsyncGenerator<AgentChatEvent>;
+}
+
+function visibleAscii(value: string, maxLength: number): boolean {
+  return value.length > 0
+    && value.length <= maxLength
+    && [...value].every((character) => {
+      const code = character.charCodeAt(0);
+      return code >= 0x21 && code <= 0x7e;
+    });
+}
+
+function validProductKey(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value);
+}
+
+function validStorageKey(value: string): boolean {
+  return value !== "."
+    && value !== ".."
+    && new TextEncoder().encode(value).length <= 200
+    && value.length > 0
+    && ![...value].some((character) => /\p{Cc}/u.test(character));
+}
+
+function matchesPurchaseStatus(value: unknown): value is SpacePurchaseResult["status"] {
+  return value === "purchased" || value === "cancelled" || value === "error";
 }
 
 class UserApi {
@@ -479,15 +671,109 @@ class EconomyApi {
   balance(options?: RequestOptions): Promise<BalanceResponse> {
     return this.client.apiGet<BalanceResponse>("/api/v1/economy/balance", options);
   }
-  purchase(params: PurchaseParams, options?: RequestOptions): Promise<PurchaseResponse> {
-    return this.client.apiPost<PurchaseResponse>("/api/v1/economy/purchase", params, options);
-  }
   transactions(params: TransactionsParams = {}, options?: RequestOptions): Promise<TransactionsResponse> {
     const query = new URLSearchParams();
     if (params.limit != null) query.set("limit", String(params.limit));
     if (params.offset != null) query.set("offset", String(params.offset));
     const suffix = query.toString();
     return this.client.apiGet<TransactionsResponse>(`/api/v1/economy/transactions${suffix ? `?${suffix}` : ""}`, options);
+  }
+}
+
+class CommerceApi {
+  constructor(private readonly client: ClientTransport) {}
+
+  /** Ask the native Arinova host to confirm and execute a purchase. */
+  requestPurchase(productKey: string, options?: { timeout?: number }): Promise<SpacePurchaseResult> {
+    return this.client.requestPurchaseBridge(productKey, options);
+  }
+
+  products(options?: RequestOptions): Promise<SpaceProductsResponse> {
+    const spaceId = this.client.requireSpaceId();
+    return this.client.apiGet<SpaceProductsResponse>(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/products`,
+      options,
+    );
+  }
+
+  inventory(options?: RequestOptions): Promise<SpaceInventoryResponse> {
+    const spaceId = this.client.requireSpaceId();
+    return this.client.apiGet<SpaceInventoryResponse>(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/inventory`,
+      options,
+    );
+  }
+
+  consume(
+    productKey: string,
+    params: ConsumeInventoryParams,
+    options?: RequestOptions,
+  ): Promise<ConsumeInventoryResponse> {
+    if (!validProductKey(productKey)) {
+      throw new ArinovaError("Invalid Space product key", 0, "invalid_product_key");
+    }
+    if (!params || !Number.isInteger(params.quantity) || params.quantity < 1 || params.quantity > 100_000) {
+      throw new ArinovaError("quantity must be an integer from 1 to 100000", 0, "invalid_quantity");
+    }
+    if (!visibleAscii(params.idempotencyKey, 128)) {
+      throw new ArinovaError(
+        "idempotencyKey must contain 1–128 visible ASCII characters",
+        0,
+        "invalid_idempotency_key",
+      );
+    }
+    const spaceId = this.client.requireSpaceId();
+    return this.client.apiPost<ConsumeInventoryResponse>(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/inventory/${encodeURIComponent(productKey)}/consume`,
+      params,
+      options,
+    );
+  }
+}
+
+class StorageApi {
+  constructor(private readonly client: ClientTransport) {}
+
+  list<T = unknown>(options?: RequestOptions): Promise<SpaceStorageListResponse<T>> {
+    const spaceId = this.client.requireSpaceId();
+    return this.client.apiGet<SpaceStorageListResponse<T>>(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/storage`,
+      options,
+    );
+  }
+
+  get<T = unknown>(key: string, options?: RequestOptions): Promise<SpaceStorageEntry<T>> {
+    this.assertKey(key);
+    const spaceId = this.client.requireSpaceId();
+    return this.client.apiGet<SpaceStorageEntry<T>>(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/storage/${encodeURIComponent(key)}`,
+      options,
+    );
+  }
+
+  set<T = unknown>(key: string, value: T, options?: RequestOptions): Promise<SpaceStorageEntry<T>> {
+    this.assertKey(key);
+    const spaceId = this.client.requireSpaceId();
+    return this.client.apiPut<SpaceStorageEntry<T>>(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/storage/${encodeURIComponent(key)}`,
+      { value },
+      options,
+    );
+  }
+
+  delete(key: string, options?: RequestOptions): Promise<void> {
+    this.assertKey(key);
+    const spaceId = this.client.requireSpaceId();
+    return this.client.apiDelete<void>(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/storage/${encodeURIComponent(key)}`,
+      options,
+    );
+  }
+
+  private assertKey(key: string): void {
+    if (!validStorageKey(key)) {
+      throw new ArinovaError("Invalid Space storage key", 0, "invalid_storage_key");
+    }
   }
 }
 

@@ -28,6 +28,7 @@ function connectedClient() {
     expiresAt: Date.now() + 1000,
     scopes: ["profile", "economy", "agents"],
     agents: [],
+    spaceId: "space-1",
   };
   return client;
 }
@@ -74,30 +75,87 @@ describe("resource methods (user OAuth token)", () => {
     );
   });
 
-  it("purchase posts the space-bound contract and idempotency key", async () => {
+  it("exposes no retired economy purchase method", () => {
+    expect((connectedClient().economy as unknown as Record<string, unknown>).purchase).toBeUndefined();
+  });
+
+  it("loads products and inventory from the Space-bound session", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({
+        spaceId: "space-1",
+        subscriptionPeriodDays: 30,
+        products: [],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        spaceId: "space-1",
+        items: [],
+        subscriptions: [],
+      }));
+    const client = connectedClient();
+    await expect(client.commerce.products()).resolves.toMatchObject({ spaceId: "space-1" });
+    await expect(client.commerce.inventory()).resolves.toMatchObject({ spaceId: "space-1" });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.test/api/v1/spaces/space-1/products",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.test/api/v1/spaces/space-1/inventory",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("validates and posts atomic inventory consumption", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({
-      transactionId: "t1", newBalance: 10, spaceId: "space-1", creatorShare: 4, idempotentReplay: false,
-    }));
-    await connectedClient().economy.purchase({
       spaceId: "space-1",
-      productId: "potion",
-      amount: 5,
-      description: "Potion",
-      idempotencyKey: "purchase-1",
-    });
+      productKey: "potion.small",
+      quantityConsumed: 2,
+      remainingQuantity: 3,
+      ledgerId: "ledger-1",
+      idempotentReplay: false,
+    }));
+    const client = connectedClient();
+    await expect(client.commerce.consume("potion.small", {
+      quantity: 2,
+      idempotencyKey: "consume-1",
+    })).resolves.toMatchObject({ remainingQuantity: 3 });
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.test/api/v1/economy/purchase",
+      "https://api.test/api/v1/spaces/space-1/inventory/potion.small/consume",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({
-          spaceId: "space-1",
-          productId: "potion",
-          amount: 5,
-          description: "Potion",
-          idempotencyKey: "purchase-1",
-        }),
+        body: JSON.stringify({ quantity: 2, idempotencyKey: "consume-1" }),
       }),
     );
+    expect(() => client.commerce.consume("bad key", {
+      quantity: 1,
+      idempotencyKey: "consume-2",
+    })).toThrowError(expect.objectContaining({ code: "invalid_product_key" }));
+    expect(() => client.commerce.consume("potion", {
+      quantity: 0,
+      idempotencyKey: "consume-2",
+    })).toThrowError(expect.objectContaining({ code: "invalid_quantity" }));
+    expect(() => client.commerce.consume("potion", {
+      quantity: 1,
+      idempotencyKey: "contains space",
+    })).toThrowError(expect.objectContaining({ code: "invalid_idempotency_key" }));
+  });
+
+  it("wraps per-user Space storage and exposes quota usage", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ entries: [], usedBytes: 0, quotaBytes: 1_048_576 }))
+      .mockResolvedValueOnce(jsonResponse({ key: "save/1", value: { level: 2 }, updatedAt: "2026-08-12T00:00:00Z" }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const client = connectedClient();
+    await expect(client.storage.list()).resolves.toMatchObject({ usedBytes: 0, quotaBytes: 1_048_576 });
+    await expect(client.storage.set("save/1", { level: 2 })).resolves.toMatchObject({ key: "save/1" });
+    await expect(client.storage.delete("save/1")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.test/api/v1/spaces/space-1/storage/save%2F1",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ value: { level: 2 } }) }),
+    );
+    expect(() => client.storage.get("..")).toThrowError(expect.objectContaining({ code: "invalid_storage_key" }));
   });
 
   it("transactions builds pagination query", async () => {
@@ -137,11 +195,11 @@ describe("resource methods (user OAuth token)", () => {
   it("surfaces nested API-v1 and flat OAuth errors", async () => {
     const c = connectedClient();
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({
-      error: { code: "SPACE_ID_REQUIRED", message: "Space-bound OAuth token and spaceId are required" },
+      error: { code: "SPACE_INVENTORY_INSUFFICIENT", message: "Insufficient inventory quantity" },
     }, { status: 400 }));
-    await expect(c.economy.purchase({ spaceId: "space-1", amount: 1 })).rejects.toMatchObject({
-      message: "Space-bound OAuth token and spaceId are required",
-      code: "SPACE_ID_REQUIRED",
+    await expect(c.commerce.consume("potion", { quantity: 1, idempotencyKey: "consume-1" })).rejects.toMatchObject({
+      message: "Insufficient inventory quantity",
+      code: "SPACE_INVENTORY_INSUFFICIENT",
       status: 400,
     });
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({
@@ -339,7 +397,7 @@ describe("connect() iframe mode — origin validation", () => {
     const win: Record<string, unknown> = {
       parent: parentWindow,
       top: { id: "top" },
-      location: { origin: "https://app.test" },
+      location: { origin: "https://app.test", hash: "#bridgeToken=bridge-1" },
       addEventListener: (t: string, cb: (e: MessageEvent) => void) => {
         if (t === "message") listeners.push(cb);
       },
@@ -360,7 +418,7 @@ describe("connect() iframe mode — origin validation", () => {
     dispatch({
       origin: "https://ui.test",
       source: parentWindow as Window,
-      data: { type: "arinova:auth", payload: { user: { id: "u1", name: "A", email: null, image: null }, accessToken: "tok", expiresAt: Date.now() + 60_000, agents: [], scope: "profile agents" } },
+      data: { type: "arinova:auth", bridgeToken: "bridge-1", payload: { protocolVersion: 1, user: { id: "u1", name: "A", email: null, image: null }, accessToken: "tok", expiresAt: Date.now() + 60_000, agents: [], scope: "profile agents" } },
     });
     const session = await p;
     expect(session.accessToken).toBe("tok");
@@ -382,7 +440,7 @@ describe("connect() iframe mode — origin validation", () => {
   it("rejects an empty access token", async () => {
     stubIframeWindow();
     const p = client().connect({ mode: "iframe", timeout: 1000 });
-    dispatch({ origin: "https://ui.test", source: parentWindow as Window, data: { type: "arinova:auth", payload: { user: {}, accessToken: "" } } });
+    dispatch({ origin: "https://ui.test", source: parentWindow as Window, data: { type: "arinova:auth", bridgeToken: "bridge-1", payload: { protocolVersion: 1, user: {}, accessToken: "" } } });
     await expect(p).rejects.toThrow(/did not issue an access token/);
   });
 
@@ -390,12 +448,12 @@ describe("connect() iframe mode — origin validation", () => {
     stubIframeWindow();
     const p = client().requestScope("economy", { timeout: 1000 });
     expect((parentWindow as { postMessage: (m: unknown, o: string) => void }).postMessage).toHaveBeenCalledWith(
-      { type: "arinova:request-scope", payload: { scope: "economy" } },
+      { type: "arinova:request-scope", bridgeToken: "bridge-1", payload: { scope: "economy", protocolVersion: 1 } },
       "https://ui.test",
     );
     // A re-auth still lacking economy is ignored; the one that carries it resolves.
-    dispatch({ origin: "https://ui.test", source: parentWindow as Window, data: { type: "arinova:auth", payload: { user: { id: "u1" }, accessToken: "t1", expiresAt: Date.now() + 60_000, scope: "profile agents" } } });
-    dispatch({ origin: "https://ui.test", source: parentWindow as Window, data: { type: "arinova:auth", payload: { user: { id: "u1" }, accessToken: "t2", expiresAt: Date.now() + 60_000, scope: "profile agents economy" } } });
+    dispatch({ origin: "https://ui.test", source: parentWindow as Window, data: { type: "arinova:auth", bridgeToken: "bridge-1", payload: { protocolVersion: 1, user: { id: "u1" }, accessToken: "t1", expiresAt: Date.now() + 60_000, scope: "profile agents" } } });
+    dispatch({ origin: "https://ui.test", source: parentWindow as Window, data: { type: "arinova:auth", bridgeToken: "bridge-1", payload: { protocolVersion: 1, user: { id: "u1" }, accessToken: "t2", expiresAt: Date.now() + 60_000, scope: "profile agents economy" } } });
     const session = await p;
     expect(session.accessToken).toBe("t2");
     expect(session.scopes).toContain("economy");
@@ -410,7 +468,8 @@ describe("connect() iframe mode — origin validation", () => {
       source: parentWindow as Window,
       data: {
         type: "arinova:auth",
-        payload: { user: { id: "u1" }, accessToken: "profile-token", expiresAt: Date.now() + 60_000, scope: "profile", spaceId: "space-1" },
+        bridgeToken: "bridge-1",
+        payload: { protocolVersion: 1, user: { id: "u1" }, accessToken: "profile-token", expiresAt: Date.now() + 60_000, scope: "profile", spaceId: "space-1" },
       },
     });
     expect(c.session).toMatchObject({ accessToken: "profile-token", spaceId: "space-1" });
@@ -419,7 +478,8 @@ describe("connect() iframe mode — origin validation", () => {
       source: parentWindow as Window,
       data: {
         type: "arinova:scope-denied",
-        payload: { scope: "economy", reason: "User declined" },
+        bridgeToken: "bridge-1",
+        payload: { protocolVersion: 1, scope: "economy", reason: "User declined" },
       },
     });
     await expect(p).rejects.toMatchObject({ message: "User declined", code: "scope_denied" });
@@ -440,6 +500,90 @@ describe("connect() iframe mode — origin validation", () => {
     stubIframeWindow();
     await expect(client().requestScope("economy", { timeout: 10 })).rejects.toThrow(/was not granted/);
   });
+
+  it("rejects a mismatched inbound bridge protocol", async () => {
+    stubIframeWindow();
+    const pending = client().connect({ mode: "iframe", timeout: 1000 });
+    dispatch({
+      origin: "https://ui.test",
+      source: parentWindow as Window,
+      data: {
+        type: "arinova:auth",
+        bridgeToken: "bridge-1",
+        payload: { protocolVersion: 2 },
+      },
+    });
+    await expect(pending).rejects.toMatchObject({ code: "protocol_mismatch" });
+  });
+
+  it("requests one native purchase at a time and accepts only a bound result", async () => {
+    stubIframeWindow();
+    const c = client();
+    const pending = c.commerce.requestPurchase("coins.small", { timeout: 1000 });
+    expect((parentWindow as { postMessage: ReturnType<typeof vi.fn> }).postMessage).toHaveBeenCalledWith(
+      {
+        type: "arinova:purchase-request",
+        bridgeToken: "bridge-1",
+        payload: { productKey: "coins.small", protocolVersion: 1 },
+      },
+      "https://ui.test",
+    );
+    await expect(c.commerce.requestPurchase("coins.large")).rejects.toMatchObject({ code: "purchase_pending" });
+    dispatch({
+      origin: "https://evil.test",
+      source: parentWindow as Window,
+      data: {
+        type: "arinova:purchase-result",
+        bridgeToken: "bridge-1",
+        payload: { protocolVersion: 1, productKey: "coins.small", status: "purchased" },
+      },
+    });
+    dispatch({
+      origin: "https://ui.test",
+      source: parentWindow as Window,
+      data: {
+        type: "arinova:purchase-result",
+        bridgeToken: "wrong",
+        payload: { protocolVersion: 1, productKey: "coins.small", status: "purchased" },
+      },
+    });
+    dispatch({
+      origin: "https://ui.test",
+      source: parentWindow as Window,
+      data: {
+        type: "arinova:purchase-result",
+        bridgeToken: "bridge-1",
+        payload: {
+          protocolVersion: 1,
+          productKey: "coins.small",
+          status: "purchased",
+          grantId: "grant-1",
+        },
+      },
+    });
+    await expect(pending).resolves.toMatchObject({
+      status: "purchased",
+      productKey: "coins.small",
+      grantId: "grant-1",
+    });
+  });
+
+  it("validates purchase keys and rejects mismatched purchase protocols", async () => {
+    stubIframeWindow();
+    const c = client();
+    await expect(c.commerce.requestPurchase("bad key")).rejects.toMatchObject({ code: "invalid_product_key" });
+    const pending = c.commerce.requestPurchase("coins.small", { timeout: 1000 });
+    dispatch({
+      origin: "https://ui.test",
+      source: parentWindow as Window,
+      data: {
+        type: "arinova:purchase-result",
+        bridgeToken: "bridge-1",
+        payload: { protocolVersion: 2, productKey: "coins.small", status: "error" },
+      },
+    });
+    await expect(pending).rejects.toMatchObject({ code: "protocol_mismatch" });
+  });
 });
 
 describe("browser/server split", () => {
@@ -450,6 +594,7 @@ describe("browser/server split", () => {
     const c = new Arinova({ clientId: "x", apiUrl: "https://api.test", redirectUri: "https://a/cb" });
     expect((c.economy as Record<string, unknown>).charge).toBeUndefined();
     expect((c.economy as Record<string, unknown>).award).toBeUndefined();
+    expect((c.economy as Record<string, unknown>).purchase).toBeUndefined();
   });
 
   it("ArinovaServer only exposes confidential exchangeCode", async () => {

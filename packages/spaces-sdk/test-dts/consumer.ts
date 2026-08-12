@@ -6,6 +6,12 @@ const options: RequestOptions = { signal: AbortSignal.timeout(100), timeoutMs: 1
 const browser = new Arinova({ clientId: "app", redirectUri: "https://app.test/callback" });
 void browser.user.profile(options);
 void browser.agent.chatStream({ agentId: "agent", prompt: "hello" }, options);
+void browser.commerce.products(options);
+void browser.commerce.inventory(options);
+void browser.commerce.consume("coins.small", { quantity: 1, idempotencyKey: "consume-1" }, options);
+void browser.commerce.requestPurchase("coins.small");
+void browser.storage.list<{ level: number }>(options);
+void browser.storage.set("save", { level: 1 }, options);
 const server = new ArinovaServer({ clientId: "app", clientSecret: "secret" });
 void server.exchangeCode({ code: "code", redirectUri: "https://app.test/callback", codeVerifier: "verifier" });
 
