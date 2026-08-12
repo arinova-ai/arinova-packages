@@ -732,7 +732,7 @@ describe("CLI command API request shapes", () => {
     });
   });
 
-  it("space generic/owned, storage, and version routes remain distinct", async () => {
+  it("space generic/owned, storage, version, and product routes remain distinct", async () => {
     const dir = await mkdtemp(join(tmpdir(), "arinova-cli-space-"));
     tempDirs.push(dir);
     const bundle = join(dir, "bundle.zip");
@@ -742,8 +742,22 @@ describe("CLI command API request shapes", () => {
     await program.parseAsync(["node", "arinova", "space", "list", "--search", "game"]);
     await program.parseAsync(["node", "arinova", "space", "owned"]);
     await program.parseAsync(["node", "arinova", "space", "storage", "set", "space/a", "save/1", "--value", '{"score":9}']);
-    await program.parseAsync(["node", "arinova", "space", "version", "create", "space/a", "--file", bundle]);
+    await program.parseAsync(["node", "arinova", "space", "version", "create", "space/a", "--bundle", bundle]);
     await program.parseAsync(["node", "arinova", "space", "version", "publish", "space/a", "version/a"]);
+    await program.parseAsync(["node", "arinova", "space", "version", "preview", "space/a", "version/a"]);
+    await program.parseAsync(["node", "arinova", "space", "version", "scan", "space/a", "version/a"]);
+    await program.parseAsync(["node", "arinova", "space", "version", "rescan", "space/a", "version/a"]);
+    await program.parseAsync(["node", "arinova", "space", "products", "list", "space/a"]);
+    await program.parseAsync([
+      "node", "arinova", "space", "products", "create", "space/a",
+      "--key", "coins.small", "--name", "Coins", "--price-points", "25", "--kind", "consumable",
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "space", "products", "update", "space/a", "coins.small",
+      "--price-points", "30", "--active", "false",
+    ]);
+    await program.parseAsync(["node", "arinova", "space", "products", "deactivate", "space/a", "coins.small"]);
+    await program.parseAsync(["node", "arinova", "space", "products", "wind-down", "space/a", "pro.monthly"]);
 
     expect(mocks.get).toHaveBeenNthCalledWith(1, "/api/v1/spaces?search=game");
     expect(mocks.get).toHaveBeenNthCalledWith(2, "/api/v1/spaces/owned");
@@ -757,6 +771,42 @@ describe("CLI command API request shapes", () => {
     expect(mocks.post).toHaveBeenCalledWith(
       "/api/v1/spaces/space%2Fa/versions/version%2Fa/publish",
     );
+    expect(mocks.post).toHaveBeenCalledWith(
+      "/api/v1/spaces/space%2Fa/versions/version%2Fa/preview",
+    );
+    expect(mocks.get).toHaveBeenCalledWith(
+      "/api/v1/spaces/space%2Fa/versions/version%2Fa/scan",
+    );
+    expect(mocks.post).toHaveBeenCalledWith(
+      "/api/v1/spaces/space%2Fa/versions/version%2Fa/scan",
+    );
+    expect(mocks.get).toHaveBeenCalledWith("/api/v1/creator/spaces/space%2Fa/products");
+    expect(mocks.post).toHaveBeenCalledWith("/api/v1/creator/spaces/space%2Fa/products", {
+      productKey: "coins.small",
+      name: "Coins",
+      description: "",
+      pricePoints: 25,
+      kind: "consumable",
+      active: true,
+    });
+    expect(mocks.put).toHaveBeenCalledWith(
+      "/api/v1/creator/spaces/space%2Fa/products/coins.small",
+      { name: undefined, description: undefined, pricePoints: 30, active: false },
+    );
+    expect(mocks.del).toHaveBeenCalledWith(
+      "/api/v1/creator/spaces/space%2Fa/products/coins.small",
+    );
+    expect(mocks.post).toHaveBeenCalledWith(
+      "/api/v1/creator/spaces/space%2Fa/products/pro.monthly/wind-down",
+    );
+  });
+
+  it("space publish fails locally and points to version publish", async () => {
+    const program = createProgram(registerSpace);
+    await expect(program.parseAsync([
+      "node", "arinova", "space", "publish", "space-1",
+    ])).rejects.toMatchObject({ code: "UNSUPPORTED_COMMAND" });
+    expect(mocks.put).not.toHaveBeenCalled();
   });
 
   it("sticker publish shortcuts fail closed instead of bypassing review", async () => {
