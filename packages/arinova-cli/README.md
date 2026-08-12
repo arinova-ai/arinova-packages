@@ -2,7 +2,7 @@
 
 `@arinova-ai/cli` manages Arinova resources through the current `/api/v1`
 contract. The checked-in route fixture is pinned to server commit
-`072d7c3ee7bc3fa5d3dd1985490f5812f810bcd2`.
+`487a1b594254596d1f0a8c9e17d6bbf22c59f40d`.
 
 ## Install and authenticate
 
