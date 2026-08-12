@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sourceCommit": "33b7c06ad9df8b9cb5ab9e21fff109955a3cc3cc",
+  "sourceCommit": "bf339484156c6f47c440b6690cf1d10bebad8698",
   "identities": {
     "userApiKey": "ari_ key created by a signed-in user",
     "botToken": "ari_ token scoped to one agent",
@@ -9,7 +9,7 @@
   },
   "rules": [
     {
-      "commands": ["auth login", "auth logout", "auth set-token", "config", "completion", "setup-openclaw"],
+      "commands": ["auth login", "auth logout", "auth set-token", "config", "completion", "setup-openclaw", "space init", "space build"],
       "identities": ["local"]
     },
     {

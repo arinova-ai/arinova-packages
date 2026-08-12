@@ -2,7 +2,7 @@
  * @arinova-ai/spaces-sdk — browser entry.
  *
  * Build apps on Arinova: OAuth-PKCE login, embedded-Space `connect()`, the
- * user's profile/agents, economy (balance/purchase/transactions), and agent
+ * user's profile/agents, economy history, managed commerce/storage, and agent
  * chat — all with the user's OAuth token.
  *
  * Secret-bearing confidential token exchange lives in

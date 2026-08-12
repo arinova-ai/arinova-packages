@@ -112,22 +112,6 @@ export interface TokenResponse {
 export interface BalanceResponse {
   balance: number;
 }
-export interface PurchaseParams {
-  /** Embedded Space ID. Must match the space-bound OAuth token. */
-  spaceId: string;
-  productId?: string;
-  amount: number;
-  description?: string;
-  /** Recommended replay-protection key, unique within the Space and user. */
-  idempotencyKey?: string;
-}
-export interface PurchaseResponse {
-  transactionId: string;
-  newBalance: number;
-  spaceId: string;
-  creatorShare: number;
-  idempotentReplay: boolean;
-}
 export interface TransactionsParams {
   limit?: number;
   offset?: number;
@@ -145,6 +129,95 @@ export interface TransactionsResponse {
   limit: number;
   offset: number;
 }
+
+// ── Managed Space commerce ───────────────────────────────────────
+export type SpaceProductKind = "consumable" | "durable" | "subscription";
+
+export interface SpaceProduct {
+  productKey: string;
+  name: string;
+  description: string;
+  pricePoints: number;
+  kind: SpaceProductKind;
+}
+
+export interface SpaceProductsResponse {
+  spaceId: string;
+  subscriptionPeriodDays: number;
+  products: SpaceProduct[];
+}
+
+export interface SpaceInventoryItem {
+  productKey: string;
+  name: string;
+  kind: "consumable" | "durable";
+  quantity: number;
+}
+
+export interface SpaceInventorySubscription {
+  productKey: string;
+  status: "active" | "past_due" | "ended";
+  currentPeriodEnd: string;
+  graceEndsAt: string | null;
+  cancelAtPeriodEnd: boolean;
+}
+
+export interface SpaceInventoryResponse {
+  spaceId: string;
+  items: SpaceInventoryItem[];
+  subscriptions: SpaceInventorySubscription[];
+}
+
+export interface ConsumeInventoryParams {
+  quantity: number;
+  /** Visible ASCII, 1–128 characters, and stable across retries. */
+  idempotencyKey: string;
+}
+
+export interface ConsumeInventoryResponse {
+  spaceId: string;
+  productKey: string;
+  quantityConsumed: number;
+  remainingQuantity: number;
+  ledgerId: string;
+  idempotentReplay: boolean;
+}
+
+export interface SpacePurchaseResult {
+  productKey: string;
+  status: "purchased" | "cancelled" | "error";
+  protocolVersion: 1;
+  errorCode?: string;
+  grantId?: string | null;
+  subscriptionId?: string | null;
+  currentPeriodEnd?: string | null;
+  quantity?: number | null;
+  balance?: number;
+  idempotentReplay?: boolean;
+  [key: string]: unknown;
+}
+
+// ── Managed Space per-user storage ───────────────────────────────
+export interface SpaceStorageEntry<T = unknown> {
+  key: string;
+  value: T;
+  updatedAt: string;
+}
+
+export interface SpaceStorageListResponse<T = unknown> {
+  entries: SpaceStorageEntry<T>[];
+  usedBytes: number;
+  quotaBytes: number;
+}
+
+export type SpaceStorageErrorCode =
+  | "SPACE_STORAGE_KEY_INVALID"
+  | "SPACE_STORAGE_KEY_NOT_FOUND"
+  | "SPACE_STORAGE_VALUE_QUOTA_EXCEEDED"
+  | "SPACE_STORAGE_VALUE_INVALID"
+  | "SPACE_STORAGE_KEY_QUOTA_EXCEEDED"
+  | "SPACE_STORAGE_USER_QUOTA_EXCEEDED"
+  | "SPACE_STORAGE_GLOBAL_QUOTA_EXCEEDED";
 // ── Agent chat ───────────────────────────────────────────────────
 export interface ChatMessage {
   role: "user" | "assistant" | "system";

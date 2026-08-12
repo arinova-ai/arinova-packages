@@ -1,7 +1,7 @@
 {
   "name": "@arinova-ai/spaces-sdk",
   "version": "0.3.0",
-  "description": "Arinova Spaces SDK — OAuth PKCE login, economy, and agent chat for third-party apps",
+  "description": "Arinova Spaces SDK — OAuth PKCE, managed commerce/storage, and agent chat",
   "license": "MIT",
   "repository": {
     "type": "git",
