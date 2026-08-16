@@ -260,6 +260,8 @@ export interface Note {
 
 /** Options for listNotes(). */
 export interface ListNotesOptions {
+  /** Target notebook ID. If omitted, uses the authenticated owner's default notebook. */
+  notebookId?: string;
   /** Cursor: fetch notes created before this note ID. */
   before?: string;
   /** Max notes to return (default 20, max 50). */
@@ -302,6 +304,14 @@ export interface KanbanBoard {
   id: string;
   name: string;
   createdAt: string;
+}
+
+/** Pagination options for bounded board listings. */
+export interface ListBoardsOptions {
+  /** Max boards to return. */
+  limit?: number;
+  /** Skip the first N boards. */
+  offset?: number;
 }
 
 /** A kanban column within a board. */
@@ -387,6 +397,7 @@ export interface UpdateColumnBody {
 export interface AddCommitBody {
   commitHash: string;
   message?: string;
+  url?: string;
 }
 
 /** A commit linked to a kanban card. */

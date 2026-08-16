@@ -8,6 +8,7 @@ import type {
   CreateNoteBody,
   UpdateNoteBody,
   KanbanBoard,
+  ListBoardsOptions,
   KanbanColumn,
   KanbanCard,
   CreateBoardBody,
@@ -249,6 +250,7 @@ export abstract class ArinovaRestClient {
   /** List notes in the authenticated owner's notebook. */
   async listNotes(options?: ListNotesOptions): Promise<ListNotesResult> {
     const params = new URLSearchParams();
+    if (options?.notebookId) params.set("notebookId", options.notebookId);
     if (options?.before) params.set("before", options.before);
     if (options?.limit != null) params.set("limit", String(options.limit));
     if (options?.offset != null) params.set("offset", String(options.offset));
@@ -297,6 +299,23 @@ export abstract class ArinovaRestClient {
     return this.request<KanbanBoard[]>("GET", "/api/v1/kanban/boards", {
       errorLabel: "listBoards",
     });
+  }
+
+  /**
+   * List a bounded page of the owner's kanban boards.
+   * Kept separate from listBoards() so existing bridge contracts retain their
+   * zero-argument signature.
+   */
+  async listBoardsWithOptions(options: ListBoardsOptions): Promise<KanbanBoard[]> {
+    const params = new URLSearchParams();
+    if (options.limit != null) params.set("limit", String(options.limit));
+    if (options.offset != null) params.set("offset", String(options.offset));
+    const qs = params.toString();
+    return this.request<KanbanBoard[]>(
+      "GET",
+      `/api/v1/kanban/boards${qs ? `?${qs}` : ""}`,
+      { errorLabel: "listBoardsWithOptions" },
+    );
   }
 
   /**
@@ -354,6 +373,14 @@ export abstract class ArinovaRestClient {
     await this.request<void>("POST", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/archive`, {
       response: "void",
       errorLabel: "archiveBoard",
+    });
+  }
+
+  /** Unarchive a kanban board. */
+  async unarchiveBoard(boardId: string): Promise<void> {
+    await this.request<void>("POST", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/unarchive`, {
+      response: "void",
+      errorLabel: "unarchiveBoard",
     });
   }
 

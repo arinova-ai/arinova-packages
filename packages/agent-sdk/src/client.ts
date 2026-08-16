@@ -249,6 +249,26 @@ export class ArinovaAgent extends ArinovaRestClient {
     });
   }
 
+  /** Send a message as a reply to an existing conversation message. */
+  async replyToMessage(
+    conversationId: string,
+    content: string,
+    replyTo: string,
+  ): Promise<void> {
+    if (this.authenticated && this.ws && this.ws.readyState === WS_OPEN) {
+      this.sendOrThrow({ type: "agent_send", conversationId, content, replyTo });
+      return;
+    }
+
+    await this.request<void>("POST", "/api/v1/messages/send", {
+      body: { conversationId, content, replyTo },
+      response: "void",
+      errorLabel: "replyToMessage",
+      headers: { "Idempotency-Key": generateCallId() },
+      retries: 2,
+    });
+  }
+
   /**
    * Send a telemetry event to the server.
    * Silently no-ops if WebSocket is not connected.

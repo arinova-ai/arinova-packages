@@ -76,6 +76,30 @@ describe("API client request builders", () => {
     );
   });
 
+  it("sends reply metadata through the typed HTTP message helper", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(null, { status: 204 }),
+    );
+    const agent = new ArinovaAgent({
+      serverUrl: "wss://chat.example.test",
+      botToken: "ari_bot_token",
+    });
+
+    await agent.replyToMessage("conv-1", "Reply", "message-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://chat.example.test/api/v1/messages/send",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          conversationId: "conv-1",
+          content: "Reply",
+          replyTo: "message-1",
+        }),
+      }),
+    );
+  });
+
   it("retries GET and idempotency-keyed send requests, but not ordinary mutations", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response("busy", {
@@ -313,11 +337,11 @@ describe("API client request builders", () => {
       serverUrl: "wss://chat.example.test",
       botToken: "ari_bot_token",
     });
-    await agent.listNotes({ limit: 10 });
+    await agent.listNotes({ notebookId: "book/1", limit: 10 });
     await agent.createNote({ title: "Note" });
     await agent.deleteNote("n1");
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      "https://chat.example.test/api/v1/notes?limit=10",
+      "https://chat.example.test/api/v1/notes?notebookId=book%2F1&limit=10",
       "https://chat.example.test/api/v1/notes",
       "https://chat.example.test/api/v1/notes/n1",
     ]);
@@ -352,6 +376,7 @@ describe("API client request builders", () => {
       const isVoid =
         method === "DELETE" ||
         url.endsWith("/archive") ||
+        url.endsWith("/unarchive") ||
         url.endsWith("/columns/reorder") ||
         (method === "POST" && (url.endsWith("/notes") || url.endsWith("/labels")));
       return isVoid
@@ -364,9 +389,11 @@ describe("API client request builders", () => {
     });
 
     await agent.listBoards();
+    await agent.listBoardsWithOptions({ limit: 50, offset: 2 });
     await agent.createBoard({ name: "Roadmap" });
     await agent.updateBoard("board/1", { name: "Plan" });
     await agent.archiveBoard("board/1");
+    await agent.unarchiveBoard("board/1");
     await agent.listColumns("board/1");
     await agent.createColumn("board/1", { name: "Todo" });
     await agent.updateColumn("column/1", { name: "Doing" });
@@ -390,7 +417,10 @@ describe("API client request builders", () => {
     await agent.removeCardLabel("card/1", "label/1");
     await agent.fetchSkillPrompt("draw/../safe");
 
-    expect(calls).toHaveLength(26);
+    expect(calls).toHaveLength(28);
+    expect(calls.map(({ url }) => url)).toContain(
+      "https://chat.example.test/api/v1/kanban/boards?limit=50&offset=2",
+    );
     expect(calls.map(({ url, init }) => `${init.method} ${url}`)).toContain(
       "GET https://chat.example.test/api/v1/skills/draw%2F%2E%2E%2Fsafe/prompt",
     );

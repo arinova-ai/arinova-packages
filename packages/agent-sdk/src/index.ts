@@ -17,6 +17,7 @@ export type {
   CreateNoteBody,
   UpdateNoteBody,
   KanbanBoard,
+  ListBoardsOptions,
   KanbanColumn,
   KanbanCard,
   CreateCardBody,
