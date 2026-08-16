@@ -1257,8 +1257,7 @@ try {
   arinova.send({
     type: "task",
     taskId: "task-cron",
-    taskKind: "cron_wakeup",
-    content: "agent-level wakeup"
+    taskKind: "cron_wakeup"
   });
   const cronTaskDeadline = Date.now() + 3000;
   while (!adapterEvents.some((event) => event.path === "/task" && event.body.taskId === "task-cron") && Date.now() < cronTaskDeadline) {
@@ -1267,7 +1266,7 @@ try {
   const cronTaskEvent = adapterEvents.find((event) => event.path === "/task" && event.body.taskId === "task-cron");
   assert.equal(cronTaskEvent.body.taskKind, "cron_wakeup");
   assert.equal(Object.hasOwn(cronTaskEvent.body, "conversationId"), false);
-  assert.equal(cronTaskEvent.body.content, "agent-level wakeup");
+  assert.equal(Object.hasOwn(cronTaskEvent.body, "content"), false);
   const cronHistory = await postControl("/task-sdk", { taskId: "task-cron", method: "fetchHistory", args: [] });
   assert.equal(cronHistory.status, 500);
   assert.match(cronHistory.body.error, /fetchHistory is unavailable.*cron_wakeup.*not bound to a conversation/);

@@ -22,6 +22,7 @@ PY_COMPILE_FILES = (
     "arinova_tools.py",
     "scripts/check_local.py",
     "scripts/check_sdk_surface.py",
+    "scripts/check_runtime_contract.py",
     "scripts/check_agent_sdk_source.py",
     "scripts/check_hermes_plugin_load.py",
     "scripts/check_arinova_tools.py",
@@ -217,6 +218,7 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 1
     commands = [
+        [sys.executable, "scripts/check_runtime_contract.py"],
         [sys.executable, "scripts/check_agent_sdk_source.py", "--sdk-root", sdk_root],
         [sys.executable, "scripts/check_sdk_surface.py", "--sdk-root", sdk_root],
         [sys.executable, "scripts/check_arinova_tools.py"],

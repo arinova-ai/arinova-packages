@@ -10,6 +10,7 @@ await mkdir(join(sidecarDir, "node_modules/@arinova-ai/agent-sdk"), { recursive:
 await writeFile(join(sidecarDir, "index.mjs"), await readFile(new URL("./index.mjs", import.meta.url)));
 await writeFile(join(sidecarDir, "runtime.mjs"), await readFile(new URL("./runtime.mjs", import.meta.url)));
 await writeFile(join(fixture, "plugin/sdk-contract.json"), await readFile(new URL("../sdk-contract.json", import.meta.url)));
+await writeFile(join(fixture, "plugin/runtime-contract.json"), await readFile(new URL("../runtime-contract.json", import.meta.url)));
 await writeFile(join(sidecarDir, "node_modules/@arinova-ai/agent-sdk/package.json"), JSON.stringify({ type: "module", exports: "./index.mjs" }));
 await writeFile(join(sidecarDir, "node_modules/@arinova-ai/agent-sdk/index.mjs"), `
 import { appendFileSync } from "node:fs";

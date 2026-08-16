@@ -1534,14 +1534,17 @@ def main() -> int:
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read()
 
-    def raw_inbound_request(path: str, headers: dict[str, str], body: bytes = b"") -> tuple[int, bytes]:
+    def raw_inbound_request(path: str, headers: dict[str, str | bytes], body: bytes = b"") -> tuple[int, bytes]:
         request_lines = [
-            f"POST {path} HTTP/1.1",
-            f"Host: {inbound_adapter.bind_host}:{inbound_port}",
-            "Connection: close",
+            f"POST {path} HTTP/1.1".encode("ascii"),
+            f"Host: {inbound_adapter.bind_host}:{inbound_port}".encode("ascii"),
+            b"Connection: close",
         ]
-        request_lines.extend(f"{key}: {value}" for key, value in headers.items())
-        raw = ("\r\n".join(request_lines) + "\r\n\r\n").encode("ascii") + body
+        request_lines.extend(
+            key.encode("ascii") + b": " + (value if isinstance(value, bytes) else value.encode("ascii"))
+            for key, value in headers.items()
+        )
+        raw = b"\r\n".join(request_lines) + b"\r\n\r\n" + body
         with socket.create_connection((inbound_adapter.bind_host, inbound_port), timeout=2) as sock:
             sock.settimeout(2)
             sock.sendall(raw)
@@ -1558,8 +1561,25 @@ def main() -> int:
 
     try:
         status, body = inbound_request("/healthz", method="GET")
+        if status != 401:
+            raise RuntimeError(f"inbound /healthz accepted a missing bridge token: status={status}")
+        status, body = inbound_request(
+            "/healthz",
+            method="GET",
+            token=inbound_adapter._shared_token,
+        )
         if status != 200 or json.loads(body.decode("utf-8")) != {"ok": True}:
             raise RuntimeError(f"inbound /healthz failed: status={status} body={body!r}")
+        status, _body = raw_inbound_request(
+            "/healthz",
+            {
+                "X-Arinova-Bridge-Token": b"\xff",
+                "Content-Type": "application/json",
+                "Content-Length": "0",
+            },
+        )
+        if status != 401:
+            raise RuntimeError(f"inbound server mishandled a non-ASCII bridge token: status={status}")
         status, _body = inbound_request("/task", body=b"{}", token="wrong")
         if status != 401:
             raise RuntimeError(f"inbound server accepted request with wrong bridge token: status={status}")
@@ -1638,6 +1658,24 @@ def main() -> int:
         parsed = json.loads(body.decode("utf-8"))
         if status != 400 or parsed.get("ok") is not False or "missing required field(s): taskId" not in str(parsed.get("error")):
             raise RuntimeError(f"inbound server did not reject task callback without taskId: status={status} body={body!r}")
+        for task_kind in ("cron_wakeup", "trigger"):
+            status, body = inbound_request(
+                "/task",
+                body=json.dumps({"taskId": f"task-contentless-{task_kind}", "taskKind": task_kind}).encode("utf-8"),
+                token=inbound_adapter._shared_token,
+            )
+            if status != 202 or json.loads(body.decode("utf-8")) != {"ok": True}:
+                raise RuntimeError(
+                    f"inbound server rejected contentless {task_kind}: status={status} body={body!r}"
+                )
+        status, body = inbound_request(
+            "/task",
+            body=b'{"taskId":"task-contentless-chat","taskKind":"message"}',
+            token=inbound_adapter._shared_token,
+        )
+        parsed = json.loads(body.decode("utf-8"))
+        if status != 400 or "missing required field(s): content" not in str(parsed.get("error")):
+            raise RuntimeError(f"inbound server accepted contentless chat task: status={status} body={body!r}")
         status, body = inbound_request("/task", body=b'{"taskId":"task-bad-content","content":0}', token=inbound_adapter._shared_token)
         parsed = json.loads(body.decode("utf-8"))
         if status != 400 or parsed.get("ok") is not False or "content must be a string" not in str(parsed.get("error")):
@@ -2489,8 +2527,10 @@ def main() -> int:
     original_download_attachment_media = adapter._download_attachment_media
     attachment_downloads: list[dict] = []
 
-    def fake_download_attachment_media(attachment, *, max_bytes, timeout_seconds):
+    def fake_download_attachment_media(attachment, *, max_bytes, timeout_seconds, on_bytes=None):
         attachment_downloads.append(dict(attachment))
+        if on_bytes is not None:
+            on_bytes(3)
         return (
             "/tmp/arinova-attachment.txt",
             "text/plain",
@@ -2801,6 +2841,38 @@ def main() -> int:
         raise RuntimeError(f"non-finite attachment size leaked into task text: {disabled_event.text}")
     adapter.download_attachments = True
 
+    original_total_max_bytes = adapter.attachment_total_max_bytes
+    original_attachment_max_bytes = adapter.attachment_max_bytes
+    failed_download_attempts: list[int] = []
+
+    def fake_failed_attachment_download(attachment, *, max_bytes, timeout_seconds, on_bytes=None):
+        failed_download_attempts.append(max_bytes)
+        if on_bytes is not None:
+            on_bytes(max_bytes + 1)
+        raise ValueError(f"attachment exceeds {max_bytes} bytes")
+
+    adapter.attachment_total_max_bytes = 8
+    adapter.attachment_max_bytes = 8
+    adapter._download_attachment_media = fake_failed_attachment_download
+    failed_media = asyncio.run(
+        adapter._collect_attachment_media(
+            {
+                "attachments": [
+                    {"id": "failed-1", "url": "https://files.example/failed-1"},
+                    {"id": "failed-2", "url": "https://files.example/failed-2"},
+                ]
+            },
+            authorized=True,
+        )
+    )
+    if failed_media != ([], [], []) or failed_download_attempts != [8]:
+        raise RuntimeError(
+            "failed attachment bytes did not exhaust the aggregate budget: "
+            f"media={failed_media!r} attempts={failed_download_attempts!r}"
+        )
+    adapter.attachment_total_max_bytes = original_total_max_bytes
+    adapter.attachment_max_bytes = original_attachment_max_bytes
+
     adapter._download_attachment_media = original_download_attachment_media
     # Use a file:// URL that points at a file that really EXISTS so this only
     # passes when the scheme itself is blocked by URL validation, not because
@@ -3077,6 +3149,31 @@ def main() -> int:
         fake_attachment_http_failure,
         'attachment download failed (404): {"error":"attachment missing"}',
         "attachment download accepted HTTP failure",
+    )
+
+    error_body_limit = loaded.module.adapter.DEFAULT_ATTACHMENT_ERROR_BODY_MAX_BYTES
+
+    class BoundedErrorResponse(FakeHttpResponse):
+        def read(self, size: int = -1) -> bytes:
+            if size != error_body_limit + 1:
+                raise RuntimeError(f"HTTP error body read used unbounded size: {size}")
+            return super().read(size)
+
+    oversized_error_response = BoundedErrorResponse(b"x" * (error_body_limit + 100))
+
+    def fake_oversized_attachment_http_failure(req, *, timeout=0):
+        raise urllib.error.HTTPError(
+            req.full_url,
+            502,
+            "Bad Gateway",
+            hdrs=None,
+            fp=oversized_error_response,
+        )
+
+    assert_attachment_download_error(
+        fake_oversized_attachment_http_failure,
+        "… [truncated]",
+        "attachment HTTP error body was not bounded",
     )
 
     def fake_attachment_transport_failure(req, *, timeout=0):

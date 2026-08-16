@@ -5,14 +5,18 @@ import {
   createControlServer,
   intEnv,
   listen,
-  requiredEnv
+  requiredEnv,
+  runtimeDefaults
 } from "./runtime.mjs";
 
 const serverUrl = requiredEnv(process.env, "ARINOVA_SERVER_URL").replace(/\/+$/, "");
 const botToken = requiredEnv(process.env, "ARINOVA_BOT_TOKEN");
-const bind = process.env.ARINOVA_SIDECAR_BIND || "127.0.0.1";
-const port = intEnv(process.env, "ARINOVA_SIDECAR_PORT") ?? 8793;
-const adapterUrl = (process.env.ARINOVA_ADAPTER_URL || "http://127.0.0.1:8794").replace(/\/$/, "");
+const bind = process.env.ARINOVA_SIDECAR_BIND || runtimeDefaults.bind;
+const port = intEnv(process.env, "ARINOVA_SIDECAR_PORT") ?? runtimeDefaults.sidecarPort;
+const adapterUrl = (
+  process.env.ARINOVA_ADAPTER_URL
+  || `http://${runtimeDefaults.bind}:${runtimeDefaults.adapterPort}`
+).replace(/\/$/, "");
 const sharedToken = requiredEnv(process.env, "ARINOVA_BRIDGE_TOKEN");
 
 if (!serverUrl || !botToken || !sharedToken) {

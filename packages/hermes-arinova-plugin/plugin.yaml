@@ -157,7 +157,7 @@ optional_env:
     prompt: "Adapter callback timeout (ms)"
     password: false
   - name: ARINOVA_CONTROL_MAX_BODY_BYTES
-    description: "Maximum JSON request body bytes accepted by the sidecar control API (default 134217728)"
+    description: "Maximum JSON request body bytes accepted by both bridge HTTP APIs (default 8388608)"
     prompt: "Sidecar control max body bytes"
     password: false
   - name: ARINOVA_SIDECAR_POST_TIMEOUT_MS
@@ -173,15 +173,15 @@ optional_env:
     prompt: "Attachment download byte limit"
     password: false
   - name: ARINOVA_ATTACHMENT_MAX_COUNT
-    description: "Maximum number of inbound attachments downloaded per task"
+    description: "Maximum number of inbound attachments downloaded per task (default 8)"
     prompt: "Attachment count limit"
     password: false
   - name: ARINOVA_ATTACHMENT_TOTAL_MAX_BYTES
-    description: "Aggregate inbound attachment byte limit per task"
+    description: "Aggregate inbound attachment byte limit per task (default 67108864)"
     prompt: "Attachment aggregate byte limit"
     password: false
   - name: ARINOVA_ATTACHMENT_TOTAL_TIMEOUT_MS
-    description: "Aggregate inbound attachment download timeout"
+    description: "Aggregate inbound attachment download timeout (default 30000)"
     prompt: "Attachment aggregate timeout (ms)"
     password: false
   - name: ARINOVA_ALLOW_LOCAL_UPLOADS

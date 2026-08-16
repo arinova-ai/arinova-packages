@@ -11,13 +11,17 @@ import {
   positiveIntEnv,
   postAdapter,
   readJson,
-  requiredEnv
+  requiredEnv,
+  runtimeDefaults
 } from "./runtime.mjs";
 import { FakeAgent, FakeTask } from "./check-runtime-fixtures.mjs";
 
 const token = "test-token";
 const adapterEvents = [];
 
+assert.equal(runtimeDefaults.controlMaxBodyBytes, 8 * 1024 * 1024);
+assert.equal(runtimeDefaults.sidecarPort, 8793);
+assert.equal(runtimeDefaults.adapterPort, 8794);
 assert.equal(intEnv({ ARINOVA_SIDECAR_PORT: "8793" }, "ARINOVA_SIDECAR_PORT"), 8793);
 assert.equal(intEnv({ ARINOVA_SIDECAR_PORT: "   " }, "ARINOVA_SIDECAR_PORT"), undefined);
 assert.equal(requiredEnv({ ARINOVA_SERVER_URL: "  wss://example.test/  " }, "ARINOVA_SERVER_URL"), "wss://example.test/");
@@ -933,9 +937,26 @@ try {
   assert.deepEqual((await post("/healthz")).body, healthBody(true, 0));
   assert.equal(adapterEvents.some((event) => event.path === "/task" && !Object.hasOwn(event.body, "taskId")), false);
 
+  const contentlessWakeup = new FakeTask();
+  contentlessWakeup.taskId = "task-contentless-wakeup";
+  contentlessWakeup.taskKind = "cron_wakeup";
+  contentlessWakeup.content = undefined;
+  await agent.handler(contentlessWakeup);
+  const contentlessEvent = adapterEvents.find(
+    (event) => event.path === "/task" && event.body.taskId === "task-contentless-wakeup"
+  );
+  assert.equal(contentlessEvent.body.taskKind, "cron_wakeup");
+  assert.equal(Object.hasOwn(contentlessEvent.body, "content"), false);
+  assert.equal((await post("/error", {
+    taskId: "task-contentless-wakeup",
+    error: "contentless wakeup checked"
+  })).status, 200);
+
   const task = new FakeTask();
   await agent.handler(task);
-  const taskEvent = adapterEvents.find((event) => event.path === "/task");
+  const taskEvent = adapterEvents.find(
+    (event) => event.path === "/task" && event.body.taskId === "task-1"
+  );
   assert.equal(taskEvent.token, token);
   assert.deepEqual(taskEvent.body, {
     taskId: "task-1",

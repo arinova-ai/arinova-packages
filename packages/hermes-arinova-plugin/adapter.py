@@ -31,7 +31,38 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
+
+try:
+    from ._runtime_contract import (
+        CONCURRENCY_MODES,
+        DEFAULT_ADAPTER_PORT,
+        DEFAULT_ATTACHMENT_ERROR_BODY_MAX_BYTES,
+        DEFAULT_ATTACHMENT_MAX_BYTES,
+        DEFAULT_ATTACHMENT_MAX_COUNT,
+        DEFAULT_ATTACHMENT_TOTAL_MAX_BYTES,
+        DEFAULT_ATTACHMENT_TOTAL_TIMEOUT_MS,
+        DEFAULT_BIND,
+        DEFAULT_CONNECT_TIMEOUT_MS,
+        DEFAULT_CONTROL_MAX_BODY_BYTES,
+        DEFAULT_SIDECAR_PORT,
+        DEFAULT_SIDECAR_POST_TIMEOUT_MS,
+    )
+except ImportError:  # Support Hermes loading adapter.py as a top-level module.
+    from _runtime_contract import (  # type: ignore[no-redef]
+        CONCURRENCY_MODES,
+        DEFAULT_ADAPTER_PORT,
+        DEFAULT_ATTACHMENT_ERROR_BODY_MAX_BYTES,
+        DEFAULT_ATTACHMENT_MAX_BYTES,
+        DEFAULT_ATTACHMENT_MAX_COUNT,
+        DEFAULT_ATTACHMENT_TOTAL_MAX_BYTES,
+        DEFAULT_ATTACHMENT_TOTAL_TIMEOUT_MS,
+        DEFAULT_BIND,
+        DEFAULT_CONNECT_TIMEOUT_MS,
+        DEFAULT_CONTROL_MAX_BODY_BYTES,
+        DEFAULT_SIDECAR_PORT,
+        DEFAULT_SIDECAR_POST_TIMEOUT_MS,
+    )
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import (
@@ -65,16 +96,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SIDECAR_PORT = 8793
-DEFAULT_ADAPTER_PORT = 8794
-DEFAULT_BIND = "127.0.0.1"
-DEFAULT_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024
-DEFAULT_ATTACHMENT_MAX_COUNT = 8
-DEFAULT_ATTACHMENT_TOTAL_MAX_BYTES = 64 * 1024 * 1024
-DEFAULT_ATTACHMENT_TOTAL_TIMEOUT_MS = 30_000
-DEFAULT_CONNECT_TIMEOUT_MS = 30_000
-DEFAULT_SIDECAR_POST_TIMEOUT_MS = 10_000
-DEFAULT_CONTROL_MAX_BODY_BYTES = 128 * 1024 * 1024
 SIDECAR_DIR = Path(__file__).parent / "sidecar"
 DEFAULT_SDK_ROOT = Path(__file__).resolve().parent.parent / "agent-sdk"
 SDK_DIST_FILES = (
@@ -143,7 +164,6 @@ VOID_AGENT_METHODS = {
 _active_adapter: "ArinovaAdapter | None" = None
 _TRUE_PAYLOAD_VALUES = {"1", "true", "yes", "on"}
 _FALSE_PAYLOAD_VALUES = {"0", "false", "no", "off"}
-CONCURRENCY_MODES = {"per-conversation", "agent-wide", "unbounded"}
 ADAPTER_CALLBACK_FIELDS = {
     "/task": {
         "taskId",
@@ -171,7 +191,7 @@ ADAPTER_CALLBACK_FIELDS = {
     "/sdk-error": {"error"},
 }
 ADAPTER_CALLBACK_REQUIRED_FIELDS = {
-    "/task": {"taskId", "content"},
+    "/task": {"taskId"},
     "/cancel": {"taskId"},
     "/token-claimed": {"permanentToken"},
     "/onboarding-seed": {"kind", "seedId", "agentId", "action", "prompt"},
@@ -550,6 +570,15 @@ def _is_json_content_type(value: str | None) -> bool:
     return content_type == "application/json"
 
 
+def _bridge_tokens_equal(supplied: str | None, expected: str) -> bool:
+    try:
+        supplied_bytes = str(supplied or "").encode("ascii")
+        expected_bytes = expected.encode("ascii")
+    except UnicodeEncodeError:
+        return False
+    return hmac.compare_digest(supplied_bytes, expected_bytes)
+
+
 def _callback_content_length(value: str | None) -> int:
     if value is None:
         raise ValueError("callback Content-Length is required")
@@ -660,7 +689,10 @@ def _validate_adapter_callback_payload(path: str, payload: dict[str, Any]) -> No
         if not isinstance(task_id, str) or not task_id.strip():
             raise ValueError("callback taskId must be a non-empty string")
     if path == "/task":
-        if not isinstance(payload.get("content"), str):
+        content_required = payload.get("taskKind") not in {"cron_wakeup", "trigger"}
+        if content_required and "content" not in payload:
+            raise ValueError("callback request body is missing required field(s): content")
+        if "content" in payload and not isinstance(payload.get("content"), str):
             raise ValueError("callback content must be a string")
         _validate_task_context_payload(payload)
     if path == "/connection-status" and not isinstance(payload.get("connected"), bool):
@@ -1659,14 +1691,22 @@ class ArinovaAdapter(BasePlatformAdapter):
                 logger.debug("Arinova inbound: " + fmt, *args)
 
             def do_GET(self) -> None:
+                if not _bridge_tokens_equal(
+                    self.headers.get("X-Arinova-Bridge-Token"),
+                    adapter._shared_token,
+                ):
+                    self.send_error(401)
+                    return
                 if self.path != "/healthz":
                     self.send_error(404)
                     return
                 self._send_json(200, {"ok": True})
 
             def do_POST(self) -> None:
-                supplied_token = self.headers.get("X-Arinova-Bridge-Token") or ""
-                if not hmac.compare_digest(supplied_token, adapter._shared_token):
+                if not _bridge_tokens_equal(
+                    self.headers.get("X-Arinova-Bridge-Token"),
+                    adapter._shared_token,
+                ):
                     self.send_error(401)
                     return
                 if not _is_json_content_type(self.headers.get("Content-Type")):
@@ -2191,12 +2231,19 @@ class ArinovaAdapter(BasePlatformAdapter):
             if remaining_bytes <= 0 or remaining_seconds <= 0:
                 logger.warning("Arinova: attachment aggregate budget exhausted")
                 break
+            attempt_bytes = 0
+
+            def account_bytes(count: int) -> None:
+                nonlocal attempt_bytes
+                attempt_bytes += count
+
             try:
                 result = await asyncio.to_thread(
                     self._download_attachment_media,
                     attachment,
                     max_bytes=min(self.attachment_max_bytes, remaining_bytes),
                     timeout_seconds=min(30.0, remaining_seconds),
+                    on_bytes=account_bytes,
                 )
             except Exception as exc:
                 logger.warning(
@@ -2205,10 +2252,16 @@ class ArinovaAdapter(BasePlatformAdapter):
                     exc,
                 )
                 continue
+            finally:
+                # Count network bytes even when a per-file limit, timeout, or
+                # HTTP failure aborts the download.
+                total_bytes += attempt_bytes
             if not result:
                 continue
             path, media_type, note, downloaded_bytes = result
-            total_bytes += downloaded_bytes
+            # Preserve accounting for test/custom downloaders that report a
+            # result without invoking the byte callback.
+            total_bytes += max(0, downloaded_bytes - attempt_bytes)
             media_urls.append(path)
             media_types.append(media_type)
             media_notes.append(note)
@@ -2220,12 +2273,14 @@ class ArinovaAdapter(BasePlatformAdapter):
         *,
         max_bytes: int,
         timeout_seconds: float,
+        on_bytes: Callable[[int], None] | None = None,
     ) -> tuple[str, str, str, int] | None:
         url = str(attachment.get("url") or "")
         data, response_type = self._download_attachment_bytes(
             url,
             max_bytes=max_bytes,
             timeout_seconds=timeout_seconds,
+            on_bytes=on_bytes,
         )
         filename = str(attachment.get("fileName") or attachment.get("id") or "attachment")
         mime_type = str(attachment.get("fileType") or response_type or "application/octet-stream")
@@ -2258,6 +2313,7 @@ class ArinovaAdapter(BasePlatformAdapter):
         *,
         max_bytes: int | None = None,
         timeout_seconds: float = 30.0,
+        on_bytes: Callable[[int], None] | None = None,
     ) -> tuple[bytes, str]:
         byte_limit = self.attachment_max_bytes if max_bytes is None else max_bytes
         if byte_limit <= 0 or timeout_seconds <= 0:
@@ -2280,12 +2336,23 @@ class ArinovaAdapter(BasePlatformAdapter):
                     if not chunk:
                         break
                     total += len(chunk)
+                    if on_bytes is not None:
+                        on_bytes(len(chunk))
                     if total > byte_limit:
                         raise ValueError(f"attachment exceeds {byte_limit} bytes")
                     chunks.append(chunk)
                 content_type = res.headers.get("Content-Type", "").split(";", 1)[0].strip()
         except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
+            error_bytes = exc.read(DEFAULT_ATTACHMENT_ERROR_BODY_MAX_BYTES + 1)
+            if on_bytes is not None:
+                on_bytes(len(error_bytes))
+            truncated = len(error_bytes) > DEFAULT_ATTACHMENT_ERROR_BODY_MAX_BYTES
+            body = error_bytes[:DEFAULT_ATTACHMENT_ERROR_BODY_MAX_BYTES].decode(
+                "utf-8",
+                errors="replace",
+            )
+            if truncated:
+                body += "… [truncated]"
             raise RuntimeError(f"attachment download failed ({exc.code}): {body}") from exc
         except urllib.error.URLError as exc:
             reason = getattr(exc, "reason", exc)
