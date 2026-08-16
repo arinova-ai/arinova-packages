@@ -3,6 +3,10 @@ import { logger } from "./logger.js";
 import { BUILTIN_TOOL_NAMES } from "./builtins.js";
 import Ajv, { type ValidateFunction } from "ajv";
 
+export const MAX_REMOTE_SCHEMA_BYTES = 256 * 1024;
+export const MAX_REMOTE_SCHEMA_DEPTH = 32;
+export const MAX_REMOTE_SCHEMA_NODES = 10_000;
+
 export interface McpToolDefinition {
   name: string;
   description: string;
@@ -59,6 +63,35 @@ function defaultInputSchema(): Record<string, unknown> {
   return { type: "object", properties: {} };
 }
 
+function inspectRemoteSchema(schema: Record<string, unknown>): string | undefined {
+  const serialized = JSON.stringify(schema);
+  if (Buffer.byteLength(serialized, "utf8") > MAX_REMOTE_SCHEMA_BYTES) {
+    return `schema exceeds ${MAX_REMOTE_SCHEMA_BYTES} byte budget`;
+  }
+
+  let nodes = 0;
+  const stack: Array<{ value: unknown; depth: number }> = [{ value: schema, depth: 0 }];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    nodes++;
+    if (nodes > MAX_REMOTE_SCHEMA_NODES) {
+      return `schema exceeds ${MAX_REMOTE_SCHEMA_NODES} node budget`;
+    }
+    if (current.depth > MAX_REMOTE_SCHEMA_DEPTH) {
+      return `schema exceeds depth ${MAX_REMOTE_SCHEMA_DEPTH}`;
+    }
+    if (!current.value || typeof current.value !== "object") continue;
+
+    for (const [key, value] of Object.entries(current.value)) {
+      if (key === "pattern" || key === "patternProperties") {
+        return `remote schemas cannot use ${key}`;
+      }
+      stack.push({ value, depth: current.depth + 1 });
+    }
+  }
+  return undefined;
+}
+
 export function mapManifestToTools(manifest: ActionManifest): ToolMapping {
   const tools: McpToolDefinition[] = [];
   const skippedActions: SkippedAction[] = [];
@@ -102,6 +135,12 @@ export function mapManifestToTools(manifest: ActionManifest): ToolMapping {
     }
 
     const inputSchema = action.inputSchema ?? defaultInputSchema();
+    const schemaSafetyError = inspectRemoteSchema(inputSchema);
+    if (schemaSafetyError) {
+      logger.warn(`Action ${action.name} has an unsafe input schema: ${schemaSafetyError}`);
+      skippedActions.push({ actionName: action.name, reason: "unsafe_input_schema" });
+      continue;
+    }
     let validateArguments: ValidateFunction;
     try {
       validateArguments = ajv.compile(inputSchema);

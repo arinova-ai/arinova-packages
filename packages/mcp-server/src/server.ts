@@ -193,7 +193,13 @@ export class ArinovaMcpServer {
       );
     }
 
-    const { actionArgs, options } = splitActionInput(args);
+    const { actionArgs, options, optionError } = splitActionInput(args);
+    if (optionError) {
+      return errorResult("INVALID_ARGUMENTS", optionError, {
+        action: toolDef.actionName,
+        details: { field: "_arinova.timeoutMs" },
+      });
+    }
     const validationError = this.validateArgs(toolDef, actionArgs);
     if (validationError) {
       return errorResult("INVALID_ARGUMENTS", validationError.message, {
@@ -231,9 +237,14 @@ export class ArinovaMcpServer {
     logger.info(`Action call start: ${toolDef.actionName}`);
 
     try {
+      const timeoutMs = Math.min(
+        this.config.actionTimeoutMs,
+        toolDef.maxExecutionMs ?? Number.POSITIVE_INFINITY,
+        options.timeoutMs ?? Number.POSITIVE_INFINITY,
+      );
       const result = await this.client.callAction(toolDef.actionName, args, {
         ...options,
-        timeoutMs: toolDef.maxExecutionMs ?? options.timeoutMs,
+        timeoutMs,
       }, toolDef.maxArgumentsBytes);
 
       const elapsed = Date.now() - startTime;
@@ -351,6 +362,7 @@ const ACTION_OPTION_KEYS = new Set<keyof ActionCallOptions>([
 function splitActionInput(args: Record<string, unknown>): {
   actionArgs: Record<string, unknown>;
   options: Partial<ActionCallOptions>;
+  optionError?: string;
 } {
   const { _arinova, ...actionArgs } = args;
   if (!_arinova || typeof _arinova !== "object" || Array.isArray(_arinova)) {
@@ -361,5 +373,18 @@ function splitActionInput(args: Record<string, unknown>): {
       ACTION_OPTION_KEYS.has(key as keyof ActionCallOptions),
     ),
   ) as Partial<ActionCallOptions>;
+  if (
+    Object.hasOwn(options, "timeoutMs") &&
+    (typeof options.timeoutMs !== "number" ||
+      !Number.isFinite(options.timeoutMs) ||
+      !Number.isInteger(options.timeoutMs) ||
+      options.timeoutMs <= 0)
+  ) {
+    return {
+      actionArgs,
+      options: {},
+      optionError: "_arinova.timeoutMs must be a positive integer",
+    };
+  }
   return { actionArgs, options };
 }

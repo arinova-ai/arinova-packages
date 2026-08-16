@@ -1,4 +1,5 @@
 export const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
+export const DEFAULT_MAX_RETRY_DELAY_MS = 5_000;
 
 export class HttpRequestError extends Error {
   constructor(
@@ -17,6 +18,7 @@ export interface HttpRequestOptions {
   signal?: AbortSignal;
   timeoutMs: number;
   retries?: number;
+  maxRetryDelayMs?: number;
   maxResponseBytes?: number;
 }
 
@@ -32,7 +34,9 @@ export async function httpRequest(
   url: string,
   options: HttpRequestOptions,
 ): Promise<HttpResponse> {
-  const retries = options.retries ?? 2;
+  const method = (options.method ?? "GET").toUpperCase();
+  const retries = options.retries ?? (method === "GET" || method === "HEAD" ? 2 : 0);
+  const maxRetryDelayMs = options.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
   const deadline = Date.now() + options.timeoutMs;
   for (let attempt = 0; ; attempt++) {
     const remainingMs = deadline - Date.now();
@@ -51,6 +55,7 @@ export async function httpRequest(
         await delay(
           Math.min(
             retryDelayMs(response.headers, attempt),
+            maxRetryDelayMs,
             Math.max(0, deadline - Date.now()),
           ),
           options.signal,
@@ -69,6 +74,7 @@ export async function httpRequest(
       await delay(
         Math.min(
           retryDelayMs(undefined, attempt),
+          maxRetryDelayMs,
           Math.max(0, deadline - Date.now()),
         ),
         options.signal,

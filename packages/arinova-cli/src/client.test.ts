@@ -228,6 +228,9 @@ describe("CLI client", () => {
 
   it("encodes path segments and omits undefined query values", () => {
     expect(encodePathSegment("a/b c")).toBe("a%2Fb%20c");
+    expect(encodePathSegment("version.1")).toBe("version%2E1");
+    expect(() => encodePathSegment(".")).toThrow("cannot be '.' or '..'");
+    expect(() => encodePathSegment("..")).toThrow("cannot be '.' or '..'");
     expect(buildQuery({ q: "a b", limit: 20, cursor: undefined })).toBe(
       "?q=a+b&limit=20",
     );

@@ -378,6 +378,17 @@ describe("ArinovaClient", () => {
       await expect(client.callAction("test", {})).rejects.toThrow("Unauthorized");
     });
 
+    it("never retries an action POST after a retryable response", async () => {
+      const actionHandler = vi.fn(async () => new Response("busy", { status: 503 }));
+      installFetchMock(actionHandler);
+      await client.connect();
+
+      await expect(client.callAction("test", {})).rejects.toMatchObject({
+        code: "HTTP_ACTION_CALL_FAILED",
+      });
+      expect(actionHandler).toHaveBeenCalledTimes(1);
+    });
+
     it("preserves structured backend error fields", async () => {
       installFetchMock(async () => jsonResponse({
         error: {
@@ -881,9 +892,55 @@ describe("ArinovaMcpServer", () => {
     expect(fakeClient.callAction).toHaveBeenCalledWith(
       "arinova_same_tool",
       {},
-      { timeoutMs: undefined },
+      { timeoutMs: 60000 },
       undefined,
     );
+  });
+
+  it("validates and clamps caller action timeouts", async () => {
+    const dynamicTool = mapManifestToTools({
+      manifestVersion: "1",
+      actions: [{ name: "arinova.timeout", version: "1", maxExecutionMs: 10_000 }],
+    }).tools[0];
+    const fakeClient = {
+      getHealthData: vi.fn(() => ({})),
+      getManifestInfo: vi.fn(() => ({})),
+      callAction: vi.fn(async () => ({
+        callId: "call-timeout",
+        action: "arinova.timeout",
+        status: "success" as const,
+      })),
+      drain: vi.fn(),
+      disconnect: vi.fn(),
+    };
+    const server = new ArinovaMcpServer(
+      makeConfig({ actionTimeoutMs: 5_000 }),
+      fakeClient as unknown as ArinovaClient,
+    );
+    (server as unknown as { dynamicTools: Map<string, unknown> }).dynamicTools =
+      new Map([[dynamicTool.name, dynamicTool]]);
+    const call = (args: Record<string, unknown>) =>
+      (server as unknown as {
+        handleToolCall: (
+          name: string,
+          args: Record<string, unknown>,
+        ) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
+      }).handleToolCall("arinova_timeout", args);
+
+    await call({ _arinova: { timeoutMs: 30_000 } });
+    expect(fakeClient.callAction).toHaveBeenLastCalledWith(
+      "arinova.timeout",
+      {},
+      { timeoutMs: 5_000 },
+      undefined,
+    );
+
+    const invalid = await call({ _arinova: { timeoutMs: "fast" } });
+    expect(parseTextResult(invalid)).toMatchObject({
+      body: { error: { code: "INVALID_ARGUMENTS" } },
+      isError: true,
+    });
+    expect(fakeClient.callAction).toHaveBeenCalledTimes(1);
   });
 
   it("serves list and call handlers through a real MCP transport", async () => {

@@ -31,6 +31,46 @@ describe("httpRequest", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not retry POST requests by default", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("busy", { status: 503 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await httpRequest("https://api.example.com", {
+      method: "POST",
+      timeoutMs: 100,
+    });
+
+    expect(result.status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("caps a server Retry-After value per retry", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(new Response("busy", {
+          status: 503,
+          headers: { "Retry-After": "3600" },
+        }))
+        .mockResolvedValueOnce(new Response("ok"));
+      vi.stubGlobal("fetch", fetchMock);
+      const request = httpRequest("https://api.example.com", {
+        timeoutMs: 60_000,
+        retries: 1,
+      });
+
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(request).resolves.toMatchObject({ body: "ok" });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps retry backoff inside the total request timeout", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("busy", {
       status: 503,

@@ -229,6 +229,7 @@ export class ArinovaClient {
         body: bodyText,
         signal: controller.signal,
         timeoutMs,
+        retries: 0,
       });
 
       const body = await parseJsonBody(res);

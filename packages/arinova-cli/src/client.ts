@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { Command } from "commander";
 import { getEndpoint, resolveApiKey } from "./config.js";
+import { normalizeApiEndpoint } from "./endpoint.js";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export type ResponseMode = "json" | "binary" | "stream";
@@ -68,7 +69,9 @@ let runtimeDefaults: RuntimeDefaults = {};
 
 export function configureClientDefaults(defaults: RuntimeDefaults): void {
   runtimeDefaults = {
-    endpoint: defaults.endpoint?.replace(/\/+$/, ""),
+    endpoint: defaults.endpoint
+      ? normalizeApiEndpoint(defaults.endpoint, "Runtime endpoint")
+      : undefined,
     token: defaults.token,
     profileName: defaults.profileName,
   };
@@ -79,7 +82,10 @@ export function resetClientDefaults(): void {
 }
 
 export function encodePathSegment(value: string): string {
-  return encodeURIComponent(value);
+  if (!value || value === "." || value === "..") {
+    throw new TypeError("Path segment must be non-empty and cannot be '.' or '..'");
+  }
+  return encodeURIComponent(value).replace(/\./g, "%2E");
 }
 
 export function buildQuery(
@@ -189,7 +195,7 @@ export class ApiClient {
 
   constructor(config: ApiClientConfig) {
     if (!config.token) throw new Error("No API key configured");
-    this.endpoint = config.endpoint.replace(/\/+$/, "");
+    this.endpoint = normalizeApiEndpoint(config.endpoint, "API endpoint");
     this.token = config.token;
     this.profileName = config.profileName;
     this.timeoutMs = config.timeoutMs ?? 60_000;
@@ -308,7 +314,10 @@ export function resolveClient(commandOrApiKey?: Command | string): ApiClient {
     ? { apiKey: token, profileName: profile }
     : resolveApiKey({ profile });
   return new ApiClient({
-    endpoint: (commandOptions?.apiUrl ?? runtimeDefaults.endpoint ?? getEndpoint()).replace(/\/+$/, ""),
+    endpoint: normalizeApiEndpoint(
+      commandOptions?.apiUrl ?? runtimeDefaults.endpoint ?? getEndpoint(),
+      commandOptions?.apiUrl ? "--api-url" : "API endpoint",
+    ),
     token: resolved.apiKey,
     profileName: resolved.profileName,
   });
