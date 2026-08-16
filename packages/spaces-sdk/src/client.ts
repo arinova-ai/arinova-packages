@@ -26,6 +26,7 @@ const DEFAULT_AUTH_URL = "https://chat.arinova.ai";
 const VERIFIER_KEY = "arinova_pkce_verifier";
 const STATE_KEY = "arinova_pkce_state";
 const POPUP_TIMEOUT_MS = 300_000;
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 /**
  * Browser Arinova client — OAuth-PKCE login, iframe `connect()`, and
@@ -62,7 +63,9 @@ export class Arinova {
   private validateRedirectUri(): string {
     try {
       const redirect = new URL(this.redirectUri);
-      if (!redirect.protocol.startsWith("http") || !redirect.host) throw new Error();
+      const allowed = redirect.protocol === "https:" ||
+        (redirect.protocol === "http:" && LOOPBACK_HOSTS.has(redirect.hostname));
+      if (!allowed || !redirect.host) throw new Error();
     } catch {
       throw new ArinovaError("Arinova: `redirectUri` must be an absolute HTTP(S) URL", 0, "invalid_redirect_uri");
     }
@@ -330,13 +333,12 @@ export class Arinova {
     const state = url.searchParams.get("state");
     const verifier = sessionStorage.getItem(VERIFIER_KEY);
     const expectedState = sessionStorage.getItem(STATE_KEY);
-    sessionStorage.removeItem(VERIFIER_KEY);
-    sessionStorage.removeItem(STATE_KEY);
-
     if (!verifier) throw new ArinovaError("No PKCE verifier found — did you call login()?", 0, "missing_pkce_verifier");
     if (!state || !expectedState || state !== expectedState) throw new ArinovaError("State mismatch", 0, "state_mismatch");
     if (!code) throw new ArinovaError(url.searchParams.get("error_description") ?? "No authorization code", 0, "missing_authorization_code");
     const session = await this.exchangeCode(code, verifier);
+    sessionStorage.removeItem(VERIFIER_KEY);
+    sessionStorage.removeItem(STATE_KEY);
     url.searchParams.delete("code");
     url.searchParams.delete("state");
     url.searchParams.delete("error");
@@ -390,7 +392,17 @@ export class Arinova {
   }
   private async apiPost<T>(path: string, body: unknown, options: RequestOptions = {}): Promise<T> {
     const token = this.requireToken();
-    return request<T>(`${this.apiUrl}${path}`, { method: "POST", token, body: JSON.stringify(body), ...options });
+    const idempotencyKey = body && typeof body === "object" &&
+      typeof (body as Record<string, unknown>).idempotencyKey === "string"
+      ? (body as Record<string, unknown>).idempotencyKey as string
+      : undefined;
+    return request<T>(`${this.apiUrl}${path}`, {
+      method: "POST",
+      token,
+      body: JSON.stringify(body),
+      ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
+      ...options,
+    });
   }
 
   readonly user = new UserApi(this as unknown as ClientTransport);
@@ -480,7 +492,12 @@ class EconomyApi {
     return this.client.apiGet<BalanceResponse>("/api/v1/economy/balance", options);
   }
   purchase(params: PurchaseParams, options?: RequestOptions): Promise<PurchaseResponse> {
-    return this.client.apiPost<PurchaseResponse>("/api/v1/economy/purchase", params, options);
+    const idempotencyKey = params.idempotencyKey?.trim() || `purchase_${randomString(16)}`;
+    return this.client.apiPost<PurchaseResponse>(
+      "/api/v1/economy/purchase",
+      { ...params, idempotencyKey },
+      options,
+    );
   }
   transactions(params: TransactionsParams = {}, options?: RequestOptions): Promise<TransactionsResponse> {
     const query = new URLSearchParams();

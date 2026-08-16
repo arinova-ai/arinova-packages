@@ -65,14 +65,41 @@ describe("API client request builders", () => {
       "https://chat.example.test/api/v1/messages/send",
       {
         method: "POST",
-        headers: {
+        headers: expect.objectContaining({
           Authorization: "Bearer ari_bot_token",
           "Content-Type": "application/json",
-        },
+          "Idempotency-Key": expect.stringMatching(/^call_/),
+        }),
         body: JSON.stringify({ conversationId: "conv-1", content: "Hello" }),
         signal: expect.any(AbortSignal),
       },
     );
+  });
+
+  it("retries GET and idempotency-keyed send requests, but not ordinary mutations", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("busy", {
+        status: 503,
+        headers: { "Retry-After": "0" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([])))
+      .mockResolvedValueOnce(new Response("busy", {
+        status: 503,
+        headers: { "Retry-After": "0" },
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response("busy", { status: 503 }));
+    const agent = new ArinovaAgent({
+      serverUrl: "wss://chat.example.test",
+      botToken: "ari_bot_token",
+    });
+
+    await expect(agent.listBoards()).resolves.toEqual([]);
+    await expect(agent.sendMessage("conv-1", "Hello")).resolves.toBeUndefined();
+    await expect(agent.createNote({ title: "No retry" })).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("uses the injected logger and can be silenced", () => {
@@ -384,7 +411,7 @@ describe("API client request builders", () => {
 
     vi.spyOn(globalThis, "fetch")
       .mockRejectedValueOnce(new TypeError("network down"));
-    await expect(request("GET", "/network", { errorLabel: "Network" }))
+    await expect(request("GET", "/network", { errorLabel: "Network", retries: 0 }))
       .rejects.toMatchObject({
         name: "ArinovaApiError",
         status: 0,
@@ -408,6 +435,44 @@ describe("API client request builders", () => {
     );
     await expect(request("GET", "/timeout", { timeoutMs: 5 }))
       .rejects.toMatchObject({ status: 0, message: expect.stringContaining("timed out") });
+  });
+
+  it("bounds REST bodies and reuses ETag responses for hot lists", async () => {
+    const agent = new ArinovaAgent({
+      serverUrl: "wss://chat.example.test",
+      botToken: "ari_bot_token",
+    });
+    const request = (agent as unknown as {
+      request: <T>(method: string, path: string, options: Record<string, unknown>) => Promise<T>;
+    }).request.bind(agent);
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("oversized", {
+      headers: { "Content-Length": "9" },
+    }));
+    await expect(request("GET", "/large", { maxResponseBytes: 8, retries: 0 }))
+      .rejects.toThrow("Response exceeds 8 byte limit");
+
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("oversized"));
+          controller.close();
+        },
+      }),
+    ));
+    await expect(request("GET", "/streamed-large", { maxResponseBytes: 8, retries: 0 }))
+      .rejects.toThrow("Response exceeds 8 byte limit");
+
+    const history = { messages: [], hasMore: false };
+    const fetchMock = vi.mocked(globalThis.fetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify(history), {
+        headers: { ETag: '"history-1"' },
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 304 }));
+    await expect(agent.fetchHistory("conv-1")).resolves.toEqual(history);
+    await expect(agent.fetchHistory("conv-1")).resolves.toEqual(history);
+    expect(fetchMock.mock.calls.at(-1)?.[1]?.headers).toMatchObject({
+      "If-None-Match": '"history-1"',
+    });
   });
 });
 
@@ -1146,17 +1211,21 @@ describe("auth retry state machine", () => {
     vi.restoreAllMocks();
   });
 
-  it("does not stop or count server-unreachable auth timeouts after 5 retries", () => {
+  it("caps even server-coded retryable auth failures at five attempts", () => {
     const { a } = createAgent();
 
     for (let i = 0; i < 5; i++) {
-      a.handleAuthError("Authentication timeout");
+      a.handleAuthError({
+        type: "auth_error",
+        error: "Authentication timeout",
+        code: "AUTH_TIMEOUT",
+      });
     }
 
-    expect(a.stopped).toBe(false);
+    expect(a.stopped).toBe(true);
     expect(a.authErrorCount).toBe(0);
     expect(a.authRetryAttempt).toBe(5);
-    expect(a.authRetryTimer).not.toBeNull();
+    expect(a.authRetryTimer).toBeNull();
   });
 
   it("rejects connect and emits auth_failed after 5 real auth errors", () => {
@@ -1179,16 +1248,15 @@ describe("auth retry state machine", () => {
     expect(a.doConnect).not.toHaveBeenCalled();
   });
 
-  it("counts only real auth errors when retryable server errors are mixed in", () => {
+  it("uses explicit server codes and never message substrings for retryability", () => {
     const { a } = createAgent();
 
-    a.handleAuthError("Authentication timeout");
+    a.handleAuthError({ error: "Authentication timeout", code: "AUTH_TIMEOUT" });
     a.handleAuthError("Invalid bot token");
-    a.handleAuthError("503 Service Unavailable");
-    a.handleAuthError("Bot token revoked");
-    a.handleAuthError("Gateway timeout");
+    a.handleAuthError({ error: "Backend unavailable", code: "SERVICE_UNAVAILABLE" });
+    a.handleAuthError("Invalid token for this connection");
 
-    expect(a.authRetryAttempt).toBe(5);
+    expect(a.authRetryAttempt).toBe(4);
     expect(a.authErrorCount).toBe(2);
     expect(a.stopped).toBe(false);
     expect(a.authRetryTimer).not.toBeNull();

@@ -30,6 +30,8 @@ export interface RequestOptions {
   timeoutMs?: number;
   /** Retry count for transient network, 429, and 5xx failures. Default: 0. */
   retries?: number;
+  /** Maximum buffered JSON response size. Default: 10 MiB. */
+  maxResponseBytes?: number;
 }
 
 /** Server-side (secret-bearing) config — never use in a browser bundle. */
@@ -118,7 +120,7 @@ export interface PurchaseParams {
   productId?: string;
   amount: number;
   description?: string;
-  /** Recommended replay-protection key, unique within the Space and user. */
+  /** Replay-protection key. The SDK generates one when omitted. */
   idempotencyKey?: string;
 }
 export interface PurchaseResponse {

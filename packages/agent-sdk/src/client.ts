@@ -22,6 +22,11 @@ import {
 } from "./transport.js";
 import { taskConversationKey, validateTaskFrame } from "./scheduler.js";
 import { ArinovaRestClient } from "./rest/client.js";
+import {
+  AUTH_ERROR_MAX_RETRIES,
+  authRetryDelayMs,
+  parseServerAuthError,
+} from "./auth-retry.js";
 export { ArinovaApiError } from "./rest/client.js";
 
 const DEFAULT_RECONNECT_INTERVAL = 5_000;
@@ -70,10 +75,6 @@ function parseOnboardingSeed(raw: unknown): OnboardingSeed | null {
     prompt: seed.prompt,
   };
 }
-const AUTH_ERROR_MAX_RETRIES = 5;
-const AUTH_ERROR_BASE_DELAY = 5_000; // 5s, 10s, 20s, 40s, 60s cap
-const AUTH_ERROR_MAX_DELAY = 60_000;
-
 export class ArinovaAgent extends ArinovaRestClient {
   private readonly skills: AgentSkill[];
   private readonly reconnectInterval: number;
@@ -243,6 +244,8 @@ export class ArinovaAgent extends ArinovaRestClient {
       body: { conversationId, content },
       response: "void",
       errorLabel: "sendMessage",
+      headers: { "Idempotency-Key": generateCallId() },
+      retries: 2,
     });
   }
 
@@ -703,7 +706,7 @@ export class ArinovaAgent extends ArinovaRestClient {
         }
 
         if (data.type === "auth_error") {
-          this.handleAuthError(data.error);
+          this.handleAuthError(data);
           return;
         }
 
@@ -786,25 +789,31 @@ export class ArinovaAgent extends ArinovaRestClient {
     };
   }
 
-  private handleAuthError(rawError: unknown): void {
-    const errorMessage = typeof rawError === "string" ? rawError : String(rawError ?? "Unknown auth error");
-    const isRetryableServerAuthError = this.isRetryableServerAuthError(errorMessage);
+  private handleAuthError(rawFrame: unknown): void {
+    const frame = isRecord(rawFrame) && (
+      "error" in rawFrame || "code" in rawFrame || "retryable" in rawFrame
+    ) ? rawFrame : { error: rawFrame };
+    const authError = parseServerAuthError(frame);
+    const errorMessage = authError.code
+      ? `${authError.message} (${authError.code})`
+      : authError.message;
 
     this.authRetryAttempt++;
-    if (!isRetryableServerAuthError) {
+    if (!authError.retryable) {
       this.authErrorCount++;
     }
     this.isAuthRetrying = true; // Prevent onclose from overriding backoff
 
-    const error = isRetryableServerAuthError
+    const error = authError.retryable
       ? new Error(`Agent auth retryable server error (retry ${this.authRetryAttempt}, auth failures ${this.authErrorCount}/${AUTH_ERROR_MAX_RETRIES}): ${errorMessage}`)
       : new Error(`Agent auth failed (attempt ${this.authErrorCount}/${AUTH_ERROR_MAX_RETRIES}, retry ${this.authRetryAttempt}): ${errorMessage}`);
     this.emit("error", error);
 
-    if (isRetryableServerAuthError) {
-      this.logger.warn(`[arinova-agent-sdk] auth retryable server error; not counting toward auth failure limit: ${errorMessage}`);
-    } else if (this.authErrorCount >= AUTH_ERROR_MAX_RETRIES) {
-      this.logger.warn(`[arinova-agent-sdk] auth failure limit reached (${this.authErrorCount}/${AUTH_ERROR_MAX_RETRIES})`);
+    if (authError.retryable) {
+      this.logger.warn(`[arinova-agent-sdk] auth retryable server error (${this.authRetryAttempt}/${AUTH_ERROR_MAX_RETRIES} total attempts): ${errorMessage}`);
+    }
+    if (this.authRetryAttempt >= AUTH_ERROR_MAX_RETRIES) {
+      this.logger.warn(`[arinova-agent-sdk] auth retry limit reached (${this.authRetryAttempt}/${AUTH_ERROR_MAX_RETRIES})`);
       this.emit("auth_failed");
       this.rejectConnect(error);
       if (this.authRetryTimer) {
@@ -820,29 +829,8 @@ export class ArinovaAgent extends ArinovaRestClient {
     this.scheduleAuthRetry();
   }
 
-  private isRetryableServerAuthError(errorMessage: string): boolean {
-    const message = errorMessage.toLowerCase();
-    return (
-      message.includes("timeout") ||
-      message.includes("timed out") ||
-      message.includes("not ready") ||
-      message.includes("unavailable") ||
-      message.includes("temporarily") ||
-      message.includes("connection") ||
-      message.includes("network") ||
-      message.includes("econnrefused") ||
-      message.includes("gateway") ||
-      message.includes("502") ||
-      message.includes("503") ||
-      message.includes("504")
-    );
-  }
-
   private scheduleAuthRetry(): void {
-    const delay = Math.min(
-      AUTH_ERROR_BASE_DELAY * Math.pow(2, Math.max(this.authRetryAttempt - 1, 0)),
-      AUTH_ERROR_MAX_DELAY
-    );
+    const delay = authRetryDelayMs(this.authRetryAttempt);
     if (this.authRetryTimer) {
       clearTimeout(this.authRetryTimer);
       this.authRetryTimer = null;

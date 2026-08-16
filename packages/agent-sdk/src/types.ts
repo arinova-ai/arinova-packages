@@ -90,7 +90,14 @@ export interface ActionConfirmationPayload {
 export interface ActionCallResult {
   callId: string;
   action: string;
-  status: "success" | "error" | "requires_confirmation" | "cancelled";
+  status:
+    | "success"
+    | "error"
+    | "requires_confirmation"
+    | "cancelled"
+    | "processing"
+    | "received"
+    | "validating";
   result?: Record<string, unknown> | null;
   error?: ActionErrorBody | null;
   confirmation?: ActionConfirmationPayload | null;

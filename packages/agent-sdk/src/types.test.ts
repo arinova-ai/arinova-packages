@@ -38,7 +38,7 @@ describe("agent SDK type contracts", () => {
     });
   });
 
-  it("models action success, error, and confirmation results", () => {
+  it("models action lifecycle, success, error, and confirmation results", () => {
     const success = {
       callId: "call-1",
       action: "arinova.message.send",
@@ -74,7 +74,13 @@ describe("agent SDK type contracts", () => {
     expect(failure.error?.details).toEqual({ field: "content" });
     expect(confirmation.confirmation?.confirmationId).toBe("confirm-1");
     expectTypeOf<ActionCallResult["status"]>().toEqualTypeOf<
-      "success" | "error" | "requires_confirmation" | "cancelled"
+      | "success"
+      | "error"
+      | "requires_confirmation"
+      | "cancelled"
+      | "processing"
+      | "received"
+      | "validating"
     >();
   });
 

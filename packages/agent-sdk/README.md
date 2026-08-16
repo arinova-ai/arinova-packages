@@ -82,7 +82,7 @@ Subscribes to lifecycle events.
 | `"connected"` | `() => void` | Fired after successful authentication |
 | `"disconnected"` | `() => void` | Fired when the WebSocket connection closes |
 | `"error"` | `(error: Error) => void` | Fired on authentication failure, connection errors, or message parse errors |
-| `"auth_failed"` | `() => void` | Fired after five non-retryable authentication failures |
+| `"auth_failed"` | `() => void` | Fired after five consecutive authentication failures |
 
 Registering the same listener twice is idempotent. Use `agent.off(event, listener)` to unsubscribe it. Listener exceptions are isolated and reported through the configured logger.
 
@@ -98,9 +98,9 @@ try {
 }
 ```
 
-The agent automatically reconnects on unexpected disconnects and retryable
-server/auth availability errors. Five non-retryable authentication failures
-reject the pending `connect()` promise, emit `auth_failed`, and stop retries.
+The agent automatically reconnects on unexpected disconnects and server-coded
+retryable auth availability errors. Every auth failure counts toward a five-attempt
+total cap; exhausting it rejects `connect()`, emits `auth_failed`, and stops retries.
 
 ### `agent.disconnect()`
 

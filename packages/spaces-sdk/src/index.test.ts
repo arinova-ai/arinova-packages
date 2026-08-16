@@ -89,6 +89,7 @@ describe("resource methods (user OAuth token)", () => {
       "https://api.test/api/v1/economy/purchase",
       expect.objectContaining({
         method: "POST",
+        headers: expect.objectContaining({ "idempotency-key": "purchase-1" }),
         body: JSON.stringify({
           spaceId: "space-1",
           productId: "potion",
@@ -98,6 +99,19 @@ describe("resource methods (user OAuth token)", () => {
         }),
       }),
     );
+  });
+
+  it("generates a purchase idempotency key when the caller omits one", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({
+      transactionId: "t1", newBalance: 10, spaceId: "space-1", creatorShare: 4, idempotentReplay: false,
+    }));
+
+    await connectedClient().economy.purchase({ spaceId: "space-1", amount: 5 });
+
+    const init = fetchMock.mock.calls[0]![1]!;
+    const body = JSON.parse(String(init.body)) as { idempotencyKey: string };
+    expect(body.idempotencyKey).toMatch(/^purchase_[0-9a-f]{32}$/);
+    expect(init.headers).toMatchObject({ "idempotency-key": body.idempotencyKey });
   });
 
   it("transactions builds pagination query", async () => {

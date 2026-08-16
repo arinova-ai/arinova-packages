@@ -14,16 +14,14 @@ const EXPECTED_TASK_SDK_METHODS = [
   "fetchHistory",
   "callAction"
 ];
-const EXPECTED_RETRYABLE_AUTH_ERROR_MARKERS = [
-  "timeout",
-  "timed out",
-  "not ready",
-  "unavailable",
-  "temporarily",
-  "connection",
-  "network",
-  "econnrefused",
-  "gateway",
+const EXPECTED_RETRYABLE_AUTH_ERROR_CODES = [
+  "AUTH_TIMEOUT",
+  "AUTH_SERVICE_UNAVAILABLE",
+  "CONNECTION_UNAVAILABLE",
+  "GATEWAY_TIMEOUT",
+  "NETWORK_ERROR",
+  "SERVICE_UNAVAILABLE",
+  "TEMPORARILY_UNAVAILABLE",
   "502",
   "503",
   "504"
@@ -1428,7 +1426,8 @@ try {
     const authCountBeforeRetryableRetry = arinova.messages.filter((message) => message.type === "agent_auth").length;
     arinova.send({
       type: "auth_error",
-      error: "Gateway timeout"
+      error: "Gateway timeout",
+      code: "GATEWAY_TIMEOUT"
     });
     const retryableAuthDeadline = Date.now() + 3000;
     while (
@@ -1463,12 +1462,13 @@ try {
       "retryable auth_error should reconnect after auth_ok"
     );
 
-    for (const marker of EXPECTED_RETRYABLE_AUTH_ERROR_MARKERS) {
+    for (const code of EXPECTED_RETRYABLE_AUTH_ERROR_CODES) {
       const authFailedBeforeMarker = adapterEvents.filter((event) => event.path === "/auth-failed").length;
       const authCountBeforeMarkerRetry = arinova.messages.filter((message) => message.type === "agent_auth").length;
       arinova.send({
         type: "auth_error",
-        error: `Retryable auth marker ${marker}`
+        error: `Retryable auth code ${code}`,
+        code
       });
       const markerAuthDeadline = Date.now() + 3000;
       while (
@@ -1478,13 +1478,13 @@ try {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       const markerAuthFailed = adapterEvents.filter((event) => event.path === "/auth-failed").at(-1);
-      assert.match(markerAuthFailed.body.error, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-      assert.equal(markerAuthFailed.body.retryable, true, `retryable auth marker ${marker}`);
+      assert.match(markerAuthFailed.body.error, new RegExp(code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+      assert.equal(markerAuthFailed.body.retryable, true, `retryable auth code ${code}`);
       const markerRetryAuths = await arinova.waitForCount(
         (message) => message.type === "agent_auth",
         authCountBeforeMarkerRetry + 1
       );
-      assertAuthEnvelope(markerRetryAuths.at(-1), "ari_claim_no_agent_perm", `retryable marker ${marker} agent_auth`);
+      assertAuthEnvelope(markerRetryAuths.at(-1), "ari_claim_no_agent_perm", `retryable code ${code} agent_auth`);
       const connectedCountBeforeMarkerRecovery = adapterEvents.filter((event) => event.path === "/connection-status" && event.body.connected === true).length;
       arinova.send({
         type: "auth_ok",
@@ -1499,17 +1499,18 @@ try {
       }
       assert.ok(
         adapterEvents.filter((event) => event.path === "/connection-status" && event.body.connected === true).length > connectedCountBeforeMarkerRecovery,
-        `retryable auth marker ${marker} should recover after auth_ok`
+        `retryable auth code ${code} should recover after auth_ok`
       );
     }
 
     const authCountBeforeTimeoutErrors = arinova.messages.filter((message) => message.type === "agent_auth").length;
-    for (let index = 1; index <= 5; index += 1) {
+    for (let index = 1; index <= 4; index += 1) {
       const authFailedBeforeTimeout = adapterEvents.filter((event) => event.path === "/auth-failed").length;
       const authCountBeforeTimeoutRetry = arinova.messages.filter((message) => message.type === "agent_auth").length;
       arinova.send({
         type: "auth_error",
-        error: `Authentication timeout repeated ${index}`
+        error: `Authentication timeout repeated ${index}`,
+        code: "AUTH_TIMEOUT"
       });
       const timeoutAuthDeadline = Date.now() + 3000;
       while (
@@ -1529,8 +1530,8 @@ try {
     }
     assert.equal(
       arinova.messages.filter((message) => message.type === "agent_auth").length,
-      authCountBeforeTimeoutErrors + 5,
-      "repeated auth timeout should keep scheduling retries"
+      authCountBeforeTimeoutErrors + 4,
+      "retryable auth errors below the total cap should keep scheduling retries"
     );
     const connectedCountBeforeTimeoutRecovery = adapterEvents.filter((event) => event.path === "/connection-status" && event.body.connected === true).length;
     arinova.send({
@@ -1579,8 +1580,12 @@ try {
       "repeated real auth_error should keep scheduling retries"
     );
     assert.ok(
-      observedSdkAuthRetryDelays.includes(60_000),
-      "auth retry backoff should cap at the SDK AUTH_ERROR_MAX_DELAY"
+      observedSdkAuthRetryDelays.includes(40_000),
+      "auth retry backoff should reach the final delay allowed by the five-attempt cap"
+    );
+    assert.ok(
+      observedSdkAuthRetryDelays.every((delay) => delay <= 40_000),
+      "auth retry backoff must not schedule a sixth attempt"
     );
     const connectedCountBeforeRepeatedRecovery = adapterEvents.filter((event) => event.path === "/connection-status" && event.body.connected === true).length;
     arinova.send({

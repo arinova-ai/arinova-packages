@@ -54,9 +54,9 @@ EXPECTED_SDK_CLIENT_TEST_NAMES = {
     "does not starve a third conv when A/B have perpetual backlog",
     "task_queued emitted on queue push with correct queuePosition (and overflow path)",
     "task_queued globalQueueSize spans multiple conversations",
-    "does not stop or count server-unreachable auth timeouts after 5 retries",
-    "keeps retrying after 5 real auth errors instead of permanently stopping",
-    "counts only real auth errors when retryable server errors are mixed in",
+    "caps even server-coded retryable auth failures at five attempts",
+    "rejects connect and emits auth_failed after 5 real auth errors",
+    "uses explicit server codes and never message substrings for retryability",
     "normal ping/pong does not force close",
     "agent_auth declares action_call runtime capability",
     "server stops pong and next watchdog check closes websocket",
@@ -132,9 +132,9 @@ EXPECTED_SDK_CLIENT_NO_CONVERSATION_TEST_NAMES = {
     "does not interfere with real conversations in per-conversation mode",
 }
 EXPECTED_SDK_CLIENT_AUTH_RETRY_TEST_NAMES = {
-    "does not stop or count server-unreachable auth timeouts after 5 retries",
-    "keeps retrying after 5 real auth errors instead of permanently stopping",
-    "counts only real auth errors when retryable server errors are mixed in",
+    "caps even server-coded retryable auth failures at five attempts",
+    "rejects connect and emits auth_failed after 5 real auth errors",
+    "uses explicit server codes and never message substrings for retryability",
 }
 EXPECTED_SDK_CLIENT_ONBOARDING_TEST_NAMES = {
     "surfaces a valid onboardingSeed before connect() resolves",
@@ -145,7 +145,7 @@ EXPECTED_SDK_CLIENT_ONBOARDING_TEST_NAMES = {
 }
 EXPECTED_SDK_TYPES_TEST_NAMES = {
     "supports action call context and file-reference arguments",
-    "models action success, error, and confirmation results",
+    "models action lifecycle, success, error, and confirmation results",
     "exposes upload metadata and inbound attachment shapes",
     "keeps TaskContext upload and action helpers aligned with exported result types",
 }
@@ -153,7 +153,7 @@ EXPECTED_SDK_TYPES_ACTION_CONTEXT_TEST_NAMES = {
     "supports action call context and file-reference arguments",
 }
 EXPECTED_SDK_TYPES_ACTION_RESULT_TEST_NAMES = {
-    "models action success, error, and confirmation results",
+    "models action lifecycle, success, error, and confirmation results",
 }
 EXPECTED_SDK_TYPES_UPLOAD_ATTACHMENT_TEST_NAMES = {
     "exposes upload metadata and inbound attachment shapes",
@@ -3111,4 +3111,3 @@ def tool_param_name(ts_name: str) -> str:
     if ts_name == "args":
         return "action_args"
     return snake(ts_name)
-
