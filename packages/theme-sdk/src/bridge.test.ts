@@ -7,7 +7,7 @@ const bridgeSource = readFileSync(new URL("./bridge.js", import.meta.url), "utf8
 const typesSource = readFileSync(new URL("./types.d.ts", import.meta.url), "utf8");
 const readmeSource = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const runtimeSource = bridgeSource.replace(/^\/\*\*[\s\S]*?\*\/\s*/, "").trim();
-const BRIDGE_SHA256 = "0dd653af7648b276eccbb3987ea6cbe34765d6054ce04e296c2243252eabed0c";
+const BRIDGE_SHA256 = "d81158ee47d1307238962b59d5ccec848484b0ed11dc49cecf3bd74bd22c8d9d";
 
 type Runtime = ReturnType<typeof loadBridge>;
 const runtimes: Runtime[] = [];
@@ -329,8 +329,37 @@ describe("SDK behavior", () => {
       value: vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ value: 1 }) }),
       configurable: true,
     });
-    await expect(sdk.loadJSON("data.json")).resolves.toEqual({ value: 1 });
-    expect(runtime.win.fetch).toHaveBeenCalledWith("https://cdn.test/theme/data.json");
+    await expect(Promise.all([
+      sdk.loadJSON("data.json"),
+      sdk.loadJSON("data.json"),
+    ])).resolves.toEqual([{ value: 1 }, { value: 1 }]);
+    expect(runtime.win.fetch).toHaveBeenCalledOnce();
+    expect(runtime.win.fetch).toHaveBeenCalledWith(
+      "https://cdn.test/theme/data.json",
+      expect.objectContaining({
+        cache: "force-cache",
+        signal: expect.any(runtime.win.AbortSignal),
+      }),
+    );
+  });
+
+  it("aborts a stalled JSON asset request and evicts the failed cache entry", async () => {
+    vi.useFakeTimers();
+    const runtime = loadBridge({ assetBase: "https://cdn.test/theme" });
+    const { sdk } = await initialize(runtime);
+    const fetchMock = vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    }));
+    Object.defineProperty(runtime.win, "fetch", { value: fetchMock, configurable: true });
+
+    const first = sdk.loadJSON("slow.json");
+    const firstRejection = expect(first).rejects.toThrow("aborted");
+    await vi.advanceTimersByTimeAsync(15_000);
+    await firstRejection;
+
+    void sdk.loadJSON("slow.json").catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it.each([

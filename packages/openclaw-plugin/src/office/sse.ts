@@ -8,8 +8,8 @@ import type { OfficeStatusEvent } from "./types.js";
  * Compatible with Node.js http.ServerResponse or any writable
  * stream that supports SSE format.
  *
- * TODO (due 3/1): Integrate with the arinova-chat server's
- * HTTP router to expose as an actual endpoint.
+ * Registered by the plugin at
+ * `/plugins/openclaw-arinova-ai/office/status` behind gateway auth.
  */
 export function handleSSEConnection(
   res: {

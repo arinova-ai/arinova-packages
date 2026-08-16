@@ -11,6 +11,12 @@ vi.mock("../runtime.js", () => ({
 
 const { ingestHookEvent, registerHooks, setForwardTarget } = await import("./hooks.js");
 const { officeState } = await import("./state.js");
+const {
+  clearForwardTargets,
+  getForwardMetrics,
+  resetForwardMetrics,
+  waitForPendingForwards,
+} = await import("./forwarder.js");
 
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => void;
 
@@ -29,6 +35,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-06-10T00:00:00.000Z"));
   getAgentInstance.mockReturnValue({ sendTelemetry, sendHud });
+  clearForwardTargets();
+  resetForwardMetrics();
 });
 
 describe("office hook registration", () => {
@@ -194,10 +202,10 @@ describe("office hook telemetry and forwarding safety", () => {
     expect(sendTelemetry).not.toHaveBeenCalled();
   });
 
-  it("swallows forwarding fetch failures while still ingesting events", async () => {
+  it("records forwarding failures while still ingesting events", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
     vi.stubGlobal("fetch", fetchMock);
-    setForwardTarget("https://api.example.com/api/office/event", new Map([["default", "ari_token"]]));
+    setForwardTarget("https://api.chat.arinova.ai/api/office/event", new Map([["default", "ari_token"]]));
 
     expect(() =>
       ingestHookEvent(
@@ -210,15 +218,18 @@ describe("office hook telemetry and forwarding safety", () => {
     ).not.toThrow();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.example.com/api/office/event",
+      "https://api.chat.arinova.ai/api/office/event",
       expect.objectContaining({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer ari_token",
         },
+        signal: expect.any(AbortSignal),
       }),
     );
+    await waitForPendingForwards();
+    expect(getForwardMetrics()).toMatchObject({ attempted: 1, failed: 1, inFlight: 0 });
     expect(officeState.snapshot().agents).toEqual(expect.arrayContaining([
       expect.objectContaining({ agentId: "agent-forward" }),
     ]));

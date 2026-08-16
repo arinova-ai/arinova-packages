@@ -13,6 +13,7 @@ import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getEndpoint, resolveApiKey } from "../config.js";
 import { ApiClient, ApiError } from "../client.js";
+import { normalizeTrustedArinovaApiEndpoint } from "../endpoint.js";
 import { printSuccess, printNote, printWarning } from "../output.js";
 
 interface OpenclawAgent {
@@ -110,7 +111,10 @@ export function registerSetupOpenclaw(program: Command): void {
     .action(async (opts: { workspace?: string; force?: boolean; dryRun?: boolean; apiUrl?: string }) => {
       // Resolve API base: local --api-url > global --api-url > auto-detect (version-based)
       const globalOpts = program.optsWithGlobals() as { apiUrl?: string };
-      const apiBase = (opts.apiUrl ?? globalOpts.apiUrl ?? getEndpoint()).replace(/\/+$/, "");
+      const apiBase = normalizeTrustedArinovaApiEndpoint(
+        opts.apiUrl ?? globalOpts.apiUrl ?? getEndpoint(),
+        "setup-openclaw API URL",
+      );
 
       printNote(`Using API endpoint: ${apiBase}`);
 

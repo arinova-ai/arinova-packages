@@ -1,3 +1,6 @@
+import { normalizeTrustedApiUrl } from "./api-endpoint.js";
+import { readBoundedText } from "./http.js";
+
 /**
  * Exchange a bot token for the agent ID.
  * Also registers the A2A endpoint with Arinova so the backend knows
@@ -8,7 +11,8 @@ export async function exchangeBotToken(params: {
   botToken: string;
   a2aEndpoint?: string;
 }): Promise<{ agentId: string; name: string; wsUrl?: string }> {
-  const { apiUrl, botToken, a2aEndpoint } = params;
+  const { botToken, a2aEndpoint } = params;
+  const apiUrl = normalizeTrustedApiUrl(params.apiUrl);
 
   const body: Record<string, string> = { botToken };
   if (a2aEndpoint) body.a2aEndpoint = a2aEndpoint;
@@ -29,4 +33,3 @@ export async function exchangeBotToken(params: {
 
   return JSON.parse(responseText) as { agentId: string; name: string; wsUrl?: string };
 }
-import { readBoundedText } from "./http.js";

@@ -1,4 +1,15 @@
-import type { AgentState, AgentStatus, InternalEvent, OfficeStatusEvent } from "./types.js";
+import type { AgentState, InternalEvent, OfficeStatusEvent } from "./types.js";
+import {
+  applyActivity,
+  applyAgentEnd,
+  applyError,
+  applyLlmActivity,
+  applySessionEnd,
+  applyToolCall,
+  createAgentState,
+  updateCollaborationStatus,
+  type SubagentLink,
+} from "./state-transitions.js";
 
 /** How long (ms) before an agent with no activity is considered idle */
 const IDLE_TIMEOUT = 60_000;
@@ -16,13 +27,6 @@ const DEFAULT_MAX_SESSIONS = 2_048;
 const DEFAULT_MAX_SUBAGENT_LINKS = 1_024;
 
 type StatusListener = (event: OfficeStatusEvent) => void;
-
-/** Track parent↔child relationships for collaboration detection */
-interface SubagentLink {
-  parentAgentId: string;
-  childAgentId: string;
-  childSessionKey: string;
-}
 
 export interface OfficeStateStoreOptions {
   maxAgents?: number;
@@ -115,19 +119,10 @@ export class OfficeStateStore {
 
   private handleSessionStart(event: InternalEvent): void {
     const existing = this.agents.get(event.agentId);
-    this.agents.set(event.agentId, {
-      agentId: event.agentId,
-      name: existing?.name ?? "Agent",
-      status: "working",
-      lastActivity: event.timestamp,
-      collaboratingWith: existing?.collaboratingWith ?? [],
-      currentTask: existing?.currentTask ?? null,
-      online: true,
-      model: existing?.model ?? null,
-      tokenUsage: null,
-      sessionDurationMs: null,
-      currentToolDetail: null,
-    });
+    this.agents.set(
+      event.agentId,
+      createAgentState(event.agentId, event.timestamp, existing),
+    );
     this.broadcast();
   }
 
@@ -135,15 +130,7 @@ export class OfficeStateStore {
     const agent = this.agents.get(event.agentId);
     if (!agent) return;
 
-    agent.status = "idle";
-    agent.online = false;
-    agent.lastActivity = event.timestamp;
-    agent.currentTask = null;
-    agent.currentToolDetail = null;
-    const durationMs = event.data.durationMs as number | undefined;
-    if (durationMs != null) {
-      agent.sessionDurationMs = durationMs;
-    }
+    applySessionEnd(agent, event);
     // Clean up subagent links involving this agent
     this.removeSubagentLinks(event.agentId);
     this.updateCollaborationStatus();
@@ -154,100 +141,40 @@ export class OfficeStateStore {
 
   private handleLlmInput(event: InternalEvent): void {
     const agent = this.ensureAgent(event.agentId, event.timestamp);
-    const model = event.data.model as string | undefined;
-    if (model) {
-      agent.model = model;
-    }
-    if (agent.status === "blocked" || agent.status === "idle") {
-      agent.status = "working";
-    }
-    agent.lastActivity = event.timestamp;
-    agent.online = true;
+    applyLlmActivity(agent, event, false);
     this.broadcast();
   }
 
   private handleLlmOutput(event: InternalEvent): void {
     const agent = this.ensureAgent(event.agentId, event.timestamp);
-    const model = event.data.model as string | undefined;
-    if (model) {
-      agent.model = model;
-    }
-    const usage = event.data.usage as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number } | undefined;
-    if (usage) {
-      const prev = agent.tokenUsage;
-      agent.tokenUsage = {
-        input: (prev?.input ?? 0) + (usage.input ?? 0),
-        output: (prev?.output ?? 0) + (usage.output ?? 0),
-        cacheRead: (prev?.cacheRead ?? 0) + (usage.cacheRead ?? 0),
-        cacheWrite: (prev?.cacheWrite ?? 0) + (usage.cacheWrite ?? 0),
-        total: (prev?.total ?? 0) + (usage.total ?? 0),
-      };
-    }
-    if (agent.status === "blocked" || agent.status === "idle") {
-      agent.status = "working";
-    }
-    agent.lastActivity = event.timestamp;
-    agent.online = true;
+    applyLlmActivity(agent, event, true);
     this.broadcast();
   }
 
   private handleActivity(event: InternalEvent): void {
     const agent = this.ensureAgent(event.agentId, event.timestamp);
 
-    // Activity resets blocked status
-    if (agent.status === "blocked") {
-      agent.status = "working";
-    }
-    // Only upgrade idle to working (don't break collaborating)
-    if (agent.status === "idle") {
-      agent.status = "working";
-    }
-    agent.lastActivity = event.timestamp;
-    agent.online = true;
+    applyActivity(agent, event.timestamp);
     this.broadcast();
   }
 
   private handleToolCall(event: InternalEvent): void {
     const agent = this.ensureAgent(event.agentId, event.timestamp);
 
-    if (agent.status === "blocked" || agent.status === "idle") {
-      agent.status = "working";
-    }
-    agent.lastActivity = event.timestamp;
-    agent.online = true;
-    // Set currentTask from the tool name
-    const toolName = event.data.toolName as string | undefined;
-    if (toolName) {
-      agent.currentTask = toolName;
-      const durationMs = event.data.durationMs as number | undefined;
-      agent.currentToolDetail = durationMs
-        ? `${toolName} (${durationMs}ms)`
-        : toolName;
-    }
+    applyToolCall(agent, event);
     this.broadcast();
   }
 
   private handleError(event: InternalEvent): void {
     const agent = this.ensureAgent(event.agentId, event.timestamp);
-    agent.status = "blocked";
-    agent.lastActivity = event.timestamp;
+    applyError(agent, event.timestamp);
     this.broadcast();
   }
 
   private handleAgentEnd(event: InternalEvent): void {
     const agent = this.agents.get(event.agentId);
     if (!agent) return;
-    // Agent run completed successfully — mark as idle
-    if (agent.status !== "blocked") {
-      agent.status = "idle";
-    }
-    agent.lastActivity = event.timestamp;
-    agent.currentTask = null;
-    agent.currentToolDetail = null;
-    const durationMs = event.data.durationMs as number | undefined;
-    if (durationMs != null) {
-      agent.sessionDurationMs = durationMs;
-    }
+    applyAgentEnd(agent, event);
     this.broadcast();
   }
 
@@ -291,35 +218,7 @@ export class OfficeStateStore {
 
   /** Update collaboratingWith arrays and status for linked agents */
   private updateCollaborationStatus(): void {
-    // Reset all collaboration arrays
-    for (const agent of this.agents.values()) {
-      agent.collaboratingWith = [];
-    }
-
-    // Build collaboration links
-    for (const link of this.subagentLinks) {
-      const parent = this.agents.get(link.parentAgentId);
-      const child = this.agents.get(link.childAgentId);
-
-      if (parent && child) {
-        if (!parent.collaboratingWith.includes(link.childAgentId)) {
-          parent.collaboratingWith.push(link.childAgentId);
-        }
-        if (!child.collaboratingWith.includes(link.parentAgentId)) {
-          child.collaboratingWith.push(link.parentAgentId);
-        }
-      }
-    }
-
-    // Set collaborating status for agents with active links
-    for (const agent of this.agents.values()) {
-      if (agent.collaboratingWith.length > 0 && agent.online && agent.status !== "blocked") {
-        agent.status = "collaborating";
-      } else if (agent.status === "collaborating") {
-        // No more links — revert to working if online
-        agent.status = agent.online ? "working" : "idle";
-      }
-    }
+    updateCollaborationStatus(this.agents, this.subagentLinks);
   }
 
   private removeSubagentLinks(agentId: string): void {
@@ -331,19 +230,7 @@ export class OfficeStateStore {
   private ensureAgent(agentId: string, timestamp: number): AgentState {
     let agent = this.agents.get(agentId);
     if (!agent) {
-      agent = {
-        agentId,
-        name: "Agent",
-        status: "working",
-        lastActivity: timestamp,
-        collaboratingWith: [],
-        currentTask: null,
-        online: true,
-        model: null,
-        tokenUsage: null,
-        sessionDurationMs: null,
-        currentToolDetail: null,
-      };
+      agent = createAgentState(agentId, timestamp);
       this.agents.set(agentId, agent);
     }
     return agent;

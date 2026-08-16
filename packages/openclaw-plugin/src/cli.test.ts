@@ -123,8 +123,8 @@ describe("registered CLI commands", () => {
 
   it("registers setup under the same root and persists paired credentials", async () => {
     const arinova = await buildCli();
-    await arinova.child("setup-openclaw").handler?.({ token: "ari_new", apiUrl: "https://new.test" });
-    expect(mocks.exchangeBotToken).toHaveBeenCalledWith({ apiUrl: "https://new.test", botToken: "ari_new" });
+    await arinova.child("setup-openclaw").handler?.({ token: "ari_new", apiUrl: "https://api.chat.arinova.ai" });
+    expect(mocks.exchangeBotToken).toHaveBeenCalledWith({ apiUrl: "https://api.chat.arinova.ai", botToken: "ari_new" });
     expect(mocks.replaceConfigFile).toHaveBeenCalledWith(expect.objectContaining({
       nextConfig: expect.objectContaining({
         channels: expect.objectContaining({

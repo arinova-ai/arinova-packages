@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getApiKey: vi.fn(() => "ari_cli_token"),
-  getEndpoint: vi.fn(() => "https://chat.example.test"),
+  getEndpoint: vi.fn(() => "https://api.chat.arinova.ai"),
   resolveApiKey: vi.fn(() => ({
     apiKey: "ari_cli_token",
     profileName: "test",
@@ -112,7 +112,7 @@ describe("setup-openclaw command", () => {
     const channel = (updated.channels as Record<string, Record<string, unknown>>)["openclaw-arinova-ai"];
     expect(channel).toMatchObject({
       enabled: true,
-      apiUrl: "https://api.chat.example.test",
+      apiUrl: "https://api.chat.arinova.ai",
       accounts: {
         ada: { enabled: true, botToken: "ari_existing_ada" },
         grace: { enabled: true, botToken: "ari_grace_token" },
@@ -143,7 +143,7 @@ describe("setup-openclaw command", () => {
       "node",
       "arinova",
       "--api-url",
-      "https://api.override.test/",
+      "https://api.chat-staging.arinova.ai/",
       "setup-openclaw",
       "--workspace",
       configPath,
@@ -167,6 +167,24 @@ describe("setup-openclaw command", () => {
       "node", "arinova", "setup-openclaw", "--workspace", configPath,
     ])).rejects.toThrow("No API key configured");
 
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects an untrusted API host before attaching credentials", async () => {
+    const configPath = await writeOpenclawConfig({
+      plugins: { entries: { "openclaw-arinova-ai": {} } },
+      agents: { list: [{ id: "ada", name: "Ada" }] },
+    });
+
+    await expect(createProgram().parseAsync([
+      "node",
+      "arinova",
+      "--api-url",
+      "https://attacker.example",
+      "setup-openclaw",
+      "--workspace",
+      configPath,
+    ])).rejects.toThrow("official HTTPS Arinova API host");
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 

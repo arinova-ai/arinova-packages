@@ -506,7 +506,7 @@ describe("handleArinovaChatInbound", () => {
     });
   });
 
-  it("keeps group routing conversation-scoped without authorizing an unlisted sender", async () => {
+  it("denies an unlisted group sender under the allowlist policy", async () => {
     const { core, runtime } = createRuntime();
 
     await handleArinovaChatInbound({
@@ -523,12 +523,33 @@ describe("handleArinovaChatInbound", () => {
       runtime,
     });
 
+    expect(core.channel.inbound.dispatch).not.toHaveBeenCalled();
+    expect(channelInboundMocks.resolveRouteEnvelope).not.toHaveBeenCalled();
+  });
+
+  it("keeps an authorized group route conversation-scoped", async () => {
+    const { core, runtime } = createRuntime();
+
+    await handleArinovaChatInbound({
+      message: createMessage({
+        senderUserId: "group-user",
+        conversationId: "group-conv",
+        conversationType: "group",
+      }),
+      sendChunk: vi.fn(),
+      sendComplete: vi.fn(),
+      sendError: vi.fn(),
+      account: createAccount({ config: { dmPolicy: "allowlist", allowFrom: ["group-user"] } }),
+      config,
+      runtime,
+    });
+
     const request = core.channel.inbound.dispatch.mock.calls[0]?.[0] as unknown as {
       ctxPayload: { SenderId: string; CommandAuthorized: boolean };
     };
     expect(request.ctxPayload).toMatchObject({
       SenderId: "group-user",
-      CommandAuthorized: false,
+      CommandAuthorized: true,
     });
     expect(channelInboundMocks.resolveRouteEnvelope).toHaveBeenCalledWith(
       expect.objectContaining({ peer: { kind: "group", id: "group-conv" } }),

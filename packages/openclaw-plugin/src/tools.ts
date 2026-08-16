@@ -2,6 +2,7 @@ import type { CoreConfig } from "./types.js";
 import { resolveArinovaChatAccount } from "./accounts.js";
 import { getArinovaChatRuntime } from "./runtime.js";
 import { parseJsonOrText, readBoundedText } from "./http.js";
+import { assertTrustedApiRequestUrl } from "./api-endpoint.js";
 
 // ── Helpers ──
 
@@ -17,6 +18,7 @@ export async function apiCall(opts: {
   body?: unknown;
   form?: FormData;
 }): Promise<unknown> {
+  assertTrustedApiRequestUrl(opts.url);
   const headers: Record<string, string> = {
     Authorization: `Bearer ${opts.token}`,
   };

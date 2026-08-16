@@ -152,6 +152,7 @@
     isMobile: window.innerWidth < 768,
     pixelRatio: window.devicePixelRatio || 1
   };
+  var jsonAssetCache = Object.create(null);
   var sdk = {
     get themeId() { return state.themeId; },
     get themeVersion() { return state.themeVersion; },
@@ -170,10 +171,21 @@
       // failure into a rejection instead of a synchronous exception.
       return Promise.resolve().then(function () {
         var url = sdk.assetUrl(rel);
-        return fetch(url);
-      }).then(function (r) {
-        if (!r.ok) throw new Error("Failed to load " + rel);
-        return r.json();
+        if (jsonAssetCache[url]) return jsonAssetCache[url];
+        var controller = new AbortController();
+        var timeout = setTimeout(function () { controller.abort(); }, 15000);
+        var request = fetch(url, {
+          cache: "force-cache",
+          signal: controller.signal
+        }).then(function (r) {
+          if (!r.ok) throw new Error("Failed to load " + rel);
+          return r.json();
+        }).finally(function () {
+          clearTimeout(timeout);
+        });
+        jsonAssetCache[url] = request;
+        request.catch(function () { delete jsonAssetCache[url]; });
+        return request;
       });
     },
     get agent() { return state.agents.length ? state.agents[0] : null; },

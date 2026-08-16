@@ -3,6 +3,7 @@ import type { ResolvedArinovaChatAccount } from "./accounts.js";
 import { resolveAccount, apiCall } from "./tools.js";
 import { exchangeBotToken } from "./auth.js";
 import { openUploadFile } from "./file-upload.js";
+import { normalizeTrustedApiUrl } from "./api-endpoint.js";
 
 const DEFAULT_API_URL = "https://api.chat-staging.arinova.ai";
 
@@ -66,8 +67,10 @@ export function registerCli(api: OpenClawPluginApi): void {
             | Record<string, unknown>
             | undefined;
           const current = (channelCfg?.["openclaw-arinova-ai"] ?? {}) as Record<string, unknown>;
-          const apiUrl = opts.apiUrl ?? (current.apiUrl as string | undefined)
-            ?? "https://api.chat.arinova.ai";
+          const apiUrl = normalizeTrustedApiUrl(
+            opts.apiUrl ?? (current.apiUrl as string | undefined)
+              ?? "https://api.chat.arinova.ai",
+          );
           const result = await exchangeBotToken({ apiUrl, botToken: opts.token });
           const nextConfig = {
             ...ctx.config,

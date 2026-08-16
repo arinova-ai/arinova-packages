@@ -35,7 +35,7 @@ function configure(accountId: string, overrides: Record<string, unknown> = {}) {
       "openclaw-arinova-ai": {
         accounts: {
           [accountId]: {
-            apiUrl: "https://api.test",
+            apiUrl: "https://api.chat.arinova.ai",
             botToken: "token",
             agentId: "00000000-0000-4000-8000-000000000001",
             ...overrides,
@@ -79,7 +79,7 @@ describe("sendMessageArinovaChat", () => {
     await sendMessageArinovaChat("conv-3", "three", { accountId: "fallback" });
     expect(mocks.constructors).toHaveLength(2);
     expect(mocks.constructors[0]!.disconnect).toHaveBeenCalledOnce();
-    expect(mocks.constructors[1]!.options).toEqual({ serverUrl: "https://api.test", botToken: "new-token" });
+    expect(mocks.constructors[1]!.options).toEqual({ serverUrl: "https://api.chat.arinova.ai", botToken: "new-token" });
   });
 
   it("fails closed when the HTTP fallback has no bot token", async () => {

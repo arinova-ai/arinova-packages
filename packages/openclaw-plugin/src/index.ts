@@ -4,7 +4,13 @@ import {
 } from "openclaw/plugin-sdk/core";
 import { arinovaChatPlugin } from "./channel.js";
 import { setArinovaChatRuntime } from "./runtime.js";
-import { initialize as initializeOffice, registerOffice, shutdown as shutdownOffice } from "./office/index.js";
+import {
+  configureFromChannelConfig,
+  initialize as initializeOffice,
+  registerOffice,
+  shutdown as shutdownOffice,
+} from "./office/index.js";
+import type { CoreConfig } from "./types.js";
 import { registerCli } from "./cli.js";
 
 export function buildArinovaPromptContext(): { prependContext: string } {
@@ -48,6 +54,10 @@ const plugin: {
     // Hint on gateway start if not configured
     api.on("gateway_start", () => {
       initializeOffice();
+      configureFromChannelConfig(
+        api.config as CoreConfig,
+        (message) => api.logger.warn(message),
+      );
       const channels = (api.config as Record<string, unknown>).channels as Record<string, unknown> | undefined;
       const arinova = (channels?.["openclaw-arinova-ai"] ?? {}) as Record<string, unknown>;
       const hasUrl = Boolean(arinova.apiUrl);

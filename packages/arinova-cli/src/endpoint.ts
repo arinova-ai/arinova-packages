@@ -1,4 +1,8 @@
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+const TRUSTED_ARINOVA_API_HOSTNAMES = new Set([
+  "api.chat.arinova.ai",
+  "api.chat-staging.arinova.ai",
+]);
 
 /** Validate and normalize an API base URL before any credentials are attached. */
 export function normalizeApiEndpoint(value: string, label = "Endpoint"): string {
@@ -26,4 +30,22 @@ export function normalizeApiEndpoint(value: string, label = "Endpoint"): string 
   }
 
   return url.toString().replace(/\/+$/, "");
+}
+
+/** Stricter policy for flows that create or exchange long-lived bot credentials. */
+export function normalizeTrustedArinovaApiEndpoint(
+  value: string,
+  label = "Arinova API endpoint",
+): string {
+  const normalized = normalizeApiEndpoint(value, label);
+  const url = new URL(normalized);
+  if (
+    url.protocol !== "https:"
+    || !TRUSTED_ARINOVA_API_HOSTNAMES.has(url.hostname)
+    || url.port
+    || url.pathname !== "/"
+  ) {
+    throw new TypeError(`${label} must use an official HTTPS Arinova API host`);
+  }
+  return url.origin;
 }
