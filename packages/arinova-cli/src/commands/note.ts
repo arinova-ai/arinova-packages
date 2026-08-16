@@ -1,101 +1,92 @@
 import type { Command } from "commander";
 import { encodePathSegment, resolveClient } from "../client.js";
-import { parseCount } from "../pagination.js";
 import { printResult } from "../output.js";
+import { addPaginationOptions, paginationQuery } from "../pagination.js";
+import { registerResourceCommands } from "../resource-commands.js";
+
+const noteId = {
+  kind: "option" as const,
+  flags: "--note-id <id>",
+  key: "noteId",
+  description: "Note ID",
+};
 
 export function registerNoteCommands(program: Command): void {
-  const note = program.command("note").description("Note commands");
-
-  note.command("list")
-    .option("--notebook-id <id>", "Filter by notebook ID (defaults to your default notebook)")
-    .option("--search <query>", "Search notes by title or content")
-    .option("--limit <n>", "Max notes to return (default 20, max 50)", parseCount)
-    .option("--offset <n>", "Skip first N notes (pagination)", parseCount)
-    .option("--cursor <id>", "Fetch notes before this note ID (cursor pagination)")
-    .option("--tags <tags...>", "Filter by tags")
-    .option("--archived", "List archived notes instead of active")
-    .action(async (opts: { notebookId?: string; search?: string; limit?: number; offset?: number; cursor?: string; tags?: string[]; archived?: boolean }) => {
-      const params = new URLSearchParams();
-      if (opts.notebookId) params.set("notebookId", opts.notebookId);
-      if (opts.search) params.set("search", opts.search);
-      if (opts.limit) params.set("limit", String(opts.limit));
-      if (opts.offset) params.set("offset", String(opts.offset));
-      if (opts.cursor) params.set("before", opts.cursor);
-      if (opts.tags) params.set("tags", opts.tags.join(","));
-      if (opts.archived) params.set("archived", "true");
-      const qs = params.toString() ? `?${params.toString()}` : "";
-      printResult(await resolveClient(note).get(`/api/v1/notes${qs}`));
-    });
-
-  note.command("create")
-    .requiredOption("--notebook-id <id>", "Notebook ID")
-    .requiredOption("--title <title>", "Note title")
-    .option("--content <text>", "Note content")
-    .option("--tags <tags...>", "Tags")
-    .action(async (opts: { notebookId: string; title: string; content?: string; tags?: string[] }) => {
-      printResult(await resolveClient(note).post("/api/v1/notes", {
-        notebookId: opts.notebookId,
-        title: opts.title,
-        content: opts.content,
-        tags: opts.tags,
-      }));
-    });
-
-  note.command("update")
-    .requiredOption("--note-id <id>", "Note ID")
-    .option("--title <text>", "New title")
-    .option("--content <text>", "New content")
-    .action(async (opts: { noteId: string; title?: string; content?: string }) => {
-      printResult(await resolveClient(note).patch(
-        `/api/v1/notes/${encodePathSegment(opts.noteId)}`,
-        { title: opts.title, content: opts.content },
-      ));
-    });
-
-  note.command("delete")
-    .requiredOption("--note-id <id>", "Note ID")
-    .action(async (opts: { noteId: string }) => {
-      printResult(await resolveClient(note).delete(
-        `/api/v1/notes/${encodePathSegment(opts.noteId)}`,
-      ));
-    });
-
-  note.command("get")
-    .argument("<note-id>", "Note ID")
-    .action(async (noteId: string) => {
-      printResult(await resolveClient(note).get(
-        `/api/v1/notes/${encodePathSegment(noteId)}`,
-      ));
-    });
+  const note = registerResourceCommands(program, {
+    name: "note",
+    description: "Note commands",
+    basePath: "/api/v1/notes",
+    identifier: noteId,
+    list: {
+      pagination: { mode: "both", defaultLimit: 50 },
+      configure(command) {
+        command
+          .option("--notebook-id <id>", "Filter by notebook")
+          .option("--search <query>", "Search notes")
+          .option("--tags <tags...>", "Filter by tags")
+          .option("--archived", "List archived notes instead of active");
+      },
+      query: (options) => ({
+        notebookId: options.notebookId,
+        search: options.search,
+        tags: options.tags?.join(","),
+        archived: options.archived ? true : undefined,
+      }),
+    },
+    create: {
+      configure(command) {
+        command
+          .requiredOption("--notebook-id <id>", "Notebook ID")
+          .requiredOption("--title <title>", "Note title")
+          .option("--content <text>", "Note content")
+          .option("--tags <tags...>", "Tags");
+      },
+      body: (options) => ({
+        notebookId: options.notebookId,
+        title: options.title,
+        content: options.content,
+        tags: options.tags,
+      }),
+    },
+    show: {
+      name: "get",
+      identifier: { kind: "argument", syntax: "<note-id>" },
+    },
+    update: {
+      configure(command) {
+        command
+          .option("--title <text>", "New title")
+          .option("--content <text>", "New content");
+      },
+      body: (options) => ({ title: options.title, content: options.content }),
+    },
+    delete: {},
+  });
 
   const thread = note.command("thread").description("Note thread messages");
-  thread.command("list")
-    .requiredOption("--note-id <id>", "Note ID")
-    .action(async (opts) => {
-      printResult(await resolveClient(note).get(
-        `/api/v1/notes/${encodePathSegment(opts.noteId)}/thread`,
-      ));
-    });
+  addPaginationOptions(thread.command("list").requiredOption("--note-id <id>", "Note ID"), {
+    mode: "offset",
+  }).action(async (options) => {
+    printResult(await resolveClient(note).get(
+      `/api/v1/notes/${encodePathSegment(options.noteId)}/thread${paginationQuery(options)}`,
+    ));
+  });
   thread.command("add")
     .requiredOption("--note-id <id>", "Note ID")
     .requiredOption("--content <text>", "Thread message")
-    .action(async (opts) => {
+    .action(async (options) => {
       printResult(await resolveClient(note).post(
-        `/api/v1/notes/${encodePathSegment(opts.noteId)}/thread`,
-        { content: opts.content },
+        `/api/v1/notes/${encodePathSegment(options.noteId)}/thread`,
+        { content: options.content },
       ));
     });
 
-  note.command("linked-cards")
-    .requiredOption("--note-id <id>", "Note ID")
-    .option("--limit <n>", "Max linked cards", parseCount)
-    .option("--offset <n>", "Skip linked cards", parseCount)
-    .action(async (opts) => {
-      const query = new URLSearchParams();
-      if (opts.limit !== undefined) query.set("limit", String(opts.limit));
-      if (opts.offset !== undefined) query.set("offset", String(opts.offset));
-      printResult(await resolveClient(note).get(
-        `/api/v1/notes/${encodePathSegment(opts.noteId)}/linked-cards${query.size ? `?${query}` : ""}`,
-      ));
-    });
+  addPaginationOptions(
+    note.command("linked-cards").requiredOption("--note-id <id>", "Note ID"),
+    { mode: "offset" },
+  ).action(async (options) => {
+    printResult(await resolveClient(note).get(
+      `/api/v1/notes/${encodePathSegment(options.noteId)}/linked-cards${paginationQuery(options)}`,
+    ));
+  });
 }

@@ -1,22 +1,20 @@
 import type { Command } from "commander";
 import { encodePathSegment, resolveClient } from "../client.js";
 import { printResult } from "../output.js";
-import { parseCount } from "../pagination.js";
+import { addPaginationOptions, paginationQuery } from "../pagination.js";
 
 export function registerMemoCommands(program: Command): void {
   const memo = program.command("memo").description("Memo page commands");
 
-  memo
+  addPaginationOptions(memo
     .command("list")
     .option("--conversation-id <id>", "Conversation ID")
-    .option("--search <query>", "Search memo pages")
-    .option("--limit <n>", "Max pages", parseCount)
-    .option("--offset <n>", "Skip pages", parseCount)
+    .option("--search <query>", "Search memo pages"), { mode: "offset" })
     .action(async (opts) => {
       const params = new URLSearchParams();
       if (opts.conversationId) params.set("conversationId", opts.conversationId);
       if (opts.search) params.set("search", opts.search);
-      if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+      params.set("limit", String(opts.limit));
       if (opts.offset !== undefined) params.set("offset", String(opts.offset));
       const query = params.toString();
       printResult(await resolveClient(memo).get(
@@ -76,12 +74,12 @@ export function registerMemoCommands(program: Command): void {
     });
 
   const comment = memo.command("comment").description("Memo comment commands");
-  comment
+  addPaginationOptions(comment
     .command("list")
-    .requiredOption("--page-id <id>", "Memo page ID")
+    .requiredOption("--page-id <id>", "Memo page ID"), { mode: "offset" })
     .action(async (opts) => {
       printResult(await resolveClient(memo).get(
-        `/api/v1/memo/${encodePathSegment(opts.pageId)}/comments`,
+        `/api/v1/memo/${encodePathSegment(opts.pageId)}/comments${paginationQuery(opts)}`,
       ));
     });
   comment

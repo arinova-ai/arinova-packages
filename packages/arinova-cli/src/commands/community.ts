@@ -1,15 +1,18 @@
 import { Command } from "commander";
-import { get, post, put, del, encodePathSegment, UnsupportedCommandError } from "../client.js";
+import { encodePathSegment, resolveClient, UnsupportedCommandError } from "../client.js";
 import { printResult, printSuccess, table } from "../output.js";
+import { addPaginationOptions, paginationQuery } from "../pagination.js";
 
 export function registerCommunity(program: Command): void {
   const community = program.command("community").description("Community management");
 
-  community
+  addPaginationOptions(community
     .command("list")
-    .description("List your communities")
-    .action(async () => {
-      const data = await get("/api/v1/communities");
+    .description("List your communities"), { mode: "offset" })
+    .action(async (options) => {
+      const data = await resolveClient(community).get(
+        `/api/v1/communities${paginationQuery(options)}`,
+      );
       const communities = (data as Record<string, unknown>).communities ?? data;
       if (Array.isArray(communities)) {
         table(communities as Record<string, unknown>[], [
@@ -27,7 +30,7 @@ export function registerCommunity(program: Command): void {
     .command("show <id>")
     .description("Show a community")
     .action(async (id: string) => {
-      printResult(await get(`/api/v1/communities/${encodePathSegment(id)}`));
+      printResult(await resolveClient(community).get(`/api/v1/communities/${encodePathSegment(id)}`));
     });
 
   community
@@ -37,7 +40,7 @@ export function registerCommunity(program: Command): void {
     .option("--type <type>", "Type (community or lounge)", "community")
     .option("--description <desc>", "Description")
     .action(async (opts: { name: string; type: string; description?: string }) => {
-      const data = await post("/api/v1/communities", {
+      const data = await resolveClient(community).post("/api/v1/communities", {
         name: opts.name,
         type: opts.type,
         description: opts.description ?? "",
@@ -54,7 +57,7 @@ export function registerCommunity(program: Command): void {
       const body: Record<string, unknown> = {};
       if (opts.name) body.name = opts.name;
       if (opts.description) body.description = opts.description;
-      const data = await put(`/api/v1/communities/${encodePathSegment(id)}`, body);
+      const data = await resolveClient(community).put(`/api/v1/communities/${encodePathSegment(id)}`, body);
       printResult(data);
     });
 
@@ -62,7 +65,7 @@ export function registerCommunity(program: Command): void {
     .command("delete <id>")
     .description("Delete a community")
     .action(async (id: string) => {
-      await del(`/api/v1/communities/${encodePathSegment(id)}`);
+      await resolveClient(community).delete(`/api/v1/communities/${encodePathSegment(id)}`);
       printSuccess(`Community ${id} deleted.`);
     });
 
@@ -70,7 +73,7 @@ export function registerCommunity(program: Command): void {
     .command("add-agent <communityId> <agentId>")
     .description("Add an agent to a community")
     .action(async (communityId: string, agentId: string) => {
-      const data = await post(`/api/v1/communities/${encodePathSegment(communityId)}/agents`, {
+      const data = await resolveClient(community).post(`/api/v1/communities/${encodePathSegment(communityId)}/agents`, {
         agentId,
       });
       printResult(data);
@@ -80,23 +83,27 @@ export function registerCommunity(program: Command): void {
     .command("remove-agent <communityId> <agentId>")
     .description("Remove an agent from a community")
     .action(async (communityId: string, agentId: string) => {
-      await del(`/api/v1/communities/${encodePathSegment(communityId)}/agents/${encodePathSegment(agentId)}`);
+      await resolveClient(community).delete(`/api/v1/communities/${encodePathSegment(communityId)}/agents/${encodePathSegment(agentId)}`);
       printSuccess(`Agent ${agentId} removed from community ${communityId}.`);
     });
 
-  community
+  addPaginationOptions(community
     .command("list-members <communityId>")
-    .description("List members of a community")
-    .action(async (communityId: string) => {
-      const data = await get(`/api/v1/communities/${encodePathSegment(communityId)}/members`);
+    .description("List members of a community"), { mode: "offset" })
+    .action(async (communityId: string, options) => {
+      const data = await resolveClient(community).get(
+        `/api/v1/communities/${encodePathSegment(communityId)}/members${paginationQuery(options)}`,
+      );
       printResult(data);
     });
 
-  community
+  addPaginationOptions(community
     .command("list-agents <communityId>")
-    .description("List agents in a community")
-    .action(async (communityId: string) => {
-      const data = await get(`/api/v1/communities/${encodePathSegment(communityId)}/agents`);
+    .description("List agents in a community"), { mode: "offset" })
+    .action(async (communityId: string, options) => {
+      const data = await resolveClient(community).get(
+        `/api/v1/communities/${encodePathSegment(communityId)}/agents${paginationQuery(options)}`,
+      );
       printResult(data);
     });
 

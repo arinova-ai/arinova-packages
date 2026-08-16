@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { encodePathSegment, resolveClient } from "../client.js";
-import { parseCount } from "../pagination.js";
+import { addPaginationOptions, paginationQuery } from "../pagination.js";
 import { printResult } from "../output.js";
 
 export function registerMessageCommands(program: Command): void {
@@ -17,30 +17,22 @@ export function registerMessageCommands(program: Command): void {
       printResult(result);
     });
 
-  msg.command("list")
-    .requiredOption("--conversation-id <id>", "Conversation ID")
-    .option("--limit <n>", "Number of messages", parseCount)
-    .option("--cursor <id>", "Cursor for pagination")
+  addPaginationOptions(msg.command("list")
+    .requiredOption("--conversation-id <id>", "Conversation ID"), { mode: "cursor" })
     .action(async (opts: { conversationId: string; limit?: number; cursor?: string }) => {
-      const qs = new URLSearchParams();
-      if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
-      if (opts.cursor) qs.set("before", opts.cursor);
-      const q = qs.toString();
       const result = await resolveClient(msg).get(
-        `/api/v1/messages/${encodePathSegment(opts.conversationId)}${q ? `?${q}` : ""}`,
+        `/api/v1/messages/${encodePathSegment(opts.conversationId)}${paginationQuery(opts, "before")}`,
       );
       printResult(result);
     });
 
-  msg.command("search")
+  addPaginationOptions(msg.command("search")
     .requiredOption("-q, --query <text>", "Message search query")
-    .option("--conversation-id <id>", "Limit search to a conversation")
-    .option("--limit <n>", "Max results", parseCount)
-    .option("--offset <n>", "Skip results", parseCount)
+    .option("--conversation-id <id>", "Limit search to a conversation"), { mode: "offset" })
     .action(async (opts) => {
       const query = new URLSearchParams({ q: opts.query });
       if (opts.conversationId) query.set("conversationId", opts.conversationId);
-      if (opts.limit !== undefined) query.set("limit", String(opts.limit));
+      query.set("limit", String(opts.limit));
       if (opts.offset !== undefined) query.set("offset", String(opts.offset));
       printResult(await resolveClient(msg).get(`/api/v1/messages/search?${query}`));
     });

@@ -68,7 +68,8 @@ arinova completion zsh > ~/.zfunc/_arinova
 
 - Economy `award` and `charge`, inbound webhook receivers, HUD websocket,
   analytics tracking, and moderation health are intentionally not exposed.
-- `auto-send` and `expert` fail before issuing known-invalid requests.
+- `auto-send` and `expert` are migration-only compatibility surfaces. They fail
+  before issuing a request and point to platform cron or agent skill packages.
 - Painter and `setup-openclaw` remain explicit legacy compatibility surfaces
   because the server has no equivalent public `/api/v1` contract.
 - Card archive/unarchive, card-label listing, slide members, and lounge

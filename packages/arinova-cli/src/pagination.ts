@@ -9,6 +9,12 @@ export interface PaginationOptions {
   all?: boolean;
 }
 
+export interface PaginationOptionConfig {
+  mode?: "offset" | "cursor" | "both";
+  allowAll?: boolean;
+  defaultLimit?: number;
+}
+
 export const DEFAULT_PAGE_LIMIT = 50;
 export const MAX_PAGE_LIMIT = 100;
 export const MAX_COLLECTED_PAGES = 100;
@@ -31,23 +37,43 @@ export function parseCount(value: string): number {
   return parsed;
 }
 
-export function addPaginationOptions(command: Command): Command {
-  return command
-    .option("--limit <n>", "Maximum items to return", parseCount)
-    .option("--offset <n>", "Number of items to skip", parseCount)
-    .option("--cursor <cursor>", "Server pagination cursor")
-    .option("--all", "Fetch every page");
+export function addPaginationOptions(
+  command: Command,
+  config: PaginationOptionConfig = {},
+): Command {
+  const mode = config.mode ?? "both";
+  command.option(
+    "--limit <n>",
+    `Maximum items to return (default ${config.defaultLimit ?? DEFAULT_PAGE_LIMIT})`,
+    parseCount,
+    config.defaultLimit ?? DEFAULT_PAGE_LIMIT,
+  );
+  if (mode === "offset" || mode === "both") {
+    command.option("--offset <n>", "Number of items to skip", parseCount);
+  }
+  if (mode === "cursor" || mode === "both") {
+    command.option("--cursor <cursor>", "Server pagination cursor");
+  }
+  if (config.allowAll) command.option("--all", "Fetch every page");
+  return command;
+}
+
+export function paginationValues(
+  options: PaginationOptions,
+  cursorKey = "cursor",
+): Record<string, string | number | undefined> {
+  return {
+    limit: pageLimit(options.limit),
+    offset: options.offset,
+    [cursorKey]: options.cursor,
+  };
 }
 
 export function paginationQuery(
   options: PaginationOptions,
   cursorKey = "cursor",
 ): string {
-  return buildQuery({
-    limit: options.limit,
-    offset: options.offset,
-    [cursorKey]: options.cursor,
-  });
+  return buildQuery(paginationValues(options, cursorKey));
 }
 
 export function pageLimit(

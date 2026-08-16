@@ -1,18 +1,13 @@
 import type { Command } from "commander";
 import {
   buildQuery,
-  del,
   encodePathSegment,
-  get,
-  post,
-  put,
-  upload,
-  uploadMultipart,
+  resolveClient,
 } from "../client.js";
-import { createFileBlob } from "../file-upload.js";
+import { appendFileToForm, createFileBlob } from "../file-upload.js";
 import { printResult, printSuccess, table } from "../output.js";
 import { parseJsonOption } from "../json-options.js";
-import { parseCount } from "../pagination.js";
+import { addPaginationOptions, paginationQuery, paginationValues, parseCount } from "../pagination.js";
 
 const e = encodePathSegment;
 
@@ -35,18 +30,23 @@ function printSpaces(data: unknown): void {
 
 export function registerSpace(program: Command): void {
   const space = program.command("space").description("Space management");
+  const api = () => resolveClient(space);
 
-  space.command("list")
+  addPaginationOptions(space.command("list")
     .description("List discoverable spaces")
     .option("--search <query>")
     .option("--category <category>")
-    .option("--page <n>", "Page number", parseCount)
-    .option("--limit <n>", "Maximum results", parseCount)
+    .option("--page <n>", "Page number", parseCount), { mode: "offset" })
     .action(async (opts) => {
-      printSpaces(await get(`/api/v1/spaces${buildQuery(opts)}`));
+      printSpaces(await api().get(`/api/v1/spaces${buildQuery({
+        search: opts.search,
+        category: opts.category,
+        page: opts.page,
+        ...paginationValues(opts),
+      })}`));
     });
   space.command("owned").description("List spaces you own").action(async () => {
-    printSpaces(await get("/api/v1/spaces/owned"));
+    printSpaces(await api().get("/api/v1/spaces/owned"));
   });
 
   space.command("create")
@@ -59,7 +59,7 @@ export function registerSpace(program: Command): void {
     .option("--price-points <n>")
     .option("--show-creator-profile")
     .action(async (opts) => {
-      printResult(await post("/api/v1/spaces", {
+      printResult(await api().post("/api/v1/spaces", {
         name: opts.name,
         description: opts.description ?? "",
         category: opts.category,
@@ -84,7 +84,7 @@ export function registerSpace(program: Command): void {
       if (opts.showCreatorProfile && !["true", "false"].includes(opts.showCreatorProfile)) {
         throw new Error("--show-creator-profile must be true or false");
       }
-      printResult(await put(`/api/v1/spaces/${e(id)}`, {
+      printResult(await api().put(`/api/v1/spaces/${e(id)}`, {
         name: opts.name,
         description: opts.description,
         category: opts.category,
@@ -98,49 +98,55 @@ export function registerSpace(program: Command): void {
       }));
     });
   space.command("show").argument("<id>", "Space ID").action(async (id: string) => {
-    printResult(await get(`/api/v1/spaces/${e(id)}`));
+    printResult(await api().get(`/api/v1/spaces/${e(id)}`));
   });
   space.command("delete").argument("<id>", "Space ID").action(async (id: string) => {
-    await del(`/api/v1/spaces/${e(id)}`);
+    await api().delete(`/api/v1/spaces/${e(id)}`);
     printSuccess(`Space ${id} deleted.`);
   });
   space.command("publish").argument("<id>", "Space ID").action(async (id: string) => {
-    printResult(await put(`/api/v1/spaces/${e(id)}`, { isPublic: true }));
+    printResult(await api().put(`/api/v1/spaces/${e(id)}`, { isPublic: true }));
   });
   space.command("unpublish").argument("<id>", "Space ID").action(async (id: string) => {
-    printResult(await put(`/api/v1/spaces/${e(id)}`, { isPublic: false }));
+    printResult(await api().put(`/api/v1/spaces/${e(id)}`, { isPublic: false }));
   });
   space.command("cover").argument("<id>", "Space ID")
     .requiredOption("--file <path>")
     .action(async (id: string, opts: { file: string }) => {
-      printResult(await upload(`/api/v1/spaces/${e(id)}/cover`, opts.file));
+      const form = new FormData();
+      await appendFileToForm(form, "file", opts.file);
+      printResult(await api().upload(`/api/v1/spaces/${e(id)}/cover`, form));
     });
   space.command("report").argument("<id>", "Space ID")
     .requiredOption("--reason <reason>")
     .option("--detail <detail>")
     .action(async (id: string, opts: { reason: string; detail?: string }) => {
-      printResult(await post(`/api/v1/spaces/${e(id)}/reports`, {
+      printResult(await api().post(`/api/v1/spaces/${e(id)}/reports`, {
         reason: opts.reason, detail: opts.detail,
       }));
     });
 
   const storage = space.command("storage")
     .description("Per-user Space runtime storage (requires a Space OAuth token)");
-  storage.command("list").argument("<space-id>").action(async (spaceId: string) => {
-    printResult(await get(`/api/v1/spaces/${e(spaceId)}/storage`));
+  addPaginationOptions(storage.command("list").argument("<space-id>"), {
+    mode: "offset",
+  }).action(async (spaceId: string, options) => {
+    printResult(await api().get(
+      `/api/v1/spaces/${e(spaceId)}/storage${paginationQuery(options)}`,
+    ));
   });
   storage.command("get")
     .argument("<space-id>")
     .argument("<key>")
     .action(async (spaceId: string, key: string) => {
-      printResult(await get(`/api/v1/spaces/${e(spaceId)}/storage/${e(key)}`));
+      printResult(await api().get(`/api/v1/spaces/${e(spaceId)}/storage/${e(key)}`));
     });
   storage.command("set")
     .argument("<space-id>")
     .argument("<key>")
     .requiredOption("--value <json>", "JSON value")
     .action(async (spaceId: string, key: string, opts: { value: string }) => {
-      printResult(await put(`/api/v1/spaces/${e(spaceId)}/storage/${e(key)}`, {
+      printResult(await api().put(`/api/v1/spaces/${e(spaceId)}/storage/${e(key)}`, {
         value: parseJsonOption(opts.value, "--value"),
       }));
     });
@@ -148,34 +154,37 @@ export function registerSpace(program: Command): void {
     .argument("<space-id>")
     .argument("<key>")
     .action(async (spaceId: string, key: string) => {
-      printResult(await del(`/api/v1/spaces/${e(spaceId)}/storage/${e(key)}`));
+      printResult(await api().delete(`/api/v1/spaces/${e(spaceId)}/storage/${e(key)}`));
     });
 
   const version = space.command("version").description("Managed Space bundle versions");
-  version.command("list").argument("<space-id>").action(async (spaceId: string) => {
-    printResult(await get(`/api/v1/spaces/${e(spaceId)}/versions`));
+  addPaginationOptions(version.command("list").argument("<space-id>"), {
+    mode: "cursor",
+  }).action(async (spaceId: string, options) => {
+    printResult(await api().get(
+      `/api/v1/spaces/${e(spaceId)}/versions${paginationQuery(options)}`,
+    ));
   });
   version.command("create")
     .argument("<space-id>")
     .requiredOption("--file <bundle.zip>")
     .action(async (spaceId: string, opts: { file: string }) => {
-      printResult(await uploadMultipart(
-        `/api/v1/spaces/${e(spaceId)}/versions`,
-        { bundle: await createFileBlob(opts.file, { type: "application/zip" }) },
-      ));
+      const form = new FormData();
+      form.append("bundle", await createFileBlob(opts.file, { type: "application/zip" }));
+      printResult(await api().upload(`/api/v1/spaces/${e(spaceId)}/versions`, form));
     });
   version.command("delete")
     .argument("<space-id>")
     .argument("<version-id>")
     .action(async (spaceId: string, versionId: string) => {
-      printResult(await del(`/api/v1/spaces/${e(spaceId)}/versions/${e(versionId)}`));
+      printResult(await api().delete(`/api/v1/spaces/${e(spaceId)}/versions/${e(versionId)}`));
     });
   for (const name of ["publish", "rollback"] as const) {
     version.command(name)
       .argument("<space-id>")
       .argument("<version-id>")
       .action(async (spaceId: string, versionId: string) => {
-        printResult(await post(`/api/v1/spaces/${e(spaceId)}/versions/${e(versionId)}/${name}`));
+        printResult(await api().post(`/api/v1/spaces/${e(spaceId)}/versions/${e(versionId)}/${name}`));
       });
   }
 }

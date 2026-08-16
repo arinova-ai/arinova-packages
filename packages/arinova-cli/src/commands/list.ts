@@ -1,6 +1,7 @@
 import { Command } from "commander";
-import { get, UnsupportedCommandError } from "../client.js";
+import { resolveClient, UnsupportedCommandError } from "../client.js";
 import { printResult, table } from "../output.js";
+import { addPaginationOptions, paginationQuery } from "../pagination.js";
 
 const VALID_TYPES = ["theme", "expert", "sticker", "lounge", "community", "space"] as const;
 type ListType = (typeof VALID_TYPES)[number];
@@ -74,11 +75,14 @@ const TYPE_MAP: Record<ListType, TypeConfig> = {
 };
 
 export function registerList(program: Command): void {
-  program
+  const list = addPaginationOptions(program
     .command("list")
     .description("List your creations by type")
-    .requiredOption("--type <type>", `Type: ${VALID_TYPES.join(", ")}`)
-    .action(async (opts: { type: string }) => {
+    .requiredOption("--type <type>", `Type: ${VALID_TYPES.join(", ")}`), {
+      mode: "offset",
+    });
+  list
+    .action(async (opts: { type: string; limit?: number; offset?: number }) => {
       const t = opts.type.toLowerCase() as ListType;
       if (!VALID_TYPES.includes(t)) {
         throw new Error(`Invalid type "${opts.type}". Must be one of: ${VALID_TYPES.join(", ")}`);
@@ -92,7 +96,9 @@ export function registerList(program: Command): void {
       if (!config.endpoint) {
         throw new UnsupportedCommandError(`No endpoint configured for ${t}.`);
       }
-      const data = await get(config.endpoint);
+      const data = await resolveClient(list).get(
+        `${config.endpoint}${paginationQuery(opts)}`,
+      );
       const items =
         (data as Record<string, unknown>)[config.extractKey] ??
         (data as Record<string, unknown>).agents ??

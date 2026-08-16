@@ -1,55 +1,76 @@
 import type { Command } from "commander";
-import { buildQuery, del, encodePathSegment, get, patch, post } from "../client.js";
-import { printResult } from "../output.js";
+import { encodePathSegment, resolveClient } from "../client.js";
 import { parseJsonOption } from "../json-options.js";
+import { printResult } from "../output.js";
+import { addPaginationOptions, paginationQuery } from "../pagination.js";
+import { registerResourceCommands } from "../resource-commands.js";
 import { registerVersionCommands } from "../version-commands.js";
 
 const e = encodePathSegment;
 
 export function registerFormCommands(program: Command): void {
-  const form = program.command("form").description("Form commands");
-  form.command("list").option("--include-archived").action(async (opts) => {
-    printResult(await get(`/api/v1/forms${buildQuery({ includeArchived: opts.includeArchived })}`));
+  const form = registerResourceCommands(program, {
+    name: "form",
+    description: "Form commands",
+    basePath: "/api/v1/forms",
+    list: {
+      configure(command) {
+        command.option("--include-archived");
+      },
+      query: (options) => ({ includeArchived: options.includeArchived }),
+    },
+    create: {
+      configure(command) {
+        command
+          .requiredOption("--title <title>")
+          .option("--description <text>")
+          .option("--settings <json>")
+          .option("--space-id <id>");
+      },
+      body: (options) => ({
+        title: options.title,
+        description: options.description,
+        settings: parseJsonOption(options.settings),
+        spaceId: options.spaceId,
+      }),
+    },
+    show: {},
+    update: {
+      configure(command) {
+        command
+          .option("--title <title>")
+          .option("--description <text>")
+          .option("--settings <json>")
+          .option("--cover-image-asset-id <id>")
+          .option("--clear-cover");
+      },
+      body: (options) => ({
+        title: options.title,
+        description: options.description,
+        settings: parseJsonOption(options.settings),
+        coverImageAssetId: options.clearCover ? null : options.coverImageAssetId,
+      }),
+    },
+    delete: {},
+    actions: [
+      { name: "publish" },
+      { name: "close" },
+      { name: "archive" },
+      { name: "unarchive" },
+    ],
   });
-  form.command("create")
-    .requiredOption("--title <title>")
-    .option("--description <text>")
-    .option("--settings <json>")
-    .option("--space-id <id>")
-    .action(async (opts) => printResult(await post("/api/v1/forms", {
-      title: opts.title, description: opts.description, settings: parseJsonOption(opts.settings), spaceId: opts.spaceId,
-    })));
-  form.command("show").argument("<id>").action(async (id: string) => {
-    printResult(await get(`/api/v1/forms/${e(id)}`));
-  });
-  form.command("update")
-    .argument("<id>")
-    .option("--title <title>")
-    .option("--description <text>")
-    .option("--settings <json>")
-    .option("--cover-image-asset-id <id>")
-    .option("--clear-cover")
-    .action(async (id: string, opts) => printResult(await patch(`/api/v1/forms/${e(id)}`, {
-      title: opts.title,
-      description: opts.description,
-      settings: parseJsonOption(opts.settings),
-      coverImageAssetId: opts.clearCover ? null : opts.coverImageAssetId,
-    })));
-  form.command("delete").argument("<id>").action(async (id: string) => {
-    printResult(await del(`/api/v1/forms/${e(id)}`));
-  });
-  for (const name of ["publish", "close", "archive", "unarchive"] as const) {
-    form.command(name).argument("<id>").action(async (id: string) => {
-      printResult(await post(`/api/v1/forms/${e(id)}/${name}`));
-    });
-  }
+
   form.command("responses").argument("<id>").action(async (id: string) => {
-    printResult(await get(`/api/v1/forms/${e(id)}/responses`));
+    printResult(await resolveClient(form).get(`/api/v1/forms/${e(id)}/responses`));
   });
 
   const field = form.command("field").description("Form fields");
-  field.command("list").argument("<form-id>").action(async (formId: string) => {
-    printResult(await get(`/api/v1/forms/${e(formId)}/fields`));
+  addPaginationOptions(field.command("list").argument("<form-id>"), {
+    mode: "offset",
+  }).action(async (formId: string, options) => {
+    printResult(await resolveClient(form).get(
+      `/api/v1/forms/${e(formId)}/fields${paginationQuery(options)}`,
+    ));
   });
   field.command("add")
     .argument("<form-id>")
@@ -61,16 +82,19 @@ export function registerFormCommands(program: Command): void {
     .option("--validation <json>")
     .option("--sort-key <key>")
     .option("--image-asset-id <id>")
-    .action(async (formId: string, opts) => printResult(await post(`/api/v1/forms/${e(formId)}/fields`, {
-      fieldType: opts.type,
-      label: opts.label,
-      helpText: opts.helpText,
-      required: opts.required,
-      options: parseJsonOption(opts.options),
-      validation: parseJsonOption(opts.validation),
-      sortKey: opts.sortKey,
-      imageAssetId: opts.imageAssetId,
-    })));
+    .action(async (formId: string, options) => printResult(await resolveClient(form).post(
+      `/api/v1/forms/${e(formId)}/fields`,
+      {
+        fieldType: options.type,
+        label: options.label,
+        helpText: options.helpText,
+        required: options.required,
+        options: parseJsonOption(options.options),
+        validation: parseJsonOption(options.validation),
+        sortKey: options.sortKey,
+        imageAssetId: options.imageAssetId,
+      },
+    )));
 
   registerVersionCommands(form, {
     description: "Form versions",

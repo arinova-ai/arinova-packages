@@ -83,6 +83,7 @@ interface RuntimeDefaults {
 }
 
 let runtimeDefaults: RuntimeDefaults = {};
+let commandClients = new WeakMap<Command, ApiClient>();
 
 export function configureClientDefaults(defaults: RuntimeDefaults): void {
   runtimeDefaults = {
@@ -92,10 +93,12 @@ export function configureClientDefaults(defaults: RuntimeDefaults): void {
     token: defaults.token,
     profileName: defaults.profileName,
   };
+  commandClients = new WeakMap();
 }
 
 export function resetClientDefaults(): void {
   runtimeDefaults = {};
+  commandClients = new WeakMap();
 }
 
 export function encodePathSegment(value: string): string {
@@ -396,36 +399,54 @@ export function resolveClient(commandOrApiKey?: Command | string): ApiClient {
   const resolved = token
     ? { apiKey: token, profileName: profile }
     : resolveApiKey({ profile });
-  return new ApiClient({
-    endpoint: normalizeApiEndpoint(
-      commandOptions?.apiUrl ?? runtimeDefaults.endpoint ?? getEndpoint(),
-      commandOptions?.apiUrl ? "--api-url" : "API endpoint",
-    ),
+  const endpoint = normalizeApiEndpoint(
+    commandOptions?.apiUrl ?? runtimeDefaults.endpoint ?? getEndpoint(),
+    commandOptions?.apiUrl ? "--api-url" : "API endpoint",
+  );
+  const cached = command ? commandClients.get(command) : undefined;
+  if (
+    cached
+    && cached.endpoint === endpoint
+    && cached.token === resolved.apiKey
+    && cached.profileName === resolved.profileName
+  ) {
+    return cached;
+  }
+  const client = new ApiClient({
+    endpoint,
     token: resolved.apiKey,
     profileName: resolved.profileName,
   });
+  if (command) commandClients.set(command, client);
+  return client;
 }
 
+/** @deprecated Resolve a command-scoped `ApiClient` and call `.get()` instead. */
 export async function get(path: string, apiKey?: string): Promise<unknown> {
   return resolveClient(apiKey).get(path);
 }
 
+/** @deprecated Resolve a command-scoped `ApiClient` and call `.post()` instead. */
 export async function post(path: string, body?: unknown, apiKey?: string): Promise<unknown> {
   return resolveClient(apiKey).post(path, body);
 }
 
+/** @deprecated Resolve a command-scoped `ApiClient` and call `.patch()` instead. */
 export async function patch(path: string, body?: unknown, apiKey?: string): Promise<unknown> {
   return resolveClient(apiKey).patch(path, body);
 }
 
+/** @deprecated Resolve a command-scoped `ApiClient` and call `.put()` instead. */
 export async function put(path: string, body?: unknown, apiKey?: string): Promise<unknown> {
   return resolveClient(apiKey).put(path, body);
 }
 
+/** @deprecated Resolve a command-scoped `ApiClient` and call `.delete()` instead. */
 export async function del(path: string, apiKey?: string): Promise<unknown> {
   return resolveClient(apiKey).delete(path);
 }
 
+/** @deprecated Resolve a command-scoped `ApiClient` and call `.upload()` instead. */
 export async function upload(
   path: string,
   filePath: string,
@@ -437,6 +458,7 @@ export async function upload(
   return resolveClient(apiKey).upload(path, form);
 }
 
+/** @deprecated Resolve a command-scoped `ApiClient` and call `.upload()` instead. */
 export async function uploadMultipart(
   path: string,
   fields: Record<string, string | Blob>,
@@ -448,6 +470,7 @@ export async function uploadMultipart(
   return resolveClient(apiKey).upload(path, form, method);
 }
 
+/** @deprecated Resolve a command-scoped `ApiClient` and call `.download()` instead. */
 export async function download(
   path: string,
   outputPath: string,

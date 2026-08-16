@@ -1,71 +1,53 @@
 import type { Command } from "commander";
 import { encodePathSegment, resolveClient } from "../client.js";
 import { printResult } from "../output.js";
+import { addPaginationOptions, paginationQuery } from "../pagination.js";
+import { registerResourceCommands } from "../resource-commands.js";
+
+const optionId = {
+  kind: "option" as const,
+  flags: "--id <id>",
+  key: "id",
+  description: "Notebook ID",
+};
 
 export function registerNotebookCommands(program: Command): void {
-  const notebook = program.command("notebook").description("Notebook management");
-
-  notebook.command("list").description("List all notebooks").action(async () => {
-    printResult(await resolveClient(notebook).get("/api/v1/notebooks"));
+  const notebook = registerResourceCommands(program, {
+    name: "notebook",
+    description: "Notebook management",
+    basePath: "/api/v1/notebooks",
+    identifier: optionId,
+    list: { description: "List all notebooks" },
+    create: {
+      description: "Create a new notebook",
+      configure(command) {
+        command.requiredOption("--name <name>", "Notebook name");
+      },
+      body: (options) => ({ name: options.name }),
+    },
+    show: {
+      identifier: { kind: "argument", syntax: "<id>" },
+    },
+    update: {
+      name: "rename",
+      description: "Rename a notebook",
+      configure(command) {
+        command.requiredOption("--name <name>", "New name");
+      },
+      body: (options) => ({ name: options.name }),
+    },
+    delete: { description: "Delete an archived notebook" },
+    actions: [
+      { name: "archive", description: "Archive a notebook" },
+      { name: "unarchive" },
+    ],
   });
 
-  notebook.command("create")
-    .description("Create a new notebook")
-    .requiredOption("--name <name>", "Notebook name")
-    .action(async (opts: { name: string }) => {
-      printResult(await resolveClient(notebook).post("/api/v1/notebooks", { name: opts.name }));
-    });
-
-  notebook.command("rename")
-    .description("Rename a notebook")
-    .requiredOption("--id <id>", "Notebook ID")
-    .requiredOption("--name <name>", "New name")
-    .action(async (opts: { id: string; name: string }) => {
-      printResult(await resolveClient(notebook).patch(
-        `/api/v1/notebooks/${encodePathSegment(opts.id)}`,
-        { name: opts.name },
-      ));
-    });
-
-  notebook.command("archive")
-    .description("Archive a notebook")
-    .requiredOption("--id <id>", "Notebook ID")
-    .action(async (opts: { id: string }) => {
-      printResult(await resolveClient(notebook).post(
-        `/api/v1/notebooks/${encodePathSegment(opts.id)}/archive`,
-      ));
-    });
-
-  notebook.command("delete")
-    .description("Delete an archived notebook")
-    .requiredOption("--id <id>", "Notebook ID")
-    .action(async (opts: { id: string }) => {
-      printResult(await resolveClient(notebook).delete(
-        `/api/v1/notebooks/${encodePathSegment(opts.id)}`,
-      ));
-    });
-
-  notebook.command("show")
-    .argument("<id>", "Notebook ID")
-    .action(async (id: string) => {
-      printResult(await resolveClient(notebook).get(
-        `/api/v1/notebooks/${encodePathSegment(id)}`,
-      ));
-    });
-
-  notebook.command("notes")
-    .argument("<id>", "Notebook ID")
-    .action(async (id: string) => {
-      printResult(await resolveClient(notebook).get(
-        `/api/v1/notebooks/${encodePathSegment(id)}/notes`,
-      ));
-    });
-
-  notebook.command("unarchive")
-    .requiredOption("--id <id>", "Notebook ID")
-    .action(async (opts) => {
-      printResult(await resolveClient(notebook).post(
-        `/api/v1/notebooks/${encodePathSegment(opts.id)}/unarchive`,
-      ));
-    });
+  addPaginationOptions(notebook.command("notes").argument("<id>"), {
+    mode: "offset",
+  }).action(async (id: string, options) => {
+    printResult(await resolveClient(notebook).get(
+      `/api/v1/notebooks/${encodePathSegment(id)}/notes${paginationQuery(options)}`,
+    ));
+  });
 }

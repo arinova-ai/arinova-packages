@@ -1,11 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
-import { collectAllPages, paginationQuery } from "./pagination.js";
+import { collectAllPages, paginationQuery, paginationValues } from "./pagination.js";
 
 describe("pagination", () => {
   it("uses one shared query encoder", () => {
     expect(paginationQuery({ limit: 20, offset: 4, cursor: "a/b" })).toBe(
       "?limit=20&offset=4&cursor=a%2Fb",
     );
+  });
+
+  it("applies the bounded default limit when callers omit one", () => {
+    expect(paginationQuery({})).toBe("?limit=50");
+    expect(paginationValues({ cursor: "next" })).toEqual({
+      limit: 50,
+      offset: undefined,
+      cursor: "next",
+    });
   });
 
   it("collects multiple pages and stops on an empty page", async () => {

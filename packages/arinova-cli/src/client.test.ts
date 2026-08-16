@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Command } from "commander";
 import {
   ApiClient,
   ApiError,
@@ -11,6 +12,7 @@ import {
   encodePathSegment,
   get,
   post,
+  resolveClient,
   resetClientDefaults,
   ResponseBodyTooLargeError,
   uploadMultipart,
@@ -42,6 +44,13 @@ afterEach(() => {
 });
 
 describe("CLI client", () => {
+  it("reuses one configured client per command", () => {
+    configureClientDefaults({ endpoint: "https://api.example.test", token: "ari_cached" });
+    const command = new Command("list");
+
+    expect(resolveClient(command)).toBe(resolveClient(command));
+  });
+
   it("GET uses configured endpoint and bearer auth header", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), { status: 200 }),

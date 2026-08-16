@@ -5,8 +5,9 @@ import { printResult } from "../output.js";
 import {
   collectAllPages,
   DEFAULT_PAGE_LIMIT,
+  addPaginationOptions,
   pageLimit,
-  parseCount,
+  paginationQuery,
 } from "../pagination.js";
 
 const e = encodePathSegment;
@@ -71,12 +72,12 @@ export function registerKanbanCommands(program: Command): void {
   });
 
   const card = kanban.command("card").description("Card management");
-  card.command("list")
+  addPaginationOptions(card.command("list")
     .description("List cards using the server-side search filter.")
-    .option("--search <query>", "Server-side card search query")
-    .option("--limit <n>", "Max cards to return (default 50, max 100)", parseCount)
-    .option("--offset <n>", "Skip first N cards (pagination)", parseCount)
-    .option("--all", "Fetch all matching cards (paginates internally)")
+    .option("--search <query>", "Server-side card search query"), {
+      mode: "offset",
+      allowAll: true,
+    })
     .action(async (opts: { search?: string; limit?: number; offset?: number; all?: boolean }) => {
       const client = resolveClient(card);
       const searchTrimmed = opts.search?.trim();
@@ -160,12 +161,11 @@ export function registerKanbanCommands(program: Command): void {
     printResult(await resolveClient(card).get(`/api/v1/kanban/cards/${e(opts.cardId)}/commits`));
   });
   const comment = card.command("comment").description("Card comments");
-  comment.command("list").requiredOption("--card-id <id>", "Card ID").option("--limit <n>", "Maximum results", parseCount).option("--offset <n>", "Results to skip", parseCount).action(async (opts: { cardId: string; limit?: number; offset?: number }) => {
-    const query = new URLSearchParams();
-    if (opts.limit !== undefined) query.set("limit", String(opts.limit));
-    if (opts.offset !== undefined) query.set("offset", String(opts.offset));
+  addPaginationOptions(comment.command("list").requiredOption("--card-id <id>", "Card ID"), {
+    mode: "offset",
+  }).action(async (opts: { cardId: string; limit?: number; offset?: number }) => {
     printResult(await resolveClient(comment).get(
-      `/api/v1/kanban/cards/${e(opts.cardId)}/comments${query.size ? `?${query}` : ""}`,
+      `/api/v1/kanban/cards/${e(opts.cardId)}/comments${paginationQuery(opts)}`,
     ));
   });
   comment.command("add").requiredOption("--card-id <id>", "Card ID").requiredOption("--content <text>", "Comment content").action(async (opts: { cardId: string; content: string }) => {

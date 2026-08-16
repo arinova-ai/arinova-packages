@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { ApiError, buildQuery, get, post, resolveClient } from "../client.js";
+import { ApiError, buildQuery, resolveClient } from "../client.js";
 import { printResult } from "../output.js";
 import { renderSseStream } from "../sse.js";
 import {
@@ -32,16 +32,20 @@ export function registerEconomyChatCommands(program: Command): void {
   const economy = program.command("economy")
     .description("User-authorized economy commands (requires OAuth economy scope)");
   economy.command("balance").action(async () => {
-    printResult(await get("/api/v1/economy/balance"));
+    printResult(await resolveClient(economy).get("/api/v1/economy/balance"));
   });
-  addPaginationOptions(economy.command("transactions"))
+  addPaginationOptions(economy.command("transactions"), {
+    mode: "offset",
+    allowAll: true,
+  })
     .action(async (opts) => {
+      const client = resolveClient(economy);
       if (opts.limit === 0) {
         printResult([]);
         return;
       }
       if (!opts.all) {
-        printResult(await get(`/api/v1/economy/transactions${paginationQuery({
+        printResult(await client.get(`/api/v1/economy/transactions${paginationQuery({
           ...opts,
           limit: pageLimit(opts.limit, DEFAULT_PAGE_LIMIT),
         })}`));
@@ -49,7 +53,7 @@ export function registerEconomyChatCommands(program: Command): void {
       }
       const pageSize = pageLimit(opts.limit, 100);
       const transactions = await collectAllPages(opts.offset ?? 0, async (offset) => {
-        const response = await get(`/api/v1/economy/transactions${paginationQuery({ limit: pageSize, offset })}`);
+        const response = await client.get(`/api/v1/economy/transactions${paginationQuery({ limit: pageSize, offset })}`);
         const items = Array.isArray(response)
           ? response
           : ((response as { transactions?: unknown[] }).transactions ?? []);
@@ -75,7 +79,7 @@ export function registerEconomyChatCommands(program: Command): void {
       if (!Number.isInteger(amount) || amount <= 0 || amount > 100_000) {
         throw new Error("--amount must be an integer from 1 to 100000");
       }
-      printResult(await post("/api/v1/economy/purchase", {
+      printResult(await resolveClient(economy).post("/api/v1/economy/purchase", {
         spaceId: opts.spaceId,
         productId: opts.productId,
         amount,
@@ -93,7 +97,7 @@ export function registerEconomyChatCommands(program: Command): void {
     .option("--messages <json>")
     .option("--context <json>")
     .action(async (opts) => {
-      printResult(await post("/api/v1/agent/chat", chatBody(opts)));
+      printResult(await resolveClient(chat).post("/api/v1/agent/chat", chatBody(opts)));
     });
   chat.command("stream")
     .requiredOption("--agent-id <id>")
