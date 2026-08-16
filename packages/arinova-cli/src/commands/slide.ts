@@ -8,7 +8,6 @@ import {
   post,
   put,
   resolveClient,
-  UnsupportedCommandError,
 } from "../client.js";
 import { printResult } from "../output.js";
 import { parseJsonArray, parseJsonOption } from "../json-options.js";
@@ -119,13 +118,6 @@ export function registerSlideCommands(program: Command): void {
       const agents = parseJsonArray(opts.agents, "--agents");
       printResult(await put(`/api/v1/slides/decks/${e(id)}/agent-permissions`, { agents }));
     });
-
-  const member = slide.command("member").description("Not available in the current v1 router");
-  for (const name of ["list", "add", "update", "remove"] as const) {
-    member.command(name).action(() => {
-      throw new UnsupportedCommandError("Slide deck member routes are not exposed by /api/v1");
-    });
-  }
 
   const exportCmd = slide.command("export");
   exportCmd.command("start").argument("<deck-id>")

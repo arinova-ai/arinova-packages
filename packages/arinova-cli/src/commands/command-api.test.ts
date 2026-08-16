@@ -5,7 +5,6 @@ import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  apiCall: vi.fn(),
   clientUpload: vi.fn(),
   clientDelete: vi.fn(),
   clientDownload: vi.fn(),
@@ -15,14 +14,8 @@ const mocks = vi.hoisted(() => ({
   clientPut: vi.fn(),
   clientRequest: vi.fn(),
   clientStream: vi.fn(),
-  getOpts: vi.fn(() => ({
-    token: "ari_cli_token",
-    apiUrl: "https://api.example.test",
-    profileName: "default",
-  })),
   del: vi.fn(),
   get: vi.fn(),
-  output: vi.fn(),
   patch: vi.fn(),
   post: vi.fn(),
   put: vi.fn(),
@@ -37,12 +30,6 @@ const mocks = vi.hoisted(() => ({
   }> => []),
   getProfile: vi.fn(),
   removeProfile: vi.fn(),
-}));
-
-vi.mock("../api.js", () => ({
-  apiCall: mocks.apiCall,
-  getOpts: mocks.getOpts,
-  output: mocks.output,
 }));
 
 vi.mock("../client.js", () => ({
@@ -143,7 +130,7 @@ const { registerNoteCommands } = await import("./note.js");
 const { registerNotebookCommands } = await import("./notebook.js");
 const { registerPainterCommands } = await import("./painter.js");
 const { registerTheme } = await import("./theme.js");
-const { registerMemoCommands, registerWikiCommands } = await import("./wiki.js");
+const { registerMemoCommands } = await import("./wiki.js");
 const { registerUserCommands } = await import("./user.js");
 const { registerSearchCommands } = await import("./search.js");
 const { registerResolveCommands } = await import("./resolve.js");
@@ -179,7 +166,6 @@ function createProgram(register: (program: Command) => void) {
 describe("CLI command API request shapes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.apiCall.mockResolvedValue([]);
     mocks.clientUpload.mockResolvedValue({ fileId: "file-1" });
     mocks.clientDelete.mockResolvedValue({ ok: true });
     mocks.clientDownload.mockResolvedValue(undefined);
@@ -207,30 +193,25 @@ describe("CLI command API request shapes", () => {
 
     await program.parseAsync(["node", "arinova", "kanban", "board", "create", "--name", "Roadmap"]);
 
-    expect(mocks.apiCall).toHaveBeenCalledWith({
-      method: "POST",
-      url: "https://api.example.test/api/v1/kanban/boards",
-      token: "ari_cli_token",
-      body: { name: "Roadmap" },
-    });
-    expect(mocks.output).toHaveBeenCalledWith([]);
+    expect(mocks.clientPost).toHaveBeenCalledWith(
+      "/api/v1/kanban/boards",
+      { name: "Roadmap" },
+    );
   });
 
   it("kanban card list sends hex-looking text as a bounded server query", async () => {
-    mocks.apiCall.mockResolvedValueOnce([
+    mocks.clientGet.mockResolvedValueOnce([
       { id: "abcd1234", title: "First", description: "" },
     ]);
     const program = createProgram(registerKanbanCommands);
 
     await program.parseAsync(["node", "arinova", "kanban", "card", "list", "--search", "abcd"]);
 
-    expect(mocks.apiCall).toHaveBeenCalledWith(expect.objectContaining({
-      method: "GET",
-      url: "https://api.example.test/api/v1/kanban/cards?search=abcd&limit=50&offset=0",
-      token: "ari_cli_token",
-    }));
-    expect(mocks.apiCall).toHaveBeenCalledTimes(1);
-    expect(mocks.output).toHaveBeenCalledWith([
+    expect(mocks.clientGet).toHaveBeenCalledWith(
+      "/api/v1/kanban/cards?search=abcd&limit=50&offset=0",
+    );
+    expect(mocks.clientGet).toHaveBeenCalledTimes(1);
+    expect(mocks.printResult).toHaveBeenCalledWith([
       { id: "abcd1234", title: "First", description: "" },
     ]);
   });
@@ -252,12 +233,10 @@ describe("CLI command API request shapes", () => {
       "#ef4444",
     ]);
 
-    expect(mocks.apiCall).toHaveBeenCalledWith({
-      method: "POST",
-      url: "https://api.example.test/api/v1/kanban/boards/board-1/labels",
-      token: "ari_cli_token",
-      body: { name: "Bug", color: "#ef4444" },
-    });
+    expect(mocks.clientPost).toHaveBeenCalledWith(
+      "/api/v1/kanban/boards/board-1/labels",
+      { name: "Bug", color: "#ef4444" },
+    );
   });
 
   it("painter create parses price amount and sends album request body", async () => {
@@ -280,22 +259,20 @@ describe("CLI command API request shapes", () => {
       "12",
     ]);
 
-    expect(mocks.apiCall).toHaveBeenCalledWith({
-      method: "POST",
-      url: "https://api.example.test/api/painter/albums",
-      token: "ari_cli_token",
-      body: {
+    expect(mocks.clientPost).toHaveBeenCalledWith(
+      "/api/painter/albums",
+      {
         name: "Watercolor",
         description: "Soft style",
         category: "watercolor",
         priceType: "credits",
         priceAmount: 12,
       },
-    });
+    );
   });
 
   it("painter stats formats album statistics output", async () => {
-    mocks.apiCall.mockResolvedValueOnce({
+    mocks.clientGet.mockResolvedValueOnce({
       name: "Watercolor",
       generationCount: 3,
       ratingAvg: 4.5,
@@ -308,7 +285,7 @@ describe("CLI command API request shapes", () => {
 
     await program.parseAsync(["node", "arinova", "painter", "stats", "--id", "album-1"]);
 
-    expect(mocks.output).toHaveBeenCalledWith({
+    expect(mocks.printResult).toHaveBeenCalledWith({
       name: "Watercolor",
       generationCount: 3,
       ratingAvg: 4.5,
@@ -335,18 +312,22 @@ describe("CLI command API request shapes", () => {
     expect(mocks.post).not.toHaveBeenCalled();
   });
 
-  it("community add-agent uses camelCase and lounge unpublish fails fast", async () => {
+  it("community add-agent uses camelCase and omits the unsupported lounge surface", async () => {
     const program = createProgram(registerCommunity);
 
     await program.parseAsync(["node", "arinova", "community", "add-agent", "community-1", "agent-1"]);
-    await expect(program.parseAsync([
-      "node", "arinova", "lounge", "unpublish", "lounge-1",
-    ])).rejects.toMatchObject({ code: "UNSUPPORTED_COMMAND" });
 
     expect(mocks.post).toHaveBeenCalledWith("/api/v1/communities/community-1/agents", {
       agentId: "agent-1",
     });
     expect(mocks.put).not.toHaveBeenCalled();
+    expect(program.commands.map((command) => command.name())).not.toContain("lounge");
+  });
+
+  it("omits unsupported slide member commands", () => {
+    const program = createProgram(registerSlideCommands);
+    const slide = program.commands.find((command) => command.name() === "slide");
+    expect(slide?.commands.map((command) => command.name())).not.toContain("member");
   });
 
   it("community list/show/update use the current v1 routes and PUT update", async () => {
@@ -375,11 +356,8 @@ describe("CLI command API request shapes", () => {
     );
   });
 
-  it("memo is canonical and wiki is a warning-only alias to memo routes", async () => {
-    const program = createProgram((root) => {
-      registerMemoCommands(root);
-      registerWikiCommands(root);
-    });
+  it("registers only the canonical memo surface", async () => {
+    const program = createProgram(registerMemoCommands);
 
     await program.parseAsync([
       "node",
@@ -391,27 +369,13 @@ describe("CLI command API request shapes", () => {
       "--title",
       "Plan",
     ]);
-    await program.parseAsync(["node", "arinova", "wiki", "list"]);
-
-    expect(mocks.apiCall).toHaveBeenNthCalledWith(1, {
-      method: "POST",
-      url: "https://api.example.test/api/v1/memo",
-      token: "ari_cli_token",
-      body: {
-        conversationId: "conv-1",
-        title: "Plan",
-        content: "",
-        tags: [],
-      },
+    expect(mocks.clientPost).toHaveBeenCalledWith("/api/v1/memo", {
+      conversationId: "conv-1",
+      title: "Plan",
+      content: "",
+      tags: [],
     });
-    expect(mocks.apiCall).toHaveBeenNthCalledWith(2, {
-      method: "GET",
-      url: "https://api.example.test/api/v1/memo",
-      token: "ari_cli_token",
-    });
-    expect(mocks.printWarning).toHaveBeenCalledWith(
-      "'arinova wiki' is deprecated; use 'arinova memo'.",
-    );
+    expect(program.commands.map((command) => command.name())).toEqual(["memo"]);
   });
 
   it("conversation create uses agent-scoped v1 route and required type", async () => {
@@ -428,12 +392,10 @@ describe("CLI command API request shapes", () => {
       "alert",
     ]);
 
-    expect(mocks.apiCall).toHaveBeenCalledWith({
-      method: "POST",
-      url: "https://api.example.test/api/v1/agents/agent%2F1/conversations",
-      token: "ari_cli_token",
-      body: { type: "alert" },
-    });
+    expect(mocks.clientPost).toHaveBeenCalledWith(
+      "/api/v1/agents/agent%2F1/conversations",
+      { type: "alert" },
+    );
   });
 
   it("user commands call the OAuth v1 profile and agents routes", async () => {
@@ -442,16 +404,8 @@ describe("CLI command API request shapes", () => {
     await program.parseAsync(["node", "arinova", "user", "profile"]);
     await program.parseAsync(["node", "arinova", "user", "agents"]);
 
-    expect(mocks.apiCall).toHaveBeenNthCalledWith(1, {
-      method: "GET",
-      url: "https://api.example.test/api/v1/user/profile",
-      token: "ari_cli_token",
-    });
-    expect(mocks.apiCall).toHaveBeenNthCalledWith(2, {
-      method: "GET",
-      url: "https://api.example.test/api/v1/user/agents",
-      token: "ari_cli_token",
-    });
+    expect(mocks.clientGet).toHaveBeenNthCalledWith(1, "/api/v1/user/profile");
+    expect(mocks.clientGet).toHaveBeenNthCalledWith(2, "/api/v1/user/agents");
   });
 
   it("theme upload sends manifest and bundle as multipart fields", async () => {
@@ -565,7 +519,7 @@ describe("CLI command API request shapes", () => {
     const uploaded = form.get("file") as File;
     expect(uploaded.name).toBe("note.txt");
     expect(uploaded.size).toBe(5);
-    expect(mocks.output).toHaveBeenCalledWith({ fileId: "file-1" });
+    expect(mocks.printResult).toHaveBeenCalledWith({ fileId: "file-1" });
   });
 
   it("message search and feedback use encoded v1 routes and contract bodies", async () => {
@@ -574,22 +528,18 @@ describe("CLI command API request shapes", () => {
     await program.parseAsync(["node", "arinova", "message", "feedback", "get", "--message-id", "msg/a"]);
     await program.parseAsync(["node", "arinova", "message", "feedback", "set", "--message-id", "msg/a", "--rating", "down"]);
 
-    expect(mocks.apiCall).toHaveBeenNthCalledWith(1, {
-      method: "GET",
-      url: "https://api.example.test/api/v1/messages/search?q=hello&conversationId=conv%2Fa&limit=5",
-      token: "ari_cli_token",
-    });
-    expect(mocks.apiCall).toHaveBeenNthCalledWith(2, {
-      method: "GET",
-      url: "https://api.example.test/api/v1/messages/msg%2Fa/feedback",
-      token: "ari_cli_token",
-    });
-    expect(mocks.apiCall).toHaveBeenNthCalledWith(3, {
-      method: "POST",
-      url: "https://api.example.test/api/v1/messages/msg%2Fa/feedback",
-      token: "ari_cli_token",
-      body: { helpful: false },
-    });
+    expect(mocks.clientGet).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/messages/search?q=hello&conversationId=conv%2Fa&limit=5",
+    );
+    expect(mocks.clientGet).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/messages/msg%2Fa/feedback",
+    );
+    expect(mocks.clientPost).toHaveBeenCalledWith(
+      "/api/v1/messages/msg%2Fa/feedback",
+      { helpful: false },
+    );
   });
 
   it("memory CRUD uses server casing and import lifecycle uses official paths", async () => {
@@ -625,36 +575,41 @@ describe("CLI command API request shapes", () => {
     await program.parseAsync(["node", "arinova", "notebook", "archive", "--id", "book/a"]);
     await program.parseAsync(["node", "arinova", "notebook", "unarchive", "--id", "book/a"]);
 
-    expect(mocks.apiCall).toHaveBeenNthCalledWith(1, {
-      method: "POST", url: "https://api.example.test/api/v1/notes/note%2Fa/thread",
-      token: "ari_cli_token", body: { content: "reply" },
-    });
-    expect(mocks.apiCall).toHaveBeenNthCalledWith(2, {
-      method: "POST", url: "https://api.example.test/api/v1/notebooks/book%2Fa/archive",
-      token: "ari_cli_token",
-    });
-    expect(mocks.apiCall).toHaveBeenNthCalledWith(3, {
-      method: "POST", url: "https://api.example.test/api/v1/notebooks/book%2Fa/unarchive",
-      token: "ari_cli_token",
-    });
+    expect(mocks.clientPost).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/notes/note%2Fa/thread",
+      { content: "reply" },
+    );
+    expect(mocks.clientPost).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/notebooks/book%2Fa/archive",
+    );
+    expect(mocks.clientPost).toHaveBeenNthCalledWith(
+      3,
+      "/api/v1/notebooks/book%2Fa/unarchive",
+    );
   });
 
-  it("kanban additions use contract routes and archive fails before any request", async () => {
+  it("kanban additions use contract routes and omit unsupported card actions", async () => {
     const program = createProgram(registerKanbanCommands);
     await program.parseAsync(["node", "arinova", "kanban", "board", "unarchive", "--board-id", "board/a"]);
     await program.parseAsync(["node", "arinova", "kanban", "card", "bulk-move", "--moves", '[{"cardId":"c1","toColumnId":"col1"}]']);
-    expect(mocks.apiCall).toHaveBeenNthCalledWith(1, {
-      method: "POST", url: "https://api.example.test/api/v1/kanban/boards/board%2Fa/unarchive",
-      token: "ari_cli_token",
-    });
-    expect(mocks.apiCall).toHaveBeenNthCalledWith(2, {
-      method: "POST", url: "https://api.example.test/api/v1/kanban/cards/bulk-move",
-      token: "ari_cli_token", body: { moves: [{ cardId: "c1", toColumnId: "col1" }] },
-    });
-    const calls = mocks.apiCall.mock.calls.length;
-    await expect(program.parseAsync(["node", "arinova", "kanban", "card", "archive", "--card-id", "c1"]))
-      .rejects.toMatchObject({ code: "UNSUPPORTED_COMMAND" });
-    expect(mocks.apiCall).toHaveBeenCalledTimes(calls);
+    expect(mocks.clientPost).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/kanban/boards/board%2Fa/unarchive",
+    );
+    expect(mocks.clientPost).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/kanban/cards/bulk-move",
+      { moves: [{ cardId: "c1", toColumnId: "col1" }] },
+    );
+    const card = program.commands
+      .find((command) => command.name() === "kanban")?.commands
+      .find((command) => command.name() === "card");
+    expect(card?.commands.map((command) => command.name())).not.toContain("archive");
+    expect(card?.commands.map((command) => command.name())).not.toContain("unarchive");
+    const cardLabel = card?.commands.find((command) => command.name() === "label");
+    expect(cardLabel?.commands.map((command) => command.name())).not.toContain("list");
   });
 
   it("file center, content search, and resolve commands preserve request contracts", async () => {
@@ -717,17 +672,15 @@ describe("CLI command API request shapes", () => {
       "--id", "agent/a", "--tool-name", "read_file", "--request-id", "req-1",
       "--arguments", '{"path":"README.md"}',
     ]);
-    expect(mocks.apiCall).toHaveBeenCalledWith({
-      method: "POST",
-      url: "https://api.example.test/api/v1/agents/agent%2Fa/skill-package-resources/query",
-      token: "ari_cli_token",
-      body: {
+    expect(mocks.clientPost).toHaveBeenCalledWith(
+      "/api/v1/agents/agent%2Fa/skill-package-resources/query",
+      {
         toolName: "read_file",
         requestId: "req-1",
         arguments: { path: "README.md" },
         conversationId: undefined,
       },
-    });
+    );
   });
 
   it("space generic/owned, storage, and version routes remain distinct", async () => {
@@ -1096,6 +1049,5 @@ describe("CLI command API request shapes", () => {
       "node", "arinova", "auto-send", "list", "--conversation-id", "conv-1",
     ])).rejects.toMatchObject({ code: "UNSUPPORTED_COMMAND" });
     expect(mocks.get).not.toHaveBeenCalled();
-    expect(mocks.apiCall).not.toHaveBeenCalled();
   });
 });

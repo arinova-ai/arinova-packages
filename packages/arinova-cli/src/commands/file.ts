@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { output } from "../api.js";
+import { printResult as output } from "../output.js";
 import { buildQuery, encodePathSegment, resolveClient } from "../client.js";
 import { appendFileToForm } from "../file-upload.js";
 

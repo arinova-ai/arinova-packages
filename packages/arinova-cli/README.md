@@ -13,10 +13,15 @@ arinova --profile my-agent auth set-token ari_xxx
 arinova --profile my-agent auth whoami
 ```
 
-Global options are `--profile`, `--token`, `--api-url`, `--json`, and `--yes`.
-Precedence is an explicit `--token`, the selected `--profile`, then the active
-profile. `--token` is runtime-only and is never persisted. Side-effect commands
-fail closed in a non-interactive process unless `--yes` is supplied.
+Global options are `--profile`, deprecated `--token`, `--api-url`, `--json`, and
+`--yes`. Prefer a named profile: command-line tokens are visible to other local
+processes through the process list. An explicit `--token` still has precedence
+over the selected profile for compatibility and is never persisted. Side-effect
+commands fail closed in a non-interactive process unless `--yes` is supplied.
+
+`ARINOVA_ENDPOINT`, configured endpoints, and `--api-url` must be absolute HTTPS
+URLs; plain HTTP is accepted only for exact loopback hosts during local
+development.
 
 Identity support is machine-readable in
 [`src/contracts/command-auth.json`](src/contracts/command-auth.json). Economy
@@ -64,11 +69,11 @@ arinova completion zsh > ~/.zfunc/_arinova
 - Economy `award` and `charge`, inbound webhook receivers, HUD websocket,
   analytics tracking, and moderation health are intentionally not exposed.
 - `auto-send` and `expert` fail before issuing known-invalid requests.
-- `wiki` remains a deprecated alias for `memo` for one minor release.
 - Painter and `setup-openclaw` remain explicit legacy compatibility surfaces
   because the server has no equivalent public `/api/v1` contract.
-- Card archive/unarchive, direct sticker publish/unpublish, and slide members
-  fail as unsupported where the pinned server contract has no safe route.
+- Card archive/unarchive, card-label listing, slide members, and lounge
+  unpublish are not exposed where the pinned server contract has no route.
+  Direct sticker publish/unpublish fails early for the same reason.
 
 ## Contract and release checks
 

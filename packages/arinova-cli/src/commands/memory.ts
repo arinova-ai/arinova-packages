@@ -1,8 +1,8 @@
 import type { Command } from "commander";
-import { getOpts, apiCall, output } from "../api.js";
 import { buildQuery, encodePathSegment, resolveClient } from "../client.js";
 import { appendFileToForm } from "../file-upload.js";
 import { parseJsonArray, parseJsonOption } from "../json-options.js";
+import { printResult as output } from "../output.js";
 import { parseCount } from "../pagination.js";
 
 type MemoryUpdateOptions = {
@@ -104,14 +104,11 @@ export function registerMemoryCommands(program: Command): void {
     .option("--agent <id>", "Agent ID")
     .option("--limit <n>", "Max results", parseCount, 10)
     .action(async (opts: { query: string; agent?: string; limit?: string }) => {
-      const { token, apiUrl } = getOpts(memory);
-      output(await apiCall({
-        method: "GET",
-        url: `${apiUrl}/api/v1/memories/search${buildQuery({
+      output(await clientFor(memory).get(
+        `/api/v1/memories/search${buildQuery({
           q: opts.query, agentId: opts.agent, limit: opts.limit,
         })}`,
-        token,
-      }));
+      ));
     });
 
   memory.command("cleanup")

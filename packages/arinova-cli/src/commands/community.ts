@@ -109,16 +109,4 @@ export function registerCommunity(program: Command): void {
       );
     });
 
-  // ── Lounge shortcut ──────────────────────────────────────────
-
-  const lounge = program.command("lounge").description("Lounge management");
-
-  lounge
-    .command("unpublish <id>")
-    .description("Unpublish a lounge")
-    .action(async (id: string) => {
-      throw new UnsupportedCommandError(
-        `Lounge ${id} cannot be unpublished through the current /api/v1 contract.`,
-      );
-    });
 }

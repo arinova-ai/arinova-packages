@@ -15,10 +15,10 @@ const expectedTopLevel = [
   "action", "agent", "app", "auth", "auto-send", "autopilot", "calendar",
   "chat", "community", "completion", "config", "conversation", "cron",
   "delivery", "doc", "economy", "expert", "external-image", "file", "form",
-  "image", "kanban", "list", "lounge", "memo", "memory", "message",
+  "image", "kanban", "list", "memo", "memory", "message",
   "mindmap", "note", "notebook", "painter", "profile", "resolve", "search",
   "setup-openclaw", "skill", "skill-package", "slide", "space", "stats",
-  "sticker", "theme", "trigger", "user", "webhook", "wiki", "workbook",
+  "sticker", "theme", "trigger", "user", "webhook", "workbook",
   "workflow",
 ];
 

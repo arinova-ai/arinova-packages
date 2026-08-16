@@ -1,16 +1,15 @@
 import type { Command } from "commander";
-import { apiCall, getOpts, output } from "../api.js";
+import { resolveClient } from "../client.js";
+import { printResult } from "../output.js";
 
 export function registerUserCommands(program: Command): void {
   const user = program.command("user").description("Current user resources");
 
   user.command("profile").description("Show the current user profile").action(async () => {
-    const { token, apiUrl } = getOpts(user);
-    output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/user/profile`, token }));
+    printResult(await resolveClient(user).get("/api/v1/user/profile"));
   });
 
   user.command("agents").description("List agents owned by the current user").action(async () => {
-    const { token, apiUrl } = getOpts(user);
-    output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/user/agents`, token }));
+    printResult(await resolveClient(user).get("/api/v1/user/agents"));
   });
 }

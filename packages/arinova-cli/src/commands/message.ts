@@ -1,7 +1,7 @@
 import type { Command } from "commander";
-import { getOpts, apiCall, output } from "../api.js";
-import { encodePathSegment } from "../client.js";
+import { encodePathSegment, resolveClient } from "../client.js";
 import { parseCount } from "../pagination.js";
+import { printResult } from "../output.js";
 
 export function registerMessageCommands(program: Command): void {
   const msg = program.command("message").description("Message commands");
@@ -11,11 +11,10 @@ export function registerMessageCommands(program: Command): void {
     .requiredOption("--content <text>", "Message content")
     .option("--reply-to <id>", "Reply to message ID")
     .action(async (opts: { conversationId: string; content: string; replyTo?: string }) => {
-      const { token, apiUrl } = getOpts(msg);
       const body: Record<string, string> = { conversationId: opts.conversationId, content: opts.content };
       if (opts.replyTo) body.replyTo = opts.replyTo;
-      const result = await apiCall({ method: "POST", url: `${apiUrl}/api/v1/messages/send`, token, body });
-      output(result);
+      const result = await resolveClient(msg).post("/api/v1/messages/send", body);
+      printResult(result);
     });
 
   msg.command("list")
@@ -23,13 +22,14 @@ export function registerMessageCommands(program: Command): void {
     .option("--limit <n>", "Number of messages", parseCount)
     .option("--cursor <id>", "Cursor for pagination")
     .action(async (opts: { conversationId: string; limit?: number; cursor?: string }) => {
-      const { token, apiUrl } = getOpts(msg);
       const qs = new URLSearchParams();
       if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
       if (opts.cursor) qs.set("before", opts.cursor);
       const q = qs.toString();
-      const result = await apiCall({ method: "GET", url: `${apiUrl}/api/v1/messages/${encodePathSegment(opts.conversationId)}${q ? "?" + q : ""}`, token });
-      output(result);
+      const result = await resolveClient(msg).get(
+        `/api/v1/messages/${encodePathSegment(opts.conversationId)}${q ? `?${q}` : ""}`,
+      );
+      printResult(result);
     });
 
   msg.command("search")
@@ -38,28 +38,20 @@ export function registerMessageCommands(program: Command): void {
     .option("--limit <n>", "Max results", parseCount)
     .option("--offset <n>", "Skip results", parseCount)
     .action(async (opts) => {
-      const { token, apiUrl } = getOpts(msg);
       const query = new URLSearchParams({ q: opts.query });
       if (opts.conversationId) query.set("conversationId", opts.conversationId);
       if (opts.limit !== undefined) query.set("limit", String(opts.limit));
       if (opts.offset !== undefined) query.set("offset", String(opts.offset));
-      output(await apiCall({
-        method: "GET",
-        url: `${apiUrl}/api/v1/messages/search?${query}`,
-        token,
-      }));
+      printResult(await resolveClient(msg).get(`/api/v1/messages/search?${query}`));
     });
 
   const feedback = msg.command("feedback").description("Message feedback");
   feedback.command("get")
     .requiredOption("--message-id <id>", "Agent message ID")
     .action(async (opts) => {
-      const { token, apiUrl } = getOpts(msg);
-      output(await apiCall({
-        method: "GET",
-        url: `${apiUrl}/api/v1/messages/${encodePathSegment(opts.messageId)}/feedback`,
-        token,
-      }));
+      printResult(await resolveClient(msg).get(
+        `/api/v1/messages/${encodePathSegment(opts.messageId)}/feedback`,
+      ));
     });
   feedback.command("set")
     .requiredOption("--message-id <id>", "Agent message ID")
@@ -68,12 +60,9 @@ export function registerMessageCommands(program: Command): void {
       if (opts.rating !== "up" && opts.rating !== "down") {
         throw new Error("--rating must be 'up' or 'down'");
       }
-      const { token, apiUrl } = getOpts(msg);
-      output(await apiCall({
-        method: "POST",
-        url: `${apiUrl}/api/v1/messages/${encodePathSegment(opts.messageId)}/feedback`,
-        token,
-        body: { helpful: opts.rating === "up" },
-      }));
+      printResult(await resolveClient(msg).post(
+        `/api/v1/messages/${encodePathSegment(opts.messageId)}/feedback`,
+        { helpful: opts.rating === "up" },
+      ));
     });
 }

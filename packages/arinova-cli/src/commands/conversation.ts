@@ -1,7 +1,7 @@
 import { Command } from "commander";
-import { apiCall, getOpts, output } from "../api.js";
-import { encodePathSegment } from "../client.js";
+import { encodePathSegment, resolveClient } from "../client.js";
 import { parseCount } from "../pagination.js";
+import { printResult } from "../output.js";
 
 export function registerConversation(program: Command): void {
   const conv = program.command("conversation").description("Conversation commands");
@@ -16,15 +16,12 @@ export function registerConversation(program: Command): void {
       "onboarding",
     )
     .action(async function (this: Command) {
-      const { token, apiUrl } = getOpts(this);
       const opts = this.opts();
-      const data = await apiCall({
-        method: "POST",
-        url: `${apiUrl}/api/v1/agents/${encodePathSegment(opts.agentId)}/conversations`,
-        token,
-        body: { type: opts.type },
-      });
-      output(data);
+      const data = await resolveClient(this).post(
+        `/api/v1/agents/${encodePathSegment(opts.agentId)}/conversations`,
+        { type: opts.type },
+      );
+      printResult(data);
     });
 
   conv
@@ -34,14 +31,13 @@ export function registerConversation(program: Command): void {
     .option("--search <query>", "Search by name")
     .option("--limit <n>", "Max results", parseCount, 50)
     .action(async function (this: Command) {
-      const { token, apiUrl } = getOpts(this);
       const opts = this.opts();
       const params = new URLSearchParams();
       if (opts.type) params.set("type", opts.type);
       if (opts.search) params.set("search", opts.search);
       if (opts.limit) params.set("limit", opts.limit);
       const qs = params.toString() ? `?${params.toString()}` : "";
-      const data = await apiCall({ method: "GET", url: `${apiUrl}/api/v1/conversations${qs}`, token });
-      output(data);
+      const data = await resolveClient(this).get(`/api/v1/conversations${qs}`);
+      printResult(data);
     });
 }

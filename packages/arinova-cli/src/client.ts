@@ -250,6 +250,7 @@ export class ApiClient {
   readonly profileName?: string;
   readonly timeoutMs: number;
   readonly maxResponseBytes: number;
+  private readonly etagCache = new Map<string, { etag: string; value: unknown }>();
 
   constructor(config: ApiClientConfig) {
     if (!config.token) throw new Error("No API key configured");
@@ -271,6 +272,15 @@ export class ApiClient {
       Authorization: `Bearer ${this.token}`,
       ...request.headers,
     };
+    const cacheable = request.method === "GET" && request.responseMode === undefined;
+    const hasCallerCondition = Object.keys(headers)
+      .some((name) => name.toLowerCase() === "if-none-match");
+    const cached = cacheable && !hasCallerCondition
+      ? this.etagCache.get(request.path)
+      : undefined;
+    if (cached) {
+      headers["If-None-Match"] = cached.etag;
+    }
     const init: RequestInit = {
       method: request.method,
       headers,
@@ -292,6 +302,7 @@ export class ApiClient {
     let keepSignalUntilStreamEnds = false;
     try {
       const res = await fetch(`${this.endpoint}${request.path}`, init);
+      if (res.status === 304 && cached) return cached.value;
       if (!res.ok) {
         throw new ApiError(
           res.status,
@@ -306,7 +317,10 @@ export class ApiClient {
         keepSignalUntilStreamEnds = true;
         return managedStream(res.body, cleanup);
       }
-      return parseResponseBody(res, this.maxResponseBytes);
+      const value = await parseResponseBody(res, this.maxResponseBytes);
+      const etag = res.headers.get("etag");
+      if (cacheable && etag) this.etagCache.set(request.path, { etag, value });
+      return value;
     } finally {
       if (!keepSignalUntilStreamEnds) cleanup();
     }

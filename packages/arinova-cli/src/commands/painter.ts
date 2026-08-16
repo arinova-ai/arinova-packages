@@ -1,7 +1,7 @@
 import type { Command } from "commander";
-import { getOpts, apiCall, output } from "../api.js";
 import { encodePathSegment, resolveClient } from "../client.js";
 import { appendFileToForm } from "../file-upload.js";
+import { printResult } from "../output.js";
 import { parseCount } from "../pagination.js";
 
 export function registerPainterCommands(program: Command): void {
@@ -13,8 +13,7 @@ export function registerPainterCommands(program: Command): void {
   painter.command("list")
     .description("List my albums")
     .action(async () => {
-      const { token, apiUrl } = getOpts(painter);
-      output(await apiCall({ method: "GET", url: `${apiUrl}/api/painter/albums`, token }));
+      printResult(await resolveClient(painter).get("/api/painter/albums"));
     });
 
   painter.command("create")
@@ -25,13 +24,12 @@ export function registerPainterCommands(program: Command): void {
     .option("--price-type <type>", "Price type (free/credits)")
     .option("--price-amount <n>", "Price amount in credits")
     .action(async (opts: { name: string; description?: string; category?: string; priceType?: string; priceAmount?: string }) => {
-      const { token, apiUrl } = getOpts(painter);
       const body: Record<string, unknown> = { name: opts.name };
       if (opts.description) body.description = opts.description;
       if (opts.category) body.category = opts.category;
       if (opts.priceType) body.priceType = opts.priceType;
       if (opts.priceAmount) body.priceAmount = parseInt(opts.priceAmount);
-      output(await apiCall({ method: "POST", url: `${apiUrl}/api/painter/albums`, token, body }));
+      printResult(await resolveClient(painter).post("/api/painter/albums", body));
     });
 
   painter.command("update")
@@ -44,7 +42,6 @@ export function registerPainterCommands(program: Command): void {
     .option("--price-amount <n>", "Price amount")
     .option("--public <bool>", "Public visibility (true/false)")
     .action(async (opts: { id: string; name?: string; description?: string; category?: string; priceType?: string; priceAmount?: string; public?: string }) => {
-      const { token, apiUrl } = getOpts(painter);
       const body: Record<string, unknown> = {};
       if (opts.name) body.name = opts.name;
       if (opts.description) body.description = opts.description;
@@ -52,15 +49,14 @@ export function registerPainterCommands(program: Command): void {
       if (opts.priceType) body.priceType = opts.priceType;
       if (opts.priceAmount) body.priceAmount = parseInt(opts.priceAmount);
       if (opts.public != null) body.isPublic = opts.public === "true";
-      output(await apiCall({ method: "PATCH", url: `${apiUrl}/api/painter/albums/${e(opts.id)}`, token, body }));
+      printResult(await resolveClient(painter).patch(`/api/painter/albums/${e(opts.id)}`, body));
     });
 
   painter.command("delete")
     .description("Delete an album")
     .requiredOption("--id <id>", "Album ID")
     .action(async (opts: { id: string }) => {
-      const { token, apiUrl } = getOpts(painter);
-      output(await apiCall({ method: "DELETE", url: `${apiUrl}/api/painter/albums/${e(opts.id)}`, token }));
+      printResult(await resolveClient(painter).delete(`/api/painter/albums/${e(opts.id)}`));
     });
 
   painter.command("upload-image")
@@ -72,7 +68,7 @@ export function registerPainterCommands(program: Command): void {
       const form = new FormData();
       await appendFileToForm(form, "file", opts.file);
       if (opts.caption) form.append("caption", opts.caption);
-      output(
+      printResult(
         await resolveClient(painter).upload(
           `/api/painter/albums/${e(opts.id)}/images`,
           form,
@@ -85,8 +81,10 @@ export function registerPainterCommands(program: Command): void {
     .requiredOption("--id <id>", "Album ID")
     .requiredOption("--prompt <text>", "System prompt text")
     .action(async (opts: { id: string; prompt: string }) => {
-      const { token, apiUrl } = getOpts(painter);
-      output(await apiCall({ method: "PATCH", url: `${apiUrl}/api/painter/albums/${e(opts.id)}`, token, body: { systemPrompt: opts.prompt } }));
+      printResult(await resolveClient(painter).patch(
+        `/api/painter/albums/${e(opts.id)}`,
+        { systemPrompt: opts.prompt },
+      ));
     });
 
   painter.command("set-webhook")
@@ -94,17 +92,20 @@ export function registerPainterCommands(program: Command): void {
     .requiredOption("--id <id>", "Album ID")
     .requiredOption("--url <url>", "Webhook URL")
     .action(async (opts: { id: string; url: string }) => {
-      const { token, apiUrl } = getOpts(painter);
-      output(await apiCall({ method: "PATCH", url: `${apiUrl}/api/painter/albums/${e(opts.id)}`, token, body: { webhookUrl: opts.url } }));
+      printResult(await resolveClient(painter).patch(
+        `/api/painter/albums/${e(opts.id)}`,
+        { webhookUrl: opts.url },
+      ));
     });
 
   painter.command("stats")
     .description("View album statistics")
     .requiredOption("--id <id>", "Album ID")
     .action(async (opts: { id: string }) => {
-      const { token, apiUrl } = getOpts(painter);
-      const data = await apiCall({ method: "GET", url: `${apiUrl}/api/painter/albums/${e(opts.id)}`, token }) as Record<string, unknown>;
-      output({
+      const data = await resolveClient(painter).get(
+        `/api/painter/albums/${e(opts.id)}`,
+      ) as Record<string, unknown>;
+      printResult({
         name: data.name,
         generationCount: data.generationCount,
         ratingAvg: data.ratingAvg,
@@ -124,22 +125,20 @@ export function registerPainterCommands(program: Command): void {
     .option("--sort <sort>", "Sort: newest/popular/rating")
     .option("--page <n>", "Page number", parseCount)
     .action(async (opts: { search?: string; category?: string; sort?: string; page?: number }) => {
-      const { token, apiUrl } = getOpts(painter);
       const params = new URLSearchParams();
       if (opts.search) params.set("search", opts.search);
       if (opts.category) params.set("category", opts.category);
       if (opts.sort) params.set("sort", opts.sort);
       if (opts.page !== undefined) params.set("page", String(opts.page));
       params.set("pageSize", "12");
-      output(await apiCall({ method: "GET", url: `${apiUrl}/api/painter/explore?${params}`, token }));
+      printResult(await resolveClient(painter).get(`/api/painter/explore?${params}`));
     });
 
   painter.command("show")
     .description("View album details")
     .requiredOption("--id <id>", "Album ID")
     .action(async (opts: { id: string }) => {
-      const { token, apiUrl } = getOpts(painter);
-      output(await apiCall({ method: "GET", url: `${apiUrl}/api/painter/albums/${e(opts.id)}`, token }));
+      printResult(await resolveClient(painter).get(`/api/painter/albums/${e(opts.id)}`));
     });
 
   painter.command("generate")
@@ -147,17 +146,18 @@ export function registerPainterCommands(program: Command): void {
     .requiredOption("--id <id>", "Album ID")
     .requiredOption("--prompt <text>", "Generation prompt")
     .action(async (opts: { id: string; prompt: string }) => {
-      const { token, apiUrl } = getOpts(painter);
-      output(await apiCall({ method: "POST", url: `${apiUrl}/api/painter/albums/${e(opts.id)}/generate`, token, body: { prompt: opts.prompt } }));
+      printResult(await resolveClient(painter).post(
+        `/api/painter/albums/${e(opts.id)}/generate`,
+        { prompt: opts.prompt },
+      ));
     });
 
   painter.command("my-generations")
     .description("View my generation history")
     .option("--page <n>", "Page number", parseCount)
     .action(async (opts: { page?: number }) => {
-      const { token, apiUrl } = getOpts(painter);
       const params = new URLSearchParams({ pageSize: "20" });
       if (opts.page !== undefined) params.set("page", String(opts.page));
-      output(await apiCall({ method: "GET", url: `${apiUrl}/api/painter/my-generations?${params}`, token }));
+      printResult(await resolveClient(painter).get(`/api/painter/my-generations?${params}`));
     });
 }

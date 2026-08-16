@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { output } from "../api.js";
+import { printResult as output } from "../output.js";
 import { buildQuery, resolveClient } from "../client.js";
 import { parseCount } from "../pagination.js";
 

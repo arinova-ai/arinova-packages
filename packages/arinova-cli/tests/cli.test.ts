@@ -96,11 +96,6 @@ describe("help commands", () => {
     expect(out).toContain("Kanban board commands");
   });
 
-  it("arinova wiki --help exits 0", () => {
-    const out = execSync(`node ${CLI} wiki --help`, { encoding: "utf-8" });
-    expect(out).toContain("Deprecated alias for memo");
-  });
-
   it("arinova memo --help exits 0", () => {
     const out = execSync(`node ${CLI} memo --help`, { encoding: "utf-8" });
     expect(out).toContain("Memo page commands");
@@ -258,14 +253,14 @@ async function cleanupTestWikiPages() {
   }
 }
 
-describe.skipIf(!HAS_CONV)("wiki commands", () => {
+describe.skipIf(!HAS_CONV)("memo commands", () => {
   let testPageId: string;
 
   beforeAll(async () => { await cleanupTestWikiPages(); });
   afterAll(async () => { await cleanupTestWikiPages(); });
 
-  it("wiki list exits 0 and outputs JSON array", () => {
-    const out = run(`wiki list --conversation-id ${CONV_ID}`);
+  it("memo list exits 0 and outputs JSON array", () => {
+    const out = run(`memo list --conversation-id ${CONV_ID}`);
     const json = JSON.parse(out);
     expect(Array.isArray(json)).toBe(true);
   });
@@ -273,7 +268,7 @@ describe.skipIf(!HAS_CONV)("wiki commands", () => {
   it("full CRUD: create, list, get, update, delete", () => {
     // CREATE
     const createOut = run(
-      `wiki create --conversation-id ${CONV_ID} --title "__cli_test_wiki__" --content "test wiki content" --tags test integration`,
+      `memo create --conversation-id ${CONV_ID} --title "__cli_test_memo__" --content "test memo content" --tags test integration`,
     );
     const created = JSON.parse(createOut);
     expect(created).toHaveProperty("id");
@@ -281,31 +276,31 @@ describe.skipIf(!HAS_CONV)("wiki commands", () => {
 
     try {
       // LIST — verify it exists
-      const listOut = run(`wiki list --conversation-id ${CONV_ID}`);
+      const listOut = run(`memo list --conversation-id ${CONV_ID}`);
       const pages = JSON.parse(listOut);
       const found = Array.isArray(pages) && pages.some((p: any) => p.id === testPageId);
       expect(found).toBe(true);
 
       // GET
-      const getOut = run(`wiki get --page-id ${testPageId}`);
+      const getOut = run(`memo get --page-id ${testPageId}`);
       const page = JSON.parse(getOut);
       expect(page.id).toBe(testPageId);
-      expect(page.title).toBe("__cli_test_wiki__");
+      expect(page.title).toBe("__cli_test_memo__");
 
       // UPDATE
       const updateOut = run(
-        `wiki update --page-id ${testPageId} --title "__cli_test_wiki_updated__" --content "updated wiki"`,
+        `memo update --page-id ${testPageId} --title "__cli_test_memo_updated__" --content "updated memo"`,
       );
       const updated = JSON.parse(updateOut);
       expect(updated).toBeDefined();
 
       // DELETE
-      const deleteOut = run(`wiki delete --page-id ${testPageId}`);
+      const deleteOut = run(`memo delete --page-id ${testPageId}`);
       expect(deleteOut).toBeDefined();
       testPageId = ""; // cleared
     } finally {
       if (testPageId) {
-        runSafe(`wiki delete --page-id ${testPageId}`);
+        runSafe(`memo delete --page-id ${testPageId}`);
       }
     }
   });

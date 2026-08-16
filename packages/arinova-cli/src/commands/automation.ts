@@ -1,5 +1,4 @@
 import type { Command } from "commander";
-import { getOpts } from "../api.js";
 import {
   buildQuery,
   del,

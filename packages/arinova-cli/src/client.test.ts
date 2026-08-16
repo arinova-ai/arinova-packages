@@ -61,6 +61,33 @@ describe("CLI client", () => {
     );
   });
 
+  it("reuses ETag responses for repeated hot GET requests", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [1] }), {
+        status: 200,
+        headers: { ETag: '"items-v1"' },
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 304 }));
+    const client = new ApiClient({
+      endpoint: "https://api.example.test",
+      token: "ari_etag",
+    });
+
+    await expect(client.get("/api/v1/items?limit=50")).resolves.toEqual({ items: [1] });
+    await expect(client.get("/api/v1/items?limit=50")).resolves.toEqual({ items: [1] });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.example.test/api/v1/items?limit=50",
+      expect.objectContaining({
+        headers: {
+          Authorization: "Bearer ari_etag",
+          "If-None-Match": '"items-v1"',
+        },
+      }),
+    );
+  });
+
   it("explicit API key overrides configured key for JSON requests", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify({ created: true }), { status: 200 }),
