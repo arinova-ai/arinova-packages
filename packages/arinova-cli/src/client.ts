@@ -1,10 +1,12 @@
-import { createWriteStream, existsSync, readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { createWriteStream, existsSync } from "node:fs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { Command } from "commander";
 import { getEndpoint, resolveApiKey } from "./config.js";
 import { normalizeApiEndpoint } from "./endpoint.js";
+import { appendFileToForm } from "./file-upload.js";
+
+export const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export type ResponseMode = "json" | "binary" | "stream";
@@ -14,6 +16,7 @@ export interface ApiClientConfig {
   token: string;
   profileName?: string;
   timeoutMs?: number;
+  maxResponseBytes?: number;
 }
 
 export interface ApiRequest {
@@ -56,6 +59,20 @@ export class UnsupportedCommandError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "UnsupportedCommandError";
+  }
+}
+
+export class ResponseBodyTooLargeError extends Error {
+  constructor(
+    public readonly maxBytes: number,
+    public readonly receivedBytes?: number,
+  ) {
+    super(
+      receivedBytes === undefined
+        ? `Response body exceeds the ${maxBytes}-byte safety limit`
+        : `Response body is ${receivedBytes} bytes; the safety limit is ${maxBytes} bytes`,
+    );
+    this.name = "ResponseBodyTooLargeError";
   }
 }
 
@@ -125,9 +142,49 @@ function parseApiError(body: unknown): {
   };
 }
 
-async function parseResponseBody(res: Response): Promise<unknown> {
+async function readBoundedResponseBody(
+  res: Response,
+  maxBytes: number,
+): Promise<Uint8Array> {
+  const declaredLength = res.headers.get("content-length");
+  if (declaredLength && /^\d+$/.test(declaredLength)) {
+    const declaredBytes = Number(declaredLength);
+    if (declaredBytes > maxBytes) {
+      await res.body?.cancel().catch(() => undefined);
+      throw new ResponseBodyTooLargeError(maxBytes, declaredBytes);
+    }
+  }
+  if (!res.body) return new Uint8Array();
+
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new ResponseBodyTooLargeError(maxBytes, total);
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+
+async function parseResponseBody(
+  res: Response,
+  maxBytes: number,
+): Promise<unknown> {
   if (res.status === 204 || res.status === 205) return null;
-  const text = await res.text();
+  const bytes = await readBoundedResponseBody(res, maxBytes);
+  const text = new TextDecoder().decode(bytes);
   if (!text) return null;
   try {
     return JSON.parse(text);
@@ -192,6 +249,7 @@ export class ApiClient {
   readonly token: string;
   readonly profileName?: string;
   readonly timeoutMs: number;
+  readonly maxResponseBytes: number;
 
   constructor(config: ApiClientConfig) {
     if (!config.token) throw new Error("No API key configured");
@@ -199,6 +257,10 @@ export class ApiClient {
     this.token = config.token;
     this.profileName = config.profileName;
     this.timeoutMs = config.timeoutMs ?? 60_000;
+    this.maxResponseBytes = config.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+    if (!Number.isSafeInteger(this.maxResponseBytes) || this.maxResponseBytes <= 0) {
+      throw new TypeError("maxResponseBytes must be a positive safe integer");
+    }
   }
 
   async request(request: ApiRequest): Promise<unknown> {
@@ -230,14 +292,21 @@ export class ApiClient {
     let keepSignalUntilStreamEnds = false;
     try {
       const res = await fetch(`${this.endpoint}${request.path}`, init);
-      if (!res.ok) throw new ApiError(res.status, await parseResponseBody(res));
-      if (request.responseMode === "binary") return new Uint8Array(await res.arrayBuffer());
+      if (!res.ok) {
+        throw new ApiError(
+          res.status,
+          await parseResponseBody(res, this.maxResponseBytes),
+        );
+      }
+      if (request.responseMode === "binary") {
+        return readBoundedResponseBody(res, this.maxResponseBytes);
+      }
       if (request.responseMode === "stream") {
         if (!res.body) throw new Error("API returned an empty stream");
         keepSignalUntilStreamEnds = true;
         return managedStream(res.body, cleanup);
       }
-      return parseResponseBody(res);
+      return parseResponseBody(res, this.maxResponseBytes);
     } finally {
       if (!keepSignalUntilStreamEnds) cleanup();
     }
@@ -349,24 +418,8 @@ export async function upload(
   fieldName = "file",
   apiKey?: string,
 ): Promise<unknown> {
-  const fileData = readFileSync(filePath);
-  const extension = filePath.toLowerCase().split(".").pop();
-  const mimeType = {
-    csv: "text/csv",
-    gif: "image/gif",
-    jpeg: "image/jpeg",
-    jpg: "image/jpeg",
-    json: "application/json",
-    pdf: "application/pdf",
-    png: "image/png",
-    svg: "image/svg+xml",
-    txt: "text/plain",
-    webp: "image/webp",
-    zip: "application/zip",
-  }[extension ?? ""] ?? "application/octet-stream";
-  const blob = new Blob([fileData], { type: mimeType });
   const form = new FormData();
-  form.append(fieldName, blob, basename(filePath));
+  await appendFileToForm(form, fieldName, filePath);
   return resolveClient(apiKey).upload(path, form);
 }
 

@@ -216,22 +216,20 @@ describe("CLI command API request shapes", () => {
     expect(mocks.output).toHaveBeenCalledWith([]);
   });
 
-  it("kanban card list paginates and filters hex id prefixes client-side", async () => {
-    mocks.apiCall
-      .mockResolvedValueOnce([
-        { id: "abcd1234", title: "First", description: "" },
-        { id: "ffff9999", title: "Other", description: "different text" },
-      ])
-      .mockResolvedValueOnce([]);
+  it("kanban card list sends hex-looking text as a bounded server query", async () => {
+    mocks.apiCall.mockResolvedValueOnce([
+      { id: "abcd1234", title: "First", description: "" },
+    ]);
     const program = createProgram(registerKanbanCommands);
 
     await program.parseAsync(["node", "arinova", "kanban", "card", "list", "--search", "abcd"]);
 
     expect(mocks.apiCall).toHaveBeenCalledWith(expect.objectContaining({
       method: "GET",
-      url: "https://api.example.test/api/v1/kanban/cards?limit=100&offset=0",
+      url: "https://api.example.test/api/v1/kanban/cards?search=abcd&limit=50&offset=0",
       token: "ari_cli_token",
     }));
+    expect(mocks.apiCall).toHaveBeenCalledTimes(1);
     expect(mocks.output).toHaveBeenCalledWith([
       { id: "abcd1234", title: "First", description: "" },
     ]);

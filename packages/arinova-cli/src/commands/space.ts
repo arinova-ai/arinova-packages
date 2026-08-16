@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 import {
   buildQuery,
@@ -10,6 +9,7 @@ import {
   upload,
   uploadMultipart,
 } from "../client.js";
+import { createFileBlob } from "../file-upload.js";
 import { printResult, printSuccess, table } from "../output.js";
 import { parseJsonOption } from "../json-options.js";
 import { parseCount } from "../pagination.js";
@@ -159,10 +159,9 @@ export function registerSpace(program: Command): void {
     .argument("<space-id>")
     .requiredOption("--file <bundle.zip>")
     .action(async (spaceId: string, opts: { file: string }) => {
-      const data = readFileSync(opts.file);
       printResult(await uploadMultipart(
         `/api/v1/spaces/${e(spaceId)}/versions`,
-        { bundle: new Blob([data]) },
+        { bundle: await createFileBlob(opts.file, { type: "application/zip" }) },
       ));
     });
   version.command("delete")

@@ -2,6 +2,7 @@ import type { OpenClawConfig, OpenClawPluginApi } from "openclaw/plugin-sdk/core
 import type { ResolvedArinovaChatAccount } from "./accounts.js";
 import { resolveAccount, apiCall } from "./tools.js";
 import { exchangeBotToken } from "./auth.js";
+import { openUploadFile } from "./file-upload.js";
 
 const DEFAULT_API_URL = "https://api.chat-staging.arinova.ai";
 
@@ -132,41 +133,17 @@ export function registerCli(api: OpenClawPluginApi): void {
         .requiredOption("--file-path <path>", "Absolute path to the file")
         .action(async (opts: { conversationId: string; filePath: string }) => {
           const { account } = defineApiCommand(arinova.opts());
-          const fs = await import("node:fs");
-          const path = await import("node:path");
-
-          if (!fs.existsSync(opts.filePath)) {
-            console.error(`File not found: ${opts.filePath}`);
-            process.exit(1);
-          }
-
-          const fileBuffer = fs.readFileSync(opts.filePath);
-          const fileName = path.basename(opts.filePath);
-          const ext = path.extname(opts.filePath).toLowerCase();
-          const mimeMap: Record<string, string> = {
-            ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-            ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
-            ".pdf": "application/pdf", ".txt": "text/plain", ".md": "text/markdown",
-            ".json": "application/json", ".csv": "text/csv",
-          };
-          const mimeType = mimeMap[ext] ?? "application/octet-stream";
-
-          const blob = new Blob([fileBuffer], { type: mimeType });
+          const { blob, fileName } = await openUploadFile(opts.filePath);
           const formData = new FormData();
           formData.append("conversationId", opts.conversationId);
           formData.append("file", blob, fileName);
 
-          const res = await fetch(`${account.apiUrl}/api/v1/files/upload`, {
+          const data = await apiCall({
             method: "POST",
-            headers: { Authorization: `Bearer ${account.botToken}` },
-            body: formData,
+            url: `${account.apiUrl}/api/v1/files/upload`,
+            token: account.botToken,
+            form: formData,
           });
-          if (!res.ok) {
-            const text = await res.text();
-            console.error(`HTTP ${res.status}: ${text.slice(0, 500)}`);
-            process.exit(1);
-          }
-          const data = await res.json();
           console.log(JSON.stringify(data, null, 2));
         });
 

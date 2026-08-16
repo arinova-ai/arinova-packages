@@ -1,8 +1,7 @@
-import { readFileSync } from "node:fs";
-import { basename } from "node:path";
 import type { Command } from "commander";
 import { getOpts, apiCall, output } from "../api.js";
 import { buildQuery, encodePathSegment, resolveClient } from "../client.js";
+import { appendFileToForm } from "../file-upload.js";
 import { parseJsonArray, parseJsonOption } from "../json-options.js";
 import { parseCount } from "../pagination.js";
 
@@ -16,10 +15,9 @@ type MemoryUpdateOptions = {
 
 const clientFor = resolveClient;
 
-function importForm(filePath: string, agentId: string, source?: string): FormData {
-  const data = readFileSync(filePath);
+async function importForm(filePath: string, agentId: string, source?: string): Promise<FormData> {
   const form = new FormData();
-  form.append("file", new Blob([data]), basename(filePath));
+  await appendFileToForm(form, "file", filePath);
   form.append("agent_id", agentId);
   if (source) form.append("source", source);
   return form;
@@ -173,7 +171,7 @@ export function registerMemoryCommands(program: Command): void {
       .requiredOption("--file <path>", "Import file")
       .option("--source <source>", "Declared import source")
       .action(async (opts: { agent: string; file: string; source?: string }) => {
-        output(await clientFor(memoryImport).upload(path, importForm(opts.file, opts.agent, opts.source)));
+        output(await clientFor(memoryImport).upload(path, await importForm(opts.file, opts.agent, opts.source)));
       });
   }
 

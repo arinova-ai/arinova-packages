@@ -17,6 +17,7 @@ describe("exchangeBotToken", () => {
     expect(fetchMock).toHaveBeenCalledWith("https://api.test/api/agents/pair", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ botToken: "ari_token", a2aEndpoint: "https://agent.test/a2a" }),
+      signal: expect.any(AbortSignal),
     }));
   });
 

@@ -1,8 +1,14 @@
 import type { Command } from "commander";
-import { buildQuery, get, post, resolveClient } from "../client.js";
+import { ApiError, buildQuery, get, post, resolveClient } from "../client.js";
 import { printResult } from "../output.js";
 import { renderSseStream } from "../sse.js";
-import { addPaginationOptions, collectAllPages, paginationQuery } from "../pagination.js";
+import {
+  addPaginationOptions,
+  collectAllPages,
+  DEFAULT_PAGE_LIMIT,
+  pageLimit,
+  paginationQuery,
+} from "../pagination.js";
 import { parseJsonArray, parseJsonOption } from "../json-options.js";
 
 function chatBody(opts: {
@@ -30,17 +36,31 @@ export function registerEconomyChatCommands(program: Command): void {
   });
   addPaginationOptions(economy.command("transactions"))
     .action(async (opts) => {
-      if (!opts.all) {
-        printResult(await get(`/api/v1/economy/transactions${paginationQuery(opts)}`));
+      if (opts.limit === 0) {
+        printResult([]);
         return;
       }
-      const pageSize = opts.limit ?? 100;
+      if (!opts.all) {
+        printResult(await get(`/api/v1/economy/transactions${paginationQuery({
+          ...opts,
+          limit: pageLimit(opts.limit, DEFAULT_PAGE_LIMIT),
+        })}`));
+        return;
+      }
+      const pageSize = pageLimit(opts.limit, 100);
       const transactions = await collectAllPages(opts.offset ?? 0, async (offset) => {
         const response = await get(`/api/v1/economy/transactions${paginationQuery({ limit: pageSize, offset })}`);
         const items = Array.isArray(response)
           ? response
           : ((response as { transactions?: unknown[] }).transactions ?? []);
         return { items, next: items.length < pageSize ? undefined : offset + items.length };
+      }, {
+        retries: 2,
+        retryBaseDelayMs: 100,
+        retryMaxDelayMs: 1_000,
+        interPageDelayMs: 50,
+        shouldRetry: (error) => error instanceof ApiError
+          && (error.status === 429 || error.status >= 500),
       });
       printResult(transactions);
     });

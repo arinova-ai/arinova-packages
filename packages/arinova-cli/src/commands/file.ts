@@ -1,8 +1,7 @@
-import { readFileSync } from "node:fs";
-import { basename } from "node:path";
 import type { Command } from "commander";
 import { output } from "../api.js";
 import { buildQuery, encodePathSegment, resolveClient } from "../client.js";
+import { appendFileToForm } from "../file-upload.js";
 
 const e = encodePathSegment;
 
@@ -21,9 +20,8 @@ export function registerFileCommands(program: Command): void {
     .requiredOption("--conversation-id <id>", "Conversation ID")
     .requiredOption("--file <path>", "Path to file")
     .action(async (opts: { conversationId: string; file: string }) => {
-      const data = readFileSync(opts.file);
       const form = new FormData();
-      form.append("file", new Blob([data]), basename(opts.file));
+      await appendFileToForm(form, "file", opts.file);
       form.append("conversationId", opts.conversationId);
       output(await clientFor(file).upload("/api/v1/files/upload", form));
     });

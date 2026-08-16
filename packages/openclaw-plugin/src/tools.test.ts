@@ -37,4 +37,15 @@ describe("apiCall", () => {
     await expect(apiCall({ method: "GET", url: "https://api.test/fail", token: "x" }))
       .rejects.toThrow("HTTP 403: denied");
   });
+
+  it("rejects a buffered response whose declared size exceeds the cap", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("large", {
+      headers: { "Content-Length": String(10 * 1024 * 1024 + 1) },
+    })));
+    await expect(apiCall({
+      method: "GET",
+      url: "https://api.test/large",
+      token: "x",
+    })).rejects.toThrow("safety limit");
+  });
 });

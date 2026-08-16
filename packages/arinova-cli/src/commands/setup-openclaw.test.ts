@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command } from "commander";
@@ -124,6 +124,11 @@ describe("setup-openclaw command", () => {
       { agentId: "grace", match: { channel: "openclaw-arinova-ai", accountId: "grace" } },
     ]));
     expect(mocks.printSuccess).toHaveBeenCalledWith("OpenClaw Arinova integration setup complete!");
+    expect((await stat(configPath)).mode & 0o777).toBe(0o600);
+    const backup = (await readdir(join(configPath, "..")))
+      .find((name) => name.startsWith("openclaw.json.") && name.endsWith(".bak"));
+    expect(backup).toBeDefined();
+    expect((await stat(join(configPath, "..", backup!))).mode & 0o777).toBe(0o600);
   });
 
   it("uses agents.defaults and dry-run avoids backup and file writes", async () => {
@@ -193,6 +198,7 @@ describe("setup-openclaw command", () => {
         throw new Error("disk full");
       }),
       copyFileSync: vi.fn(),
+      chmodSync: vi.fn(),
     };
 
     expect(() =>
@@ -207,11 +213,61 @@ describe("setup-openclaw command", () => {
     expect(ops.writeFileSync).toHaveBeenCalledWith(
       "/tmp/openclaw.json",
       "{\"channels\":{}}\n",
-      "utf-8",
+      { encoding: "utf-8", mode: 0o600 },
     );
     expect(ops.copyFileSync).toHaveBeenCalledWith(
       "/tmp/openclaw.json.bak",
       "/tmp/openclaw.json",
     );
+    expect(ops.chmodSync).toHaveBeenCalledWith("/tmp/openclaw.json", 0o600);
+  });
+
+  it("never prints a raw create-bot response when no token field is recognized", async () => {
+    const configPath = await writeOpenclawConfig({
+      plugins: { entries: { "openclaw-arinova-ai": {} } },
+      agents: { list: [{ id: "grace", name: "Grace" }] },
+    });
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ agents: [] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "created",
+        privateCredential: "must-not-leak",
+      })));
+
+    await createProgram().parseAsync([
+      "node", "arinova", "setup-openclaw", "--workspace", configPath,
+    ]);
+
+    const renderedNotes = mocks.printNote.mock.calls.flat().join("\n");
+    expect(renderedNotes).not.toContain("must-not-leak");
+    expect(renderedNotes).not.toContain("privateCredential");
+    expect(renderedNotes).toContain("raw response data was not printed");
+  });
+
+  it("retains only the newest five managed backups", async () => {
+    const configPath = await writeOpenclawConfig({
+      plugins: { entries: { "openclaw-arinova-ai": {} } },
+      agents: { list: [{ id: "ada", name: "Ada" }] },
+    });
+    const directory = join(configPath, "..");
+    for (let index = 0; index < 6; index += 1) {
+      await writeFile(
+        join(directory, `openclaw.json.2025-01-0${index + 1}T00-00-00-000Z.bak`),
+        "old backup",
+      );
+    }
+
+    await createProgram().parseAsync([
+      "node", "arinova", "setup-openclaw", "--workspace", configPath,
+    ]);
+
+    const backups = (await readdir(directory)).filter(
+      (name) => name.startsWith("openclaw.json.") && name.endsWith(".bak"),
+    );
+    expect(backups).toHaveLength(5);
+    for (const backup of backups) {
+      expect((await stat(join(directory, backup))).mode & 0o777).toBe(0o600);
+    }
   });
 });

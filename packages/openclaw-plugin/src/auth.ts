@@ -17,14 +17,16 @@ export async function exchangeBotToken(params: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
   });
 
+  const responseText = await readBoundedText(response);
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
     throw new Error(
-      `Pairing code exchange failed (${response.status}): ${body || "invalid code"}`,
+      `Pairing code exchange failed (${response.status}): ${responseText || "invalid code"}`,
     );
   }
 
-  return (await response.json()) as { agentId: string; name: string; wsUrl?: string };
+  return JSON.parse(responseText) as { agentId: string; name: string; wsUrl?: string };
 }
+import { readBoundedText } from "./http.js";

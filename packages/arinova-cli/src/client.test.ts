@@ -12,6 +12,7 @@ import {
   get,
   post,
   resetClientDefaults,
+  ResponseBodyTooLargeError,
   uploadMultipart,
   upload,
 } from "./client.js";
@@ -252,6 +253,44 @@ describe("CLI client", () => {
         responseMode: "binary",
       }),
     ).resolves.toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it("rejects oversized buffered responses from Content-Length", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("four", {
+        headers: { "Content-Length": "4" },
+      }),
+    );
+    const client = new ApiClient({
+      endpoint: "https://api.example.test",
+      token: "ari_bounded",
+      maxResponseBytes: 3,
+    });
+
+    await expect(client.get("/api/v1/large")).rejects.toBeInstanceOf(
+      ResponseBodyTooLargeError,
+    );
+  });
+
+  it("counts streamed bytes when Content-Length is absent", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2]));
+        controller.enqueue(new Uint8Array([3, 4]));
+        controller.close();
+      },
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(body));
+    const client = new ApiClient({
+      endpoint: "https://api.example.test",
+      token: "ari_bounded",
+      maxResponseBytes: 3,
+    });
+
+    await expect(client.get("/api/v1/large")).rejects.toMatchObject({
+      name: "ResponseBodyTooLargeError",
+      receivedBytes: 4,
+    });
   });
 
   it("downloads exact bytes, protects existing files, and supports force", async () => {

@@ -1,8 +1,7 @@
-import { readFileSync } from "node:fs";
-import { basename } from "node:path";
 import type { Command } from "commander";
 import { getOpts, apiCall, output } from "../api.js";
 import { encodePathSegment, resolveClient } from "../client.js";
+import { appendFileToForm } from "../file-upload.js";
 import { parseCount } from "../pagination.js";
 
 export function registerPainterCommands(program: Command): void {
@@ -70,10 +69,8 @@ export function registerPainterCommands(program: Command): void {
     .requiredOption("--file <path>", "Image file path")
     .option("--caption <text>", "Image caption")
     .action(async (opts: { id: string; file: string; caption?: string }) => {
-      const fileData = readFileSync(opts.file);
-      const blob = new Blob([fileData]);
       const form = new FormData();
-      form.append("file", blob, basename(opts.file));
+      await appendFileToForm(form, "file", opts.file);
       if (opts.caption) form.append("caption", opts.caption);
       output(
         await resolveClient(painter).upload(

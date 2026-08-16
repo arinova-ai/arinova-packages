@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
-import { basename } from "node:path";
 import type { Command } from "commander";
 import { buildQuery, del, encodePathSegment, get, patch, post, put, resolveClient } from "../client.js";
+import { appendFileToForm } from "../file-upload.js";
 import { printResult } from "../output.js";
 import { parseJsonArray, parseJsonOption } from "../json-options.js";
 import { registerVersionCommands } from "../version-commands.js";
@@ -47,9 +46,8 @@ export function registerWorkbookCommands(program: Command): void {
   importCmd.command("into").argument("<id>")
     .requiredOption("--file <path>").requiredOption("--base-version <n>")
     .action(async (id: string, opts) => {
-      const data = readFileSync(opts.file);
       const form = new FormData();
-      form.append("file", new Blob([data]), basename(opts.file));
+      await appendFileToForm(form, "file", opts.file);
       form.append("baseVersion", opts.baseVersion);
       printResult(await resolveClient(workbook).upload(`/api/v1/workbooks/${e(id)}/import`, form));
     });

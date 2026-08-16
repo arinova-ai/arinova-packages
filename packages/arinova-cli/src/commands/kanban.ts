@@ -1,7 +1,12 @@
 import type { Command } from "commander";
 import { getOpts, apiCall, output } from "../api.js";
-import { encodePathSegment, UnsupportedCommandError } from "../client.js";
-import { parseCount } from "../pagination.js";
+import { ApiError, encodePathSegment, UnsupportedCommandError } from "../client.js";
+import {
+  collectAllPages,
+  DEFAULT_PAGE_LIMIT,
+  pageLimit,
+  parseCount,
+} from "../pagination.js";
 import { parseJsonArray } from "../json-options.js";
 
 const e = encodePathSegment;
@@ -82,54 +87,56 @@ export function registerKanbanCommands(program: Command): void {
   // Card commands
   const card = kanban.command("card").description("Card management");
   card.command("list")
-    .description("List cards. --search matches ID prefix (4+ hex), title, or description.")
-    .option("--search <query>", "Search by ID prefix (4+ hex), title, or description")
-    .option("--limit <n>", "Max cards to return (default 200)", parseCount)
+    .description("List cards using the server-side search filter.")
+    .option("--search <query>", "Server-side card search query")
+    .option("--limit <n>", "Max cards to return (default 50, max 100)", parseCount)
     .option("--offset <n>", "Skip first N cards (pagination)", parseCount)
     .option("--all", "Fetch all matching cards (paginates internally)")
     .action(async (opts: { search?: string; limit?: number; offset?: number; all?: boolean }) => {
       const { token, apiUrl } = getOpts(card);
       const searchTrimmed = opts.search?.trim();
-      const isHexPrefix = !!searchTrimmed && /^[0-9a-f]{4,}$/i.test(searchTrimmed);
-      // ID-prefix search needs full scan: server `search` only matches title/description.
-      const fetchAll = opts.all === true || isHexPrefix;
-      const target = fetchAll ? Number.POSITIVE_INFINITY : (opts.limit ?? 200);
       const startOffset = opts.offset ?? 0;
-      const PAGE = 100; // server caps `limit` at 100 per request
+      if (opts.limit === 0) {
+        output([]);
+        return;
+      }
 
-      const collected: Record<string, unknown>[] = [];
-      let cursor = startOffset;
-      while (collected.length < target) {
-        const remaining = target === Number.POSITIVE_INFINITY
-          ? PAGE
-          : Math.min(PAGE, target - collected.length);
+      const fetchPage = async (offset: number, limit: number) => {
         const params = new URLSearchParams();
-        // Don't send hex prefix to server — it would yield zero hits via title/description ILIKE.
-        if (searchTrimmed && !isHexPrefix) params.set("search", searchTrimmed);
-        params.set("limit", String(remaining));
-        params.set("offset", String(cursor));
+        if (searchTrimmed) params.set("search", searchTrimmed);
+        params.set("limit", String(limit));
+        params.set("offset", String(offset));
         const page = await apiCall({
           method: "GET",
           url: `${apiUrl}/api/v1/kanban/cards?${params.toString()}`,
           token,
         });
-        if (!Array.isArray(page) || page.length === 0) break;
-        collected.push(...(page as Record<string, unknown>[]));
-        if (page.length < remaining) break;
-        cursor += page.length;
+        return Array.isArray(page) ? page as Record<string, unknown>[] : [];
+      };
+
+      if (!opts.all) {
+        output(await fetchPage(
+          startOffset,
+          pageLimit(opts.limit, DEFAULT_PAGE_LIMIT),
+        ));
+        return;
       }
 
-      let result: Record<string, unknown>[] = collected;
-      if (searchTrimmed && isHexPrefix) {
-        const q = searchTrimmed.toLowerCase();
-        result = collected.filter((c) => {
-          const id = typeof c.id === "string" ? c.id.toLowerCase() : "";
-          const title = typeof c.title === "string" ? c.title.toLowerCase() : "";
-          const desc = typeof c.description === "string" ? c.description.toLowerCase() : "";
-          return id.startsWith(q) || title.includes(q) || desc.includes(q);
-        });
-      }
-      output(result);
+      const pageSize = pageLimit(opts.limit, 100);
+      output(await collectAllPages(startOffset, async (offset) => {
+        const items = await fetchPage(offset, pageSize);
+        return {
+          items,
+          next: items.length < pageSize ? undefined : offset + items.length,
+        };
+      }, {
+        retries: 2,
+        retryBaseDelayMs: 100,
+        retryMaxDelayMs: 1_000,
+        interPageDelayMs: 50,
+        shouldRetry: (error) => error instanceof ApiError
+          && (error.status === 429 || error.status >= 500),
+      }));
     });
   card.command("create").requiredOption("--title <title>", "Card title").option("--board-id <id>", "Board ID").option("--column-name <name>", "Column name").option("--description <desc>", "Description").action(async (opts: { title: string; boardId?: string; columnName?: string; description?: string }) => {
     const { token, apiUrl } = getOpts(card);

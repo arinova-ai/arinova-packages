@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { basename } from "node:path";
 import type { Command } from "commander";
 import {
   buildQuery,
@@ -11,6 +9,7 @@ import {
   put,
   resolveClient,
 } from "../client.js";
+import { appendFileToForm } from "../file-upload.js";
 import { printResult } from "../output.js";
 import { parseJsonArray, parseJsonOption } from "../json-options.js";
 
@@ -18,9 +17,9 @@ const e = encodePathSegment;
 
 const apiClient = resolveClient;
 
-function fileForm(filePath: string): FormData {
+async function fileForm(filePath: string): Promise<FormData> {
   const form = new FormData();
-  form.append("file", new Blob([readFileSync(filePath)]), basename(filePath));
+  await appendFileToForm(form, "file", filePath);
   return form;
 }
 
@@ -80,7 +79,7 @@ export function registerImageCommands(program: Command): void {
       printResult(await apiClient(image).request({
         method: "POST",
         path: `/api/v1/image-projects/${e(id)}/assets${buildQuery({ role: opts.role })}`,
-        form: fileForm(opts.file),
+        form: await fileForm(opts.file),
         headers: { "Idempotency-Key": opts.idempotencyKey },
       }));
     });
@@ -164,7 +163,7 @@ export function registerImageCommands(program: Command): void {
     .option("--document-type <type>")
     .option("--document-id <id>")
     .action(async (opts) => {
-      const form = fileForm(opts.file);
+      const form = await fileForm(opts.file);
       form.append("role", opts.role);
       if (opts.conversationId) form.append("conversationId", opts.conversationId);
       if (opts.documentType) form.append("documentType", opts.documentType);

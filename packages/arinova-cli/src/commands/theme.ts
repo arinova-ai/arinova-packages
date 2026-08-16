@@ -21,6 +21,7 @@ import {
 } from "./theme-build.js";
 import { scaffoldThemeJs, slugifyThemeId } from "./theme-scaffold.js";
 import { generateDevHtml } from "./theme-dev.js";
+import { createFileBlob } from "../file-upload.js";
 
 export { isSafeBundleFileName, resolveThemeRootFile, validateManifestForBuild } from "./theme-build.js";
 export { scaffoldThemeJs, slugifyThemeId } from "./theme-scaffold.js";
@@ -118,8 +119,7 @@ export function registerTheme(program: Command): void {
         manifest: new Blob([blobPartFromBuffer(manifestData)], { type: "application/json" }),
       };
       if (resolvedBundle) {
-        const bundleData = readFileSync(resolvedBundle);
-        fields.bundle = new Blob([blobPartFromBuffer(bundleData)], { type: "application/zip" });
+        fields.bundle = await createFileBlob(resolvedBundle, { type: "application/zip" });
       }
       const data = await uploadMultipart("/api/v1/themes/upload", fields, "POST");
       printResult(data);
@@ -136,8 +136,7 @@ export function registerTheme(program: Command): void {
         manifest: new Blob([blobPartFromBuffer(manifestData)], { type: "application/json" }),
       };
       if (bundleFile) {
-        const bundleData = readFileSync(bundleFile);
-        fields.bundle = new Blob([blobPartFromBuffer(bundleData)], { type: "application/zip" });
+        fields.bundle = await createFileBlob(bundleFile, { type: "application/zip" });
       }
       const data = await uploadMultipart(`/api/v1/themes/${encodePathSegment(id)}`, fields, "PUT");
       printResult(data);

@@ -137,7 +137,7 @@ describe("auth command", () => {
 
   it("persists only a server-confirmed key from the active browser flow", async () => {
     const port = 29_000 + Math.floor(Math.random() * 10_000);
-    vi.spyOn(globalThis, "fetch")
+    const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({
         nonce: "a".repeat(64),
       }), { status: 200 }))
@@ -162,6 +162,10 @@ describe("auth command", () => {
       type: "user",
       apiKey: "ari_confirmed",
     });
+    expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({
+      method: "POST",
+      signal: expect.any(AbortSignal),
+    }));
   });
 
   it("does not persist a callback key when identity confirmation fails", async () => {

@@ -104,6 +104,7 @@ export function registerAuth(program: Command): void {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ callback }),
+            signal: AbortSignal.timeout(30_000),
           },
         );
         if (!registrationResponse.ok) {

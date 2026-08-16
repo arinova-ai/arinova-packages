@@ -124,12 +124,10 @@ describe("kanban card list — mocked server", () => {
     if (server) await server.close();
   });
 
-  // Casey REQUEST_CHANGES test 1
-  it("pure-numeric search hits hex branch and still matches title", async () => {
+  it("numeric-looking search remains a bounded server-side query", async () => {
     server = await startMockServer([
       [
         makeCard({ id: "aaaaaaaa-0000-0000-0000-000000000001", title: "card with 1234 in title" }),
-        makeCard({ id: "bbbbbbbb-0000-0000-0000-000000000002", title: "unrelated card" }),
       ],
     ]);
 
@@ -139,28 +137,25 @@ describe("kanban card list — mocked server", () => {
     expect(out).toHaveLength(1);
     expect(out[0].title).toBe("card with 1234 in title");
 
-    // Pure numeric "1234" is hex prefix → server `search` param must NOT be sent.
-    expect(server.requests[0].query.search).toBeUndefined();
+    expect(server.requests).toHaveLength(1);
+    expect(server.requests[0].query.search).toBe("1234");
+    expect(server.requests[0].query.limit).toBe("50");
   });
 
-  // Casey REQUEST_CHANGES test 2
-  it("hex prefix search finds match on second page via pagination", async () => {
-    const targetPrefix = "deadbeef";
+  it("hex-looking words do not trigger an implicit full-table scan", async () => {
     server = await startMockServer([
-      fillerCards(100), // page 1: 100 fillers (no match)
-      [makeCard({ id: `${targetPrefix}-1234-5678-9abc-def012345678`, title: "target" })], // page 2
+      [makeCard({ id: "deadbeef-1234-5678-9abc-def012345678", title: "target" })],
     ]);
 
-    const result = await runCli(server.url, ["kanban", "card", "list", "--search", targetPrefix]);
+    const result = await runCli(server.url, ["kanban", "card", "list", "--search", "deadbeef"]);
     expect(result.status).toBe(0);
     const out = JSON.parse(result.stdout) as Array<{ id: string }>;
     expect(out).toHaveLength(1);
-    expect(out[0].id.startsWith(targetPrefix)).toBe(true);
+    expect(out[0].id.startsWith("deadbeef")).toBe(true);
 
-    // At least 2 round trips with offset advancing.
-    expect(server.requests.length).toBeGreaterThanOrEqual(2);
+    expect(server.requests).toHaveLength(1);
+    expect(server.requests[0].query.search).toBe("deadbeef");
     expect(server.requests[0].query.offset).toBe("0");
-    expect(server.requests[1].query.offset).toBe("100");
   });
 
   // Casey REQUEST_CHANGES test 3
@@ -195,10 +190,9 @@ describe("kanban card list — mocked server", () => {
     const out = JSON.parse(result.stdout) as unknown[];
     expect(out).toHaveLength(2);
 
-    // Single round trip: server-side filter, default limit 200 caps at PAGE=100 first chunk
-    // but since server returned only 2 (< requested limit), loop terminates after one call.
     expect(server.requests).toHaveLength(1);
     expect(server.requests[0].query.search).toBe("kanban");
     expect(server.requests[0].query.offset).toBe("0");
+    expect(server.requests[0].query.limit).toBe("50");
   });
 });
