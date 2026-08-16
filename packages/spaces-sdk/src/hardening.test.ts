@@ -486,7 +486,7 @@ describe("stream and shared utility contracts", () => {
       self: null,
       top: {},
       parent,
-      location: { origin: "https://app.test" },
+      location: { origin: "https://app.test", hash: "#bridgeToken=bridge-1" },
       addEventListener: (_type: string, listener: (event: MessageEvent) => void) => listeners.push(listener),
       removeEventListener: (_type: string, listener: (event: MessageEvent) => void) => {
         const index = listeners.indexOf(listener);
@@ -501,7 +501,8 @@ describe("stream and shared utility contracts", () => {
     const connect = client.connect({ mode: "iframe", timeout: 1_000 });
     const validPayload = {
       type: "arinova:auth",
-      payload: { user: { id: "u1" }, accessToken: "token", expiresAt: Date.now() + 60_000 },
+      bridgeToken: "bridge-1",
+      payload: { protocolVersion: 1, user: { id: "u1" }, accessToken: "token", expiresAt: Date.now() + 60_000 },
     };
     listeners[0]!({ origin: "https://ui.test", source: {} as Window, data: validPayload } as MessageEvent);
     expect(client.session).toBeNull();
@@ -511,7 +512,7 @@ describe("stream and shared utility contracts", () => {
     const denied = client.requestScope("economy", { timeout: 1_000 });
     listeners[0]!({
       origin: "https://ui.test", source: parent as Window,
-      data: { type: "arinova:scope-denied", payload: { reason: "No consent" } },
+      data: { type: "arinova:scope-denied", bridgeToken: "bridge-1", payload: { protocolVersion: 1, reason: "No consent" } },
     } as MessageEvent);
     await expect(denied).rejects.toMatchObject({ code: "scope_denied", message: "No consent" });
   });

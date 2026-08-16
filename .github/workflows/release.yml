@@ -1,22 +1,19 @@
 name: Release
 
 # Changesets release flow:
-# merging feature PRs with pending changesets keeps a "Version Packages"
-# PR up to date; merging THAT PR is the human sign-off that bumps
-# versions, changelogs, and (when publishing is enabled) publishes to npm.
+# 1. A successful main CI run starts this workflow.
+# 2. Pending changesets create or update the version-packages PR.
+# 3. After that PR is merged, unpublished versions must pass the pinned
+#    Hermes host integration and a credentialed Arinova smoke test.
+# 4. Only then can npm Trusted Publishing run.
 #
-# Publishing uses npm Trusted Publishing (OIDC) — no npm token is stored
-# in this repo. Each package must have a Trusted Publisher configured on
-# npmjs.com pointing at this repo + workflow file.
-#
-# The NPM_PUBLISH_ENABLED repo variable gates the publish command:
-# anything other than 'true' keeps this workflow in version-PR-only mode
-# (changeset publish never runs, nothing can reach npm). Flip it in
-# Settings → Secrets and variables → Actions → Variables once the
-# pending package versions are confirmed ready to ship.
+# NPM_PUBLISH_ENABLED remains an explicit repository-level kill switch. Missing
+# live credentials fail the release gate before npm is touched.
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -37,24 +34,37 @@ on:
           - latest
           - staging
 
-permissions:
-  contents: write
-  pull-requests: write
-  id-token: write # npm Trusted Publishing (OIDC)
+permissions: {}
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name }}-${{ github.event.workflow_run.head_sha || github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Version PR / publish
+  version:
+    name: Version PR / detect unpublished packages
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    # Never run on forks: they lack permissions and must not attempt releases.
-    if: github.repository == 'arinova-ai/arinova-packages' && github.event_name == 'push'
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      has_changesets: ${{ steps.changesets.outputs.hasChangesets }}
+      has_unpublished: ${{ steps.unpublished.outputs.has_unpublished || 'false' }}
+      tested_sha: ${{ steps.context.outputs.tested_sha }}
+      unpublished_packages: ${{ steps.unpublished.outputs.packages || '[]' }}
     steps:
+      - id: context
+        name: Record the CI-tested commit
+        run: echo "tested_sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -63,34 +73,147 @@ jobs:
       - name: Install dependencies
         run: |
           set -euo pipefail
-          # npm >= 11.5.1 required for OIDC trusted publishing
           npm install -g npm@11 pnpm@10.28.2
           pnpm install --frozen-lockfile
 
       - name: Build
         run: pnpm -r build
 
-      - name: Create Version Packages PR or publish to npm
+      - id: changesets
+        name: Create or update the version-packages PR
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           title: "chore: version packages"
           commit: "chore: version packages"
-          # Empty publish input = version-PR-only mode; the gate keeps
-          # `changeset publish` unreachable until explicitly enabled.
-          publish: ${{ vars.NPM_PUBLISH_ENABLED == 'true' && 'pnpm changeset publish' || '' }}
+          branch: main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  publish-package:
-    name: Publish selected package
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+      - name: Request trusted CI for the version-packages PR
+        if: >-
+          steps.changesets.outputs.hasChangesets == 'true' &&
+          steps.changesets.outputs.pullRequestNumber != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
+        run: |
+          set -euo pipefail
+          head_sha="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)"
+          jq -n \
+            --argjson pull_request_number "$PR_NUMBER" \
+            --arg head_sha "$head_sha" \
+            '{
+              event_type: "trusted-automation-pr-ci",
+              client_payload: {
+                pull_request_number: $pull_request_number,
+                head_sha: $head_sha
+              }
+            }' | gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" --input -
+
+      - id: unpublished
+        name: Detect versions that are not on npm
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        run: |
+          set -euo pipefail
+          unpublished="$(node .github/scripts/find-unpublished-packages.mjs)"
+          echo "packages=$unpublished" >> "$GITHUB_OUTPUT"
+          if [[ "$unpublished" == "[]" ]]; then
+            echo "has_unpublished=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_unpublished=true" >> "$GITHUB_OUTPUT"
+            echo "Unpublished packages: $unpublished"
+          fi
+
+  release-gate:
+    name: Hermes and live Arinova release gate
+    needs: version
     if: >-
-      github.repository == 'arinova-ai/arinova-packages' &&
-      github.event_name == 'workflow_dispatch' &&
+      needs.version.result == 'success' &&
+      needs.version.outputs.has_changesets == 'false' &&
+      needs.version.outputs.has_unpublished == 'true' &&
       vars.NPM_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.tested_sha }}
+
+      - name: Check out the pinned Hermes host
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NousResearch/hermes-agent
+          ref: f51aa6a9b5ce514e15f8e337777f522fd5cc6fa2
+          path: .ci/hermes-agent
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Require live release credentials
+        env:
+          ARINOVA_SERVER_URL: ${{ secrets.ARINOVA_SERVER_URL }}
+          ARINOVA_BOT_TOKEN: ${{ secrets.ARINOVA_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$ARINOVA_SERVER_URL" || -z "$ARINOVA_BOT_TOKEN" ]]; then
+            echo "::error::ARINOVA_SERVER_URL and ARINOVA_BOT_TOKEN Actions secrets are required before npm publishing"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm install -g pnpm@10.28.2
+          pnpm install --frozen-lockfile
+          python -m pip install --disable-pip-version-check -e \
+            "git+https://github.com/NousResearch/hermes-agent.git@f51aa6a9b5ce514e15f8e337777f522fd5cc6fa2#egg=hermes-agent"
+
+      - name: Build and sync the workspace SDK
+        run: |
+          set -euo pipefail
+          pnpm -r build
+          packages/hermes-arinova-plugin/scripts/sync-sidecar-sdk.sh
+
+      - name: Run the release gate
+        env:
+          ARINOVA_SERVER_URL: ${{ secrets.ARINOVA_SERVER_URL }}
+          ARINOVA_BOT_TOKEN: ${{ secrets.ARINOVA_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          python packages/hermes-arinova-plugin/scripts/check_local.py \
+            --hermes-root "$GITHUB_WORKSPACE/.ci/hermes-agent" \
+            --hermes-python "$(command -v python)" \
+            --require-credentials
+
+  publish:
+    name: Publish changesets to npm
+    needs:
+      - version
+      - release-gate
+    if: >-
+      always() &&
+      needs.version.result == 'success' &&
+      needs.version.outputs.has_changesets == 'false' &&
+      needs.version.outputs.has_unpublished == 'true' &&
+      needs.release-gate.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.tested_sha }}
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -104,7 +227,86 @@ jobs:
           pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm --filter "./packages/${{ inputs.package }}" run --if-present build
+        run: pnpm -r build
+
+      - name: Publish to npm
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        with:
+          branch: main
+          publish: pnpm changeset publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-package:
+    name: Verify and publish selected package
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check out the pinned Hermes host
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NousResearch/hermes-agent
+          ref: f51aa6a9b5ce514e15f8e337777f522fd5cc6fa2
+          path: .ci/hermes-agent
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Require publishing and live credentials
+        env:
+          NPM_PUBLISH_ENABLED: ${{ vars.NPM_PUBLISH_ENABLED }}
+          ARINOVA_SERVER_URL: ${{ secrets.ARINOVA_SERVER_URL }}
+          ARINOVA_BOT_TOKEN: ${{ secrets.ARINOVA_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ "$NPM_PUBLISH_ENABLED" != "true" ]]; then
+            echo "::error::NPM_PUBLISH_ENABLED must be true for manual publishing"
+            exit 1
+          fi
+          if [[ -z "$ARINOVA_SERVER_URL" || -z "$ARINOVA_BOT_TOKEN" ]]; then
+            echo "::error::ARINOVA_SERVER_URL and ARINOVA_BOT_TOKEN Actions secrets are required before npm publishing"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm install -g npm@11 pnpm@10.28.2
+          pnpm install --frozen-lockfile
+          python -m pip install --disable-pip-version-check -e \
+            "git+https://github.com/NousResearch/hermes-agent.git@f51aa6a9b5ce514e15f8e337777f522fd5cc6fa2#egg=hermes-agent"
+
+      - name: Run the full repository checks
+        run: |
+          set -euo pipefail
+          pnpm -r build
+          packages/hermes-arinova-plugin/scripts/sync-sidecar-sdk.sh
+          pnpm -r lint
+          pnpm -r test
+
+      - name: Run the release gate
+        env:
+          ARINOVA_SERVER_URL: ${{ secrets.ARINOVA_SERVER_URL }}
+          ARINOVA_BOT_TOKEN: ${{ secrets.ARINOVA_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          python packages/hermes-arinova-plugin/scripts/check_local.py \
+            --hermes-root "$GITHUB_WORKSPACE/.ci/hermes-agent" \
+            --hermes-python "$(command -v python)" \
+            --require-credentials
 
       - name: Publish
         working-directory: packages/${{ inputs.package }}

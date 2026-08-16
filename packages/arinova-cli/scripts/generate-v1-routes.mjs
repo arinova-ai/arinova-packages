@@ -22,7 +22,8 @@ function authKind(path) {
   if (
     path.startsWith("/api/v1/user/") ||
     path.startsWith("/api/v1/agent/chat") ||
-    path.startsWith("/api/v1/economy/")
+    path.startsWith("/api/v1/economy/") ||
+    /^\/api\/v1\/spaces\/[^/]+\/(?:storage|products|inventory)(?:\/|$)/.test(path)
   ) {
     return "oauth";
   }
@@ -36,6 +37,7 @@ function requestMode(method, path) {
     path.endsWith("/import") ||
     path.endsWith("/assets") ||
     path.endsWith("/cover") ||
+    /^\/api\/v1\/spaces\/[^/]+\/versions$/.test(path) ||
     path === "/api/v1/image-assets"
   ) {
     return "multipart-or-json";

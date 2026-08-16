@@ -2,7 +2,7 @@
 
 `@arinova-ai/cli` manages Arinova resources through the current `/api/v1`
 contract. The checked-in route fixture is pinned to server commit
-`33b7c06ad9df8b9cb5ab9e21fff109955a3cc3cc`.
+`bf339484156c6f47c440b6690cf1d10bebad8698`.
 
 ## Install and authenticate
 
@@ -46,6 +46,46 @@ Run `arinova <command> --help` for every option.
 Resource commands consistently use `list`, `show`, `create`, `update`, and
 `delete`; lifecycle commands retain server terminology such as `archive`,
 `publish`, `activate`, `pause`, and `cancel`.
+
+## Managed Space bundles
+
+Managed Spaces are uploaded bundles, not external iframe URLs. Create an OAuth
+app first, then use its `clientId` as the exact `id` in `space.json`:
+
+```sh
+arinova app create \
+  --name "My Space" \
+  --client-id my-space \
+  --redirect-uri "https://example.invalid/space-oauth-callback"
+arinova space create --name "My Space"
+arinova space init my-space
+cd my-space
+# Replace YOUR_OAUTH_CLIENT_ID in space.json with the returned Client ID.
+arinova space build
+arinova space version create <space-id> --bundle dist/my-space-1.0.0.zip
+arinova space version preview <space-id> <version-id>
+arinova space version publish <space-id> <version-id>
+```
+
+`space build` packs `space.json` plus nested web assets and mirrors the server's
+manifest, path, extension, `<base>`, symlink, file-count, and size checks. The
+generated manifest pre-allows the selected Arinova API origin because an opaque
+managed iframe cannot reach it through CSP `connect-src 'self'` alone.
+
+`space version rollback` is a fresh publish operation: it runs the current
+safety scan again, revokes all Space OAuth tokens, and disconnects online
+players. A rejected version can be inspected with `space version scan` and
+retried with `space version rescan` after an underlying scanner false positive
+is fixed. Content fixes require a replacement bundle with a bumped manifest
+version.
+
+`space storage *` is a runtime API. Pass a Space-bound OAuth access token via
+the global `--token`; a creator API key is not valid for these commands.
+
+Creator catalog management is available under `space products` (`list`,
+`create`, `update`, `deactivate`, and `wind-down`). Deactivation blocks new
+purchases but leaves existing subscription renewals active; `wind-down`
+cancels those renewals at the current period end.
 
 ## Output, files, and streams
 

@@ -1,5 +1,4 @@
 import { request, requestStream, ArinovaError } from "./http.js";
-import { randomString } from "./pkce.js";
 import type {
   AgentChatEvent,
   AgentChatParams,
@@ -8,9 +7,14 @@ import type {
   ArinovaSession,
   ArinovaUser,
   BalanceResponse,
-  PurchaseParams,
-  PurchaseResponse,
+  ConsumeInventoryParams,
+  ConsumeInventoryResponse,
   RequestOptions,
+  SpaceInventoryResponse,
+  SpaceProductsResponse,
+  SpacePurchaseResult,
+  SpaceStorageEntry,
+  SpaceStorageListResponse,
   TransactionsParams,
   TransactionsResponse,
 } from "./types.js";
@@ -45,6 +49,43 @@ export class ResourceTransport {
       ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
       ...options,
     });
+  }
+
+  async apiPut<T>(
+    path: string,
+    body: unknown,
+    options: RequestOptions = {},
+  ): Promise<T> {
+    return request<T>(`${this.apiUrl}${path}`, {
+      method: "PUT",
+      token: this.requireToken(),
+      body: JSON.stringify(body),
+      ...options,
+    });
+  }
+
+  async apiDelete<T>(
+    path: string,
+    options: RequestOptions = {},
+  ): Promise<T> {
+    return request<T>(`${this.apiUrl}${path}`, {
+      method: "DELETE",
+      token: this.requireToken(),
+      ...options,
+    });
+  }
+
+  requireSpaceId(): string {
+    this.requireToken();
+    const spaceId = this.getSession()?.spaceId;
+    if (!spaceId) {
+      throw new ArinovaError(
+        "This operation requires a Space-bound OAuth session",
+        0,
+        "space_session_required",
+      );
+    }
+    return spaceId;
   }
 
   async *streamChat(
@@ -139,18 +180,6 @@ export class EconomyApi {
     return this.client.apiGet<BalanceResponse>("/api/v1/economy/balance", options);
   }
 
-  purchase(
-    params: PurchaseParams,
-    options?: RequestOptions,
-  ): Promise<PurchaseResponse> {
-    const idempotencyKey = params.idempotencyKey?.trim() || `purchase_${randomString(16)}`;
-    return this.client.apiPost<PurchaseResponse>(
-      "/api/v1/economy/purchase",
-      { ...params, idempotencyKey },
-      options,
-    );
-  }
-
   transactions(
     params: TransactionsParams = {},
     options?: RequestOptions,
@@ -163,6 +192,133 @@ export class EconomyApi {
       `/api/v1/economy/transactions${suffix ? `?${suffix}` : ""}`,
       options,
     );
+  }
+}
+
+export class CommerceApi {
+  constructor(
+    private readonly client: ResourceTransport,
+    private readonly purchaseBridge: (
+      productKey: string,
+      options?: { timeout?: number },
+    ) => Promise<SpacePurchaseResult>,
+  ) {}
+
+  requestPurchase(
+    productKey: string,
+    options?: { timeout?: number },
+  ): Promise<SpacePurchaseResult> {
+    return this.purchaseBridge(productKey, options);
+  }
+
+  products(options?: RequestOptions): Promise<SpaceProductsResponse> {
+    const spaceId = this.client.requireSpaceId();
+    return this.client.apiGet<SpaceProductsResponse>(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/products`,
+      options,
+    );
+  }
+
+  inventory(options?: RequestOptions): Promise<SpaceInventoryResponse> {
+    const spaceId = this.client.requireSpaceId();
+    return this.client.apiGet<SpaceInventoryResponse>(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/inventory`,
+      options,
+    );
+  }
+
+  consume(
+    productKey: string,
+    params: ConsumeInventoryParams,
+    options?: RequestOptions,
+  ): Promise<ConsumeInventoryResponse> {
+    if (!validProductKey(productKey)) {
+      throw new ArinovaError("Invalid Space product key", 0, "invalid_product_key");
+    }
+    if (
+      !params
+      || !Number.isInteger(params.quantity)
+      || params.quantity < 1
+      || params.quantity > 100_000
+    ) {
+      throw new ArinovaError(
+        "quantity must be an integer from 1 to 100000",
+        0,
+        "invalid_quantity",
+      );
+    }
+    if (!visibleAscii(params.idempotencyKey, 128)) {
+      throw new ArinovaError(
+        "idempotencyKey must contain 1–128 visible ASCII characters",
+        0,
+        "invalid_idempotency_key",
+      );
+    }
+    const spaceId = this.client.requireSpaceId();
+    return this.client.apiPost<ConsumeInventoryResponse>(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/inventory/${encodeURIComponent(productKey)}/consume`,
+      params,
+      options,
+    );
+  }
+}
+
+export class StorageApi {
+  constructor(private readonly client: ResourceTransport) {}
+
+  list<T = unknown>(
+    options?: RequestOptions,
+  ): Promise<SpaceStorageListResponse<T>> {
+    const spaceId = this.client.requireSpaceId();
+    return this.client.apiGet<SpaceStorageListResponse<T>>(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/storage`,
+      options,
+    );
+  }
+
+  get<T = unknown>(
+    key: string,
+    options?: RequestOptions,
+  ): Promise<SpaceStorageEntry<T>> {
+    this.assertKey(key);
+    const spaceId = this.client.requireSpaceId();
+    return this.client.apiGet<SpaceStorageEntry<T>>(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/storage/${encodeURIComponent(key)}`,
+      options,
+    );
+  }
+
+  set<T = unknown>(
+    key: string,
+    value: T,
+    options?: RequestOptions,
+  ): Promise<SpaceStorageEntry<T>> {
+    this.assertKey(key);
+    const spaceId = this.client.requireSpaceId();
+    return this.client.apiPut<SpaceStorageEntry<T>>(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/storage/${encodeURIComponent(key)}`,
+      { value },
+      options,
+    );
+  }
+
+  delete(key: string, options?: RequestOptions): Promise<void> {
+    this.assertKey(key);
+    const spaceId = this.client.requireSpaceId();
+    return this.client.apiDelete<void>(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/storage/${encodeURIComponent(key)}`,
+      options,
+    );
+  }
+
+  private assertKey(key: string): void {
+    if (!validStorageKey(key)) {
+      throw new ArinovaError(
+        "Invalid Space storage key",
+        0,
+        "invalid_storage_key",
+      );
+    }
   }
 }
 
@@ -186,6 +342,27 @@ export class AgentApi {
   ): AsyncGenerator<AgentChatEvent> {
     return this.client.streamChat(params, options);
   }
+}
+
+function visibleAscii(value: string, maxLength: number): boolean {
+  return value.length > 0
+    && value.length <= maxLength
+    && [...value].every((character) => {
+      const code = character.charCodeAt(0);
+      return code >= 0x21 && code <= 0x7e;
+    });
+}
+
+function validProductKey(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value);
+}
+
+function validStorageKey(value: string): boolean {
+  return value !== "."
+    && value !== ".."
+    && new TextEncoder().encode(value).length <= 200
+    && value.length > 0
+    && ![...value].some((character) => /\p{Cc}/u.test(character));
 }
 
 function parseSseLine(line: string): AgentChatEvent | undefined {

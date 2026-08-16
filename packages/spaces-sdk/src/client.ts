@@ -3,8 +3,10 @@ import { ArinovaError, stripTrailingSlash } from "./http.js";
 import { OAuthFlow, validateRedirectUri } from "./oauth.js";
 import {
   AgentApi,
+  CommerceApi,
   EconomyApi,
   ResourceTransport,
+  StorageApi,
   UserApi,
 } from "./resources.js";
 import type {
@@ -32,6 +34,8 @@ export class Arinova {
   readonly scopes: string[];
   readonly user: UserApi;
   readonly economy: EconomyApi;
+  readonly commerce: CommerceApi;
+  readonly storage: StorageApi;
   readonly agent: AgentApi;
 
   private _session: ArinovaSession | null = null;
@@ -73,6 +77,11 @@ export class Arinova {
     this.resources = new ResourceTransport(this.apiUrl, () => this._session);
     this.user = new UserApi(this.resources);
     this.economy = new EconomyApi(this.resources);
+    this.commerce = new CommerceApi(
+      this.resources,
+      (productKey, options) => this.embedded.requestPurchase(productKey, options),
+    );
+    this.storage = new StorageApi(this.resources);
     this.agent = new AgentApi(this.resources);
   }
 

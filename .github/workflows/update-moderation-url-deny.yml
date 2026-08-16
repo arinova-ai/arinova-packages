@@ -29,29 +29,57 @@ jobs:
           pnpm install --frozen-lockfile
       - run: pnpm --filter @arinova-ai/moderation-baseline update:url-deny
       - run: pnpm --filter @arinova-ai/moderation-baseline test
-      - name: Open update pull request
+      - name: Open or refresh the update pull request
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           if git diff --quiet -- packages/moderation-baseline/dict/url_deny.toml; then
             echo "URL deny baseline is already current"
             exit 0
           fi
-          if gh pr list --state open --json headRefName \
-            --jq 'map(select(.headRefName | startswith("automation/update-url-deny-"))) | length' \
-            | grep -qv '^0$'; then
-            echo "An URL deny update pull request is already open"
-            exit 0
+
+          existing_pr="$(gh pr list --state open --json number,headRefName \
+            --jq '[.[] | select(.headRefName | startswith("automation/update-url-deny-"))][0] // {}')"
+          pr_number="$(jq -r '.number // empty' <<<"$existing_pr")"
+          branch="$(jq -r '.headRefName // empty' <<<"$existing_pr")"
+          expected_head=""
+          if [[ -n "$branch" ]]; then
+            git fetch --no-tags origin "refs/heads/$branch:refs/remotes/origin/$branch"
+            expected_head="$(git rev-parse "refs/remotes/origin/$branch")"
+          else
+            branch="automation/update-url-deny-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           fi
-          branch="automation/update-url-deny-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
           git add packages/moderation-baseline/dict/url_deny.toml
           git commit -m "chore(moderation-baseline): refresh URL deny snapshot"
-          git push --set-upstream origin "$branch"
-          gh pr create \
-            --title "chore(moderation-baseline): refresh URL deny snapshot" \
-            --body "Automated bounded refresh of the moderation URL deny baseline. Package tests passed before this PR was opened." \
-            --base main \
-            --head "$branch"
+
+          if [[ -n "$pr_number" ]]; then
+            git push \
+              --force-with-lease="refs/heads/$branch:$expected_head" \
+              origin "HEAD:refs/heads/$branch"
+            echo "Refreshed PR #$pr_number from the latest main"
+          else
+            git push --set-upstream origin "$branch"
+            pr_url="$(gh pr create \
+              --title "chore(moderation-baseline): refresh URL deny snapshot" \
+              --body "Automated bounded refresh of the moderation URL deny baseline. Package tests passed before this PR was opened." \
+              --base main \
+              --head "$branch")"
+            pr_number="${pr_url##*/}"
+          fi
+
+          head_sha="$(git rev-parse HEAD)"
+          jq -n \
+            --argjson pull_request_number "$pr_number" \
+            --arg head_sha "$head_sha" \
+            '{
+              event_type: "trusted-automation-pr-ci",
+              client_payload: {
+                pull_request_number: $pull_request_number,
+                head_sha: $head_sha
+              }
+            }' | gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" --input -
