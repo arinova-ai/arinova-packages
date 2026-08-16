@@ -62,6 +62,9 @@ describe("PKCE invariants and popup lifecycle", () => {
     expect(() => new Arinova({ clientId: "app-1", redirectUri: "" })).toThrow(/absolute/);
     expect(() => new Arinova({ clientId: "app-1", redirectUri: "/callback" })).toThrow(/absolute/);
     expect(() => new Arinova({ clientId: "app-1", redirectUri: "javascript:alert(1)" })).toThrow(/absolute/);
+    expect(() => new Arinova({ clientId: "app-1", redirectUri: "httpsfoo://evil.test/callback" })).toThrow(/absolute/);
+    expect(() => new Arinova({ clientId: "app-1", redirectUri: "http://app.test/callback" })).toThrow(/absolute/);
+    expect(() => new Arinova({ clientId: "app-1", redirectUri: "http://localhost:3000/callback" })).not.toThrow();
   });
 
   it("recomputes the authorize challenge and clears popup PKCE state after success", async () => {
@@ -146,6 +149,26 @@ describe("PKCE invariants and popup lifecycle", () => {
     }));
     await new Arinova({ clientId: "app-1", apiUrl: "https://api.test", redirectUri: "https://app.test/callback" }).handleCallback();
     expect(replaceState).toHaveBeenCalledWith(null, "", "https://app.test/callback?keep=yes");
+  });
+
+  it("preserves redirect PKCE state when token exchange fails so it can be retried", async () => {
+    const { storage, values } = storageStub({
+      arinova_pkce_verifier: "verifier-1",
+      arinova_pkce_state: "state-1",
+    });
+    vi.stubGlobal("sessionStorage", storage);
+    vi.stubGlobal("window", {
+      location: { href: "https://app.test/callback?code=code-1&state=state-1" },
+    });
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new TypeError("offline"));
+
+    await expect(new Arinova({
+      clientId: "app-1",
+      apiUrl: "https://api.test",
+      redirectUri: "https://app.test/callback",
+    }).handleCallback()).rejects.toMatchObject({ code: "network_error" });
+    expect(values.get("arinova_pkce_verifier")).toBe("verifier-1");
+    expect(values.get("arinova_pkce_state")).toBe("state-1");
   });
 
   it.each([
@@ -296,6 +319,77 @@ describe("typed HTTP failures and cancellation", () => {
     await vi.advanceTimersByTimeAsync(100);
     await expect(pending).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects negative Retry-After and caps long retry delays", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("busy", {
+        status: 503,
+        headers: { "Retry-After": "-1" },
+      }))
+      .mockResolvedValueOnce(new Response("busy", {
+        status: 503,
+        headers: { "Retry-After": "3600" },
+      }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+    const pending = request<{ ok: boolean }>("https://api.test/data", {
+      retries: 2,
+      timeoutMs: 10_000,
+    });
+
+    await vi.advanceTimersByTimeAsync(99);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("observes abort while a retry response body is being cancelled", async () => {
+    let cancellationStarted!: () => void;
+    const started = new Promise<void>((resolve) => { cancellationStarted = resolve; });
+    const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        cancellationStarted();
+        return new Promise<void>(() => {});
+      },
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(body, {
+      status: 503,
+      headers: { "Retry-After": "1" },
+    }));
+    const controller = new AbortController();
+    const pending = request("https://api.test/data", {
+      retries: 1,
+      signal: controller.signal,
+    });
+    await started;
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: "aborted" });
+  });
+
+  it("rejects oversized buffered JSON before parsing", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("12345", {
+      headers: { "Content-Length": "5" },
+    }));
+
+    await expect(request("https://api.test/data", { maxResponseBytes: 4 }))
+      .rejects.toMatchObject({ code: "response_too_large" });
+
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("12345"));
+          controller.close();
+        },
+      }),
+    ));
+    await expect(request("https://api.test/data", { maxResponseBytes: 4 }))
+      .rejects.toMatchObject({ code: "response_too_large" });
   });
 });
 

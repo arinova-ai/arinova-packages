@@ -66,7 +66,3 @@ export interface InternalEvent {
   timestamp: number;
   data: Record<string, unknown>;
 }
-
-// Legacy aliases for backwards compatibility with direct integration
-export type HookEventType = InternalEventType;
-export type HookEvent = InternalEvent;

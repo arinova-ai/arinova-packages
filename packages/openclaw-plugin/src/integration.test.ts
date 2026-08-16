@@ -211,66 +211,6 @@ describe.skipIf(!HAS_TOKEN)("kanban integration", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Wiki CRUD
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe.skipIf(!HAS_TOKEN)("wiki integration", () => {
-  let pageId: string;
-
-  afterAll(async () => {
-    // Cleanup stale test wiki pages
-    const pages = await api<any[]>("GET", `/api/v1/wiki?conversationId=${CONV_ID}`).catch(() => []);
-    if (Array.isArray(pages)) {
-      for (const p of pages) {
-        if (typeof p.title === "string" && p.title.startsWith("__plugin_test")) {
-          await tryDelete(`/api/v1/wiki/${p.id}`);
-        }
-      }
-    }
-  });
-
-  it("create wiki page", async () => {
-    const res = await api<{ id: string }>("POST", "/api/v1/wiki", {
-      conversationId: CONV_ID,
-      title: "__plugin_test_wiki__",
-      content: "integration test content",
-      tags: ["test"],
-    });
-    expect(res.id).toBeDefined();
-    pageId = res.id;
-  });
-
-  it("list wiki pages — find created", async () => {
-    const pages = await api<any[]>("GET", `/api/v1/wiki?conversationId=${CONV_ID}`);
-    expect(Array.isArray(pages)).toBe(true);
-    if (pageId) {
-      expect(pages.some((p: any) => p.id === pageId)).toBe(true);
-    }
-  });
-
-  it("get wiki page", async () => {
-    if (!pageId) return;
-    const page = await api<{ id: string; title: string }>("GET", `/api/v1/wiki/${pageId}`);
-    expect(page.id).toBe(pageId);
-    expect(page.title).toBe("__plugin_test_wiki__");
-  });
-
-  it("update wiki page", async () => {
-    if (!pageId) return;
-    const res = await api("PATCH", `/api/v1/wiki/${pageId}`, {
-      title: "__plugin_test_wiki_updated__",
-    });
-    expect(res).toBeDefined();
-  });
-
-  it("delete wiki page (cleanup)", async () => {
-    if (!pageId) return;
-    await tryDelete(`/api/v1/wiki/${pageId}`);
-    pageId = "";
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
 // Search
 // ═══════════════════════════════════════════════════════════════════════════
 

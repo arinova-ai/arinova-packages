@@ -199,7 +199,7 @@ The `sdk` object is passed to your `init(sdk, container)`.
 | Method | Signature | Description |
 |---|---|---|
 | `sdk.assetUrl(path)` | `(relativePath: string) => string` | Resolve a **flat** asset filename (e.g. `"bg.png"`) to a same-origin URL. Filenames are a single segment — no subdirectories. To load JSON: `fetch(sdk.assetUrl("data.json")).then(r => r.json())`. |
-| `sdk.loadJSON(path)` | `<T>(relativePath: string) => Promise<T>` | Load and parse a JSON theme asset. |
+| `sdk.loadJSON(path)` | `<T>(relativePath: string) => Promise<T>` | Load and parse a JSON theme asset with SDK memoization, force-cache semantics, and a 15-second timeout. |
 | `sdk.getAgent(id)` | `(id: string) => Agent \| undefined` | Find an office agent by id. |
 | `sdk.agent` | `Agent \| null` | First office agent convenience accessor. |
 

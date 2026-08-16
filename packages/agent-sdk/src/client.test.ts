@@ -65,14 +65,65 @@ describe("API client request builders", () => {
       "https://chat.example.test/api/v1/messages/send",
       {
         method: "POST",
-        headers: {
+        headers: expect.objectContaining({
           Authorization: "Bearer ari_bot_token",
           "Content-Type": "application/json",
-        },
+          "Idempotency-Key": expect.stringMatching(/^call_/),
+        }),
         body: JSON.stringify({ conversationId: "conv-1", content: "Hello" }),
         signal: expect.any(AbortSignal),
       },
     );
+  });
+
+  it("sends reply metadata through the typed HTTP message helper", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(null, { status: 204 }),
+    );
+    const agent = new ArinovaAgent({
+      serverUrl: "wss://chat.example.test",
+      botToken: "ari_bot_token",
+    });
+
+    await agent.replyToMessage("conv-1", "Reply", "message-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://chat.example.test/api/v1/messages/send",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          conversationId: "conv-1",
+          content: "Reply",
+          replyTo: "message-1",
+        }),
+      }),
+    );
+  });
+
+  it("retries GET and idempotency-keyed send requests, but not ordinary mutations", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("busy", {
+        status: 503,
+        headers: { "Retry-After": "0" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([])))
+      .mockResolvedValueOnce(new Response("busy", {
+        status: 503,
+        headers: { "Retry-After": "0" },
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response("busy", { status: 503 }));
+    const agent = new ArinovaAgent({
+      serverUrl: "wss://chat.example.test",
+      botToken: "ari_bot_token",
+    });
+
+    await expect(agent.listBoards()).resolves.toEqual([]);
+    await expect(agent.sendMessage("conv-1", "Hello")).resolves.toBeUndefined();
+    await expect(agent.createNote({ title: "No retry" })).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("uses the injected logger and can be silenced", () => {
@@ -286,11 +337,11 @@ describe("API client request builders", () => {
       serverUrl: "wss://chat.example.test",
       botToken: "ari_bot_token",
     });
-    await agent.listNotes({ limit: 10 });
+    await agent.listNotes({ notebookId: "book/1", limit: 10 });
     await agent.createNote({ title: "Note" });
     await agent.deleteNote("n1");
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      "https://chat.example.test/api/v1/notes?limit=10",
+      "https://chat.example.test/api/v1/notes?notebookId=book%2F1&limit=10",
       "https://chat.example.test/api/v1/notes",
       "https://chat.example.test/api/v1/notes/n1",
     ]);
@@ -325,6 +376,7 @@ describe("API client request builders", () => {
       const isVoid =
         method === "DELETE" ||
         url.endsWith("/archive") ||
+        url.endsWith("/unarchive") ||
         url.endsWith("/columns/reorder") ||
         (method === "POST" && (url.endsWith("/notes") || url.endsWith("/labels")));
       return isVoid
@@ -337,9 +389,11 @@ describe("API client request builders", () => {
     });
 
     await agent.listBoards();
+    await agent.listBoardsWithOptions({ limit: 50, offset: 2 });
     await agent.createBoard({ name: "Roadmap" });
     await agent.updateBoard("board/1", { name: "Plan" });
     await agent.archiveBoard("board/1");
+    await agent.unarchiveBoard("board/1");
     await agent.listColumns("board/1");
     await agent.createColumn("board/1", { name: "Todo" });
     await agent.updateColumn("column/1", { name: "Doing" });
@@ -363,7 +417,10 @@ describe("API client request builders", () => {
     await agent.removeCardLabel("card/1", "label/1");
     await agent.fetchSkillPrompt("draw/../safe");
 
-    expect(calls).toHaveLength(26);
+    expect(calls).toHaveLength(28);
+    expect(calls.map(({ url }) => url)).toContain(
+      "https://chat.example.test/api/v1/kanban/boards?limit=50&offset=2",
+    );
     expect(calls.map(({ url, init }) => `${init.method} ${url}`)).toContain(
       "GET https://chat.example.test/api/v1/skills/draw%2F%2E%2E%2Fsafe/prompt",
     );
@@ -384,7 +441,7 @@ describe("API client request builders", () => {
 
     vi.spyOn(globalThis, "fetch")
       .mockRejectedValueOnce(new TypeError("network down"));
-    await expect(request("GET", "/network", { errorLabel: "Network" }))
+    await expect(request("GET", "/network", { errorLabel: "Network", retries: 0 }))
       .rejects.toMatchObject({
         name: "ArinovaApiError",
         status: 0,
@@ -409,6 +466,44 @@ describe("API client request builders", () => {
     await expect(request("GET", "/timeout", { timeoutMs: 5 }))
       .rejects.toMatchObject({ status: 0, message: expect.stringContaining("timed out") });
   });
+
+  it("bounds REST bodies and reuses ETag responses for hot lists", async () => {
+    const agent = new ArinovaAgent({
+      serverUrl: "wss://chat.example.test",
+      botToken: "ari_bot_token",
+    });
+    const request = (agent as unknown as {
+      request: <T>(method: string, path: string, options: Record<string, unknown>) => Promise<T>;
+    }).request.bind(agent);
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("oversized", {
+      headers: { "Content-Length": "9" },
+    }));
+    await expect(request("GET", "/large", { maxResponseBytes: 8, retries: 0 }))
+      .rejects.toThrow("Response exceeds 8 byte limit");
+
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("oversized"));
+          controller.close();
+        },
+      }),
+    ));
+    await expect(request("GET", "/streamed-large", { maxResponseBytes: 8, retries: 0 }))
+      .rejects.toThrow("Response exceeds 8 byte limit");
+
+    const history = { messages: [], hasMore: false };
+    const fetchMock = vi.mocked(globalThis.fetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify(history), {
+        headers: { ETag: '"history-1"' },
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 304 }));
+    await expect(agent.fetchHistory("conv-1")).resolves.toEqual(history);
+    await expect(agent.fetchHistory("conv-1")).resolves.toEqual(history);
+    expect(fetchMock.mock.calls.at(-1)?.[1]?.headers).toMatchObject({
+      "If-None-Match": '"history-1"',
+    });
+  });
 });
 
 // ── Per-conversation queue tests (real ArinovaAgent) ─────────
@@ -431,10 +526,12 @@ describe("per-conversation task queue", () => {
       flushPendingTerminalEvents: () => void;
       sendChunkEvent: (event: Record<string, unknown>) => void;
       activeConversationTasks: Map<string, string>;
-      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      taskQueue: { queues: Map<string, Array<Record<string, unknown>>> };
       taskAbortControllers: Map<string, AbortController>;
-      pendingChunkEvents: Array<Record<string, unknown>>;
-      pendingTerminalEvents: Array<Record<string, unknown>>;
+      outbound: {
+        pendingChunks: Array<Record<string, unknown>>;
+        pendingTerminal: Array<Record<string, unknown>>;
+      };
       ws: { readyState: number; send: ReturnType<typeof vi.fn> } | null;
       send: (event: Record<string, unknown>) => void;
       pendingActionCalls: Map<string, unknown>;
@@ -462,7 +559,7 @@ describe("per-conversation task queue", () => {
 
     expect(a.taskAbortControllers.has("t1")).toBe(true);
     expect(a.taskAbortControllers.has("t2")).toBe(false); // queued, not started
-    expect(a.conversationQueues.get("conv-A")?.length).toBe(1);
+    expect(a.taskQueue.queues.get("conv-A")?.length).toBe(1);
   });
 
   it("forwards agent-sender identity (senderAgentId/senderAgentName) to the task context", () => {
@@ -522,12 +619,12 @@ describe("per-conversation task queue", () => {
     a.handleTask({ taskId: "t2", conversationId: "conv-A", content: "second" });
 
     expect(a.activeConversationTasks.get("conv-A")).toBe("t1");
-    expect(a.conversationQueues.get("conv-A")?.length).toBe(1);
+    expect(a.taskQueue.queues.get("conv-A")?.length).toBe(1);
 
     // Complete t1 — should auto-start t2
     savedCtx!.sendComplete("done");
     expect(a.activeConversationTasks.get("conv-A")).toBe("t2");
-    expect(a.conversationQueues.has("conv-A")).toBe(false);
+    expect(a.taskQueue.queues.has("conv-A")).toBe(false);
   });
 
   it("cancel queued task removes from queue without aborting active", () => {
@@ -539,11 +636,11 @@ describe("per-conversation task queue", () => {
     a.handleTask({ taskId: "t3", conversationId: "conv-A", content: "third" });
 
     // Simulate cancel_task for queued t2
-    const queue = a.conversationQueues.get("conv-A")!;
+    const queue = a.taskQueue.queues.get("conv-A")!;
     const idx = queue.findIndex((t) => t.taskId === "t2");
     queue.splice(idx, 1);
 
-    expect(a.conversationQueues.get("conv-A")?.length).toBe(1);
+    expect(a.taskQueue.queues.get("conv-A")?.length).toBe(1);
     expect(a.taskAbortControllers.has("t1")).toBe(true); // active untouched
   });
 
@@ -567,20 +664,20 @@ describe("per-conversation task queue", () => {
     expect(c1.signal.aborted).toBe(true);
     expect(a.taskAbortControllers.size).toBe(0);
     expect(a.activeConversationTasks.size).toBe(0);
-    expect(a.conversationQueues.size).toBe(0);
+    expect(a.taskQueue.queues.size).toBe(0);
     // Critical: t2 should NOT have been started by cleanup's abort
     expect(handlerCalls).toEqual(["t1"]);
   });
 
   it("full cleanup clears buffered chunks and terminal events", () => {
     const { a } = createAgent();
-    a.pendingChunkEvents.push({ type: "agent_chunk", taskId: "stale", chunk: "stale chunk" });
-    a.pendingTerminalEvents.push({ type: "agent_complete", taskId: "stale", content: "stale done" });
+    a.outbound.pendingChunks.push({ type: "agent_chunk", taskId: "stale", chunk: "stale chunk" });
+    a.outbound.pendingTerminal.push({ type: "agent_complete", taskId: "stale", content: "stale done" });
 
     a.cleanup();
 
-    expect(a.pendingChunkEvents).toEqual([]);
-    expect(a.pendingTerminalEvents).toEqual([]);
+    expect(a.outbound.pendingChunks).toEqual([]);
+    expect(a.outbound.pendingTerminal).toEqual([]);
   });
 
   it("reconnect cleanup preserves active tasks and queued work", () => {
@@ -600,7 +697,7 @@ describe("per-conversation task queue", () => {
     expect(c1.signal.aborted).toBe(false);
     expect(a.taskAbortControllers.has("t1")).toBe(true);
     expect(a.activeConversationTasks.get("conv-A")).toBe("t1");
-    expect(a.conversationQueues.get("conv-A")?.[0]?.taskId).toBe("t2");
+    expect(a.taskQueue.queues.get("conv-A")?.[0]?.taskId).toBe("t2");
     expect(handlerCalls).toEqual(["t1"]);
   });
 
@@ -657,7 +754,7 @@ describe("per-conversation task queue", () => {
     a.handleTask({ taskId: "t1", conversationId: "conv-A", content: "a" });
     savedCtx!.sendComplete("done while offline");
 
-    expect(a.pendingTerminalEvents).toEqual([
+    expect(a.outbound.pendingTerminal).toEqual([
       { type: "agent_complete", taskId: "t1", content: "done while offline" },
     ]);
 
@@ -671,7 +768,7 @@ describe("per-conversation task queue", () => {
       taskId: "t1",
       content: "done while offline",
     }));
-    expect(a.pendingTerminalEvents).toEqual([]);
+    expect(a.outbound.pendingTerminal).toEqual([]);
   });
 
   it("buffers chunks while disconnected and flushes them before terminal events", () => {
@@ -692,11 +789,11 @@ describe("per-conversation task queue", () => {
     savedCtx!.sendChunk("world");
     savedCtx!.sendComplete("hello world");
 
-    expect(a.pendingChunkEvents).toEqual([
+    expect(a.outbound.pendingChunks).toEqual([
       { type: "agent_chunk", taskId: "t1", chunk: "hello " },
       { type: "agent_chunk", taskId: "t1", chunk: "world" },
     ]);
-    expect(a.pendingTerminalEvents).toEqual([
+    expect(a.outbound.pendingTerminal).toEqual([
       { type: "agent_complete", taskId: "t1", content: "hello world" },
     ]);
 
@@ -711,8 +808,8 @@ describe("per-conversation task queue", () => {
       { type: "agent_chunk", taskId: "t1", chunk: "world" },
       { type: "agent_complete", taskId: "t1", content: "hello world" },
     ]);
-    expect(a.pendingChunkEvents).toEqual([]);
-    expect(a.pendingTerminalEvents).toEqual([]);
+    expect(a.outbound.pendingChunks).toEqual([]);
+    expect(a.outbound.pendingTerminal).toEqual([]);
   });
 
   it("caps offline chunks and discards chunks older than reconnect grace", () => {
@@ -721,8 +818,8 @@ describe("per-conversation task queue", () => {
     for (let i = 0; i < 1_005; i++) {
       a.sendChunkEvent({ type: "agent_chunk", taskId: "t1", chunk: String(i) });
     }
-    expect(a.pendingChunkEvents).toHaveLength(1_000);
-    expect(a.pendingChunkEvents[0]?.chunk).toBe("5");
+    expect(a.outbound.pendingChunks).toHaveLength(1_000);
+    expect(a.outbound.pendingChunks[0]?.chunk).toBe("5");
 
     now.mockReturnValue(60_001);
     const send = vi.fn();
@@ -734,21 +831,21 @@ describe("per-conversation task queue", () => {
       taskId: "t1",
       reason: "offline_chunk_buffer_expired",
     }]);
-    expect(a.pendingChunkEvents).toEqual([]);
+    expect(a.outbound.pendingChunks).toEqual([]);
   });
 
   it("re-buffers unsent chunk and terminal events when a flush write fails", () => {
     const { a } = createAgent();
     a.sendChunkEvent({ type: "agent_chunk", taskId: "t1", chunk: "one" });
-    a.pendingTerminalEvents.push({ type: "agent_complete", taskId: "t1", content: "one" });
+    a.outbound.pendingTerminal.push({ type: "agent_complete", taskId: "t1", content: "one" });
     a.authenticated = true;
     a.ws = { readyState: 1, send: vi.fn(() => { throw new Error("wire failed"); }) };
     expect(() => a.flushPendingChunkEvents()).toThrow("wire failed");
-    expect(a.pendingChunkEvents).toHaveLength(1);
+    expect(a.outbound.pendingChunks).toHaveLength(1);
 
     a.ws = { readyState: 1, send: vi.fn(() => { throw new Error("wire failed"); }) };
     expect(() => a.flushPendingTerminalEvents()).toThrow("wire failed");
-    expect(a.pendingTerminalEvents).toHaveLength(1);
+    expect(a.outbound.pendingTerminal).toHaveLength(1);
   });
 
   it("reports action progress and tool calls synchronously", () => {
@@ -818,7 +915,7 @@ describe("per-conversation task queue", () => {
     const c1 = a.taskAbortControllers.get("t1")!;
     c1.abort();
 
-    expect(a.pendingTerminalEvents).toContainEqual({
+    expect(a.outbound.pendingTerminal).toContainEqual({
       type: "agent_error",
       taskId: "t1",
       error: "cancelled",
@@ -836,13 +933,13 @@ describe("per-conversation task queue", () => {
     for (let i = 1; i <= 10; i++) {
       a.handleTask({ taskId: `t${i}`, conversationId: "conv-A", content: `msg${i}` });
     }
-    expect(a.conversationQueues.get("conv-A")?.length).toBe(10);
+    expect(a.taskQueue.queues.get("conv-A")?.length).toBe(10);
 
     // Push one more — it is rejected without disturbing queued work.
     a.handleTask({ taskId: "t11", conversationId: "conv-A", content: "overflow" });
-    expect(a.conversationQueues.get("conv-A")?.length).toBe(10);
+    expect(a.taskQueue.queues.get("conv-A")?.length).toBe(10);
 
-    const queue = a.conversationQueues.get("conv-A")!;
+    const queue = a.taskQueue.queues.get("conv-A")!;
     expect(queue[0].taskId).toBe("t1");
     expect(queue[queue.length - 1].taskId).toBe("t10");
 
@@ -896,7 +993,7 @@ describe("agent-wide task queue", () => {
       taskHandler: ((ctx: unknown) => Promise<void>) | null;
       handleTask: (data: Record<string, unknown>) => void;
       activeConversationTasks: Map<string, string>;
-      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      taskQueue: { queues: Map<string, Array<Record<string, unknown>>> };
       taskAbortControllers: Map<string, AbortController>;
       send: (event: Record<string, unknown>) => void;
     };
@@ -920,7 +1017,7 @@ describe("agent-wide task queue", () => {
       taskHandler: ((ctx: unknown) => Promise<void>) | null;
       handleTask: (data: Record<string, unknown>) => void;
       taskAbortControllers: Map<string, AbortController>;
-      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      taskQueue: { queues: Map<string, Array<Record<string, unknown>>> };
       send: ReturnType<typeof vi.fn>;
     };
     a.send = vi.fn();
@@ -930,7 +1027,7 @@ describe("agent-wide task queue", () => {
     a.handleTask({ taskId: "b1", conversationId: "conv-B", content: "second" });
 
     expect([...a.taskAbortControllers.keys()]).toEqual(["a1"]);
-    expect(a.conversationQueues.get("conv-B")?.map((task) => task.taskId)).toEqual(["b1"]);
+    expect(a.taskQueue.queues.get("conv-B")?.map((task) => task.taskId)).toEqual(["b1"]);
   });
 
   it("caps aggregate queued tasks across distinct conversations", () => {
@@ -942,7 +1039,7 @@ describe("agent-wide task queue", () => {
     const a = agent as unknown as {
       taskHandler: ((ctx: unknown) => Promise<void>) | null;
       handleTask: (data: Record<string, unknown>) => void;
-      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      taskQueue: { queues: Map<string, Array<Record<string, unknown>>> };
       send: ReturnType<typeof vi.fn>;
     };
     a.send = vi.fn();
@@ -957,8 +1054,8 @@ describe("agent-wide task queue", () => {
       });
     }
 
-    expect([...a.conversationQueues.values()].flat()).toHaveLength(3);
-    expect(a.conversationQueues.has("conv-4")).toBe(false);
+    expect([...a.taskQueue.queues.values()].flat()).toHaveLength(3);
+    expect(a.taskQueue.queues.has("conv-4")).toBe(false);
     expect(a.send).toHaveBeenCalledWith({
       type: "agent_error",
       taskId: "queued-4",
@@ -977,7 +1074,7 @@ describe("agent-wide task queue", () => {
     // instead of starting in parallel — the Gina-regression fix.
     expect(a.taskAbortControllers.has("a1")).toBe(true);
     expect(a.taskAbortControllers.has("b1")).toBe(false);
-    expect(a.conversationQueues.get("conv-B")?.length).toBe(1);
+    expect(a.taskQueue.queues.get("conv-B")?.length).toBe(1);
     expect(a.activeConversationTasks.size).toBe(1);
   });
 
@@ -1032,7 +1129,7 @@ describe("agent-wide task queue", () => {
     // Overflow: pushing t11 rejects the incoming task and preserves the queue.
     a.handleTask({ taskId: "t11", conversationId: "conv-A", content: "" });
     expect(a.send).toHaveBeenCalledWith({ type: "agent_error", taskId: "t11", error: "queue_overflow" });
-    expect(a.conversationQueues.get("conv-A")?.length).toBe(10);
+    expect(a.taskQueue.queues.get("conv-A")?.length).toBe(10);
   });
 
   it("task_queued globalQueueSize spans multiple conversations", () => {
@@ -1082,13 +1179,13 @@ describe("task execution modes", () => {
     });
     const a = agent as unknown as {
       handleTask: (data: Record<string, unknown>) => void;
-      pendingTerminalEvents: Array<Record<string, unknown>>;
+      outbound: { pendingTerminal: Array<Record<string, unknown>> };
     };
     agent.onTask(() => { throw new Error("handler exploded"); });
     a.handleTask({ taskId: "t1", conversationId: "conv-1", content: "one" });
     await Promise.resolve();
     await Promise.resolve();
-    expect(a.pendingTerminalEvents).toContainEqual({
+    expect(a.outbound.pendingTerminal).toContainEqual({
       type: "agent_error",
       taskId: "t1",
       error: "handler exploded",
@@ -1146,17 +1243,21 @@ describe("auth retry state machine", () => {
     vi.restoreAllMocks();
   });
 
-  it("does not stop or count server-unreachable auth timeouts after 5 retries", () => {
+  it("caps even server-coded retryable auth failures at five attempts", () => {
     const { a } = createAgent();
 
     for (let i = 0; i < 5; i++) {
-      a.handleAuthError("Authentication timeout");
+      a.handleAuthError({
+        type: "auth_error",
+        error: "Authentication timeout",
+        code: "AUTH_TIMEOUT",
+      });
     }
 
-    expect(a.stopped).toBe(false);
+    expect(a.stopped).toBe(true);
     expect(a.authErrorCount).toBe(0);
     expect(a.authRetryAttempt).toBe(5);
-    expect(a.authRetryTimer).not.toBeNull();
+    expect(a.authRetryTimer).toBeNull();
   });
 
   it("rejects connect and emits auth_failed after 5 real auth errors", () => {
@@ -1179,16 +1280,15 @@ describe("auth retry state machine", () => {
     expect(a.doConnect).not.toHaveBeenCalled();
   });
 
-  it("counts only real auth errors when retryable server errors are mixed in", () => {
+  it("uses explicit server codes and never message substrings for retryability", () => {
     const { a } = createAgent();
 
-    a.handleAuthError("Authentication timeout");
+    a.handleAuthError({ error: "Authentication timeout", code: "AUTH_TIMEOUT" });
     a.handleAuthError("Invalid bot token");
-    a.handleAuthError("503 Service Unavailable");
-    a.handleAuthError("Bot token revoked");
-    a.handleAuthError("Gateway timeout");
+    a.handleAuthError({ error: "Backend unavailable", code: "SERVICE_UNAVAILABLE" });
+    a.handleAuthError("Invalid token for this connection");
 
-    expect(a.authRetryAttempt).toBe(5);
+    expect(a.authRetryAttempt).toBe(4);
     expect(a.authErrorCount).toBe(2);
     expect(a.stopped).toBe(false);
     expect(a.authRetryTimer).not.toBeNull();
@@ -1639,7 +1739,7 @@ describe("tasks without conversationId (cron/trigger wakeups)", () => {
       taskHandler: ((ctx: unknown) => Promise<void>) | null;
       handleTask: (data: Record<string, unknown>) => void;
       activeConversationTasks: Map<string, string>;
-      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      taskQueue: { queues: Map<string, Array<Record<string, unknown>>> };
       taskAbortControllers: Map<string, AbortController>;
       send: (event: Record<string, unknown>) => void;
     };
@@ -1696,7 +1796,7 @@ describe("tasks without conversationId (cron/trigger wakeups)", () => {
 
     expect(a.taskAbortControllers.has("t1")).toBe(true);
     expect(a.taskAbortControllers.has("t2")).toBe(false); // queued
-    expect(a.conversationQueues.get("__no_conversation__")?.length).toBe(1);
+    expect(a.taskQueue.queues.get("__no_conversation__")?.length).toBe(1);
   });
 
   it("drains the sentinel queue after sendComplete", () => {
@@ -1711,7 +1811,7 @@ describe("tasks without conversationId (cron/trigger wakeups)", () => {
 
     savedCtx!.sendComplete("done");
     expect(a.activeConversationTasks.get("__no_conversation__")).toBe("t2");
-    expect(a.conversationQueues.has("__no_conversation__")).toBe(false);
+    expect(a.taskQueue.queues.has("__no_conversation__")).toBe(false);
   });
 
   it("rejects conversation-scoped APIs with a descriptive error", async () => {

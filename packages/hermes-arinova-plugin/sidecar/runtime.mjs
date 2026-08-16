@@ -4,8 +4,10 @@ import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 const sdkContract = JSON.parse(readFileSync(new URL("../sdk-contract.json", import.meta.url), "utf8"));
+const runtimeContract = JSON.parse(readFileSync(new URL("../runtime-contract.json", import.meta.url), "utf8"));
 
-const CONCURRENCY_MODES = new Set(["per-conversation", "agent-wide", "unbounded"]);
+export const runtimeDefaults = Object.freeze({ ...runtimeContract.defaults });
+const CONCURRENCY_MODES = new Set(runtimeContract.concurrencyModes);
 const CONTROL_ENDPOINTS = new Set([
   "/healthz",
   "/agent-sdk",
@@ -15,9 +17,9 @@ const CONTROL_ENDPOINTS = new Set([
   "/error",
   "/shutdown"
 ]);
-const DEFAULT_CONTROL_MAX_BODY_BYTES = 128 * 1024 * 1024;
-const DEFAULT_ADAPTER_POST_TIMEOUT_MS = 10_000;
-const MAX_PENDING_TASK_OUTPUTS = 256;
+const DEFAULT_CONTROL_MAX_BODY_BYTES = runtimeDefaults.controlMaxBodyBytes;
+const DEFAULT_ADAPTER_POST_TIMEOUT_MS = runtimeDefaults.adapterPostTimeoutMs;
+const MAX_PENDING_TASK_OUTPUTS = runtimeDefaults.maxPendingTaskOutputs;
 export function intEnv(env, name) {
   const raw = env[name];
   const normalized = typeof raw === "string" ? raw.trim() : raw;
@@ -166,7 +168,7 @@ export function serializeTask(task, agentSkills = undefined) {
     conversationId: task.conversationId,
     ...(hasOwn(task, "conversationName") ? { conversationName: task.conversationName } : {}),
     conversationType: task.conversationType,
-    content: task.content,
+    ...(task.content !== undefined ? { content: task.content } : {}),
     senderUserId: task.senderUserId,
     senderUsername: task.senderUsername,
     senderAgentId: task.senderAgentId,

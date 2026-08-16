@@ -1,15 +1,18 @@
 import { Command } from "commander";
-import { get, post, put, del, encodePathSegment } from "../client.js";
+import { encodePathSegment, resolveClient } from "../client.js";
 import { printResult, printSuccess, printNote, table } from "../output.js";
+import { addPaginationOptions, paginationQuery } from "../pagination.js";
 
 export function registerApp(program: Command): void {
   const app = program.command("app").description("OAuth App management");
 
-  app
+  addPaginationOptions(app
     .command("list")
-    .description("List your OAuth apps")
-    .action(async () => {
-      const data = await get("/api/v1/developer/apps");
+    .description("List your OAuth apps"), { mode: "offset" })
+    .action(async (options) => {
+      const data = await resolveClient(app).get(
+        `/api/v1/developer/apps${paginationQuery(options)}`,
+      );
       const apps = (data as Record<string, unknown>).apps ?? data;
       if (Array.isArray(apps)) {
         table(apps as Record<string, unknown>[], [
@@ -47,7 +50,7 @@ export function registerApp(program: Command): void {
         description?: string;
         category: string;
       }) => {
-        const data = await post("/api/v1/developer/apps", {
+        const data = await resolveClient(app).post("/api/v1/developer/apps", {
           name: opts.name,
           clientId: opts.clientId,
           description: opts.description,
@@ -69,7 +72,7 @@ export function registerApp(program: Command): void {
     .command("show <id>")
     .description("Show OAuth app details")
     .action(async (id: string) => {
-      const data = await get(`/api/v1/developer/apps/${encodePathSegment(id)}`);
+      const data = await resolveClient(app).get(`/api/v1/developer/apps/${encodePathSegment(id)}`);
       printResult(data);
     });
 
@@ -98,7 +101,7 @@ export function registerApp(program: Command): void {
         if (opts.externalUrl) body.externalUrl = opts.externalUrl;
         if (opts.description) body.description = opts.description;
         if (opts.category) body.category = opts.category;
-        const data = await put(`/api/v1/developer/apps/${encodePathSegment(id)}`, body);
+        const data = await resolveClient(app).put(`/api/v1/developer/apps/${encodePathSegment(id)}`, body);
         printResult(data);
       }
     );
@@ -107,7 +110,7 @@ export function registerApp(program: Command): void {
     .command("delete <id>")
     .description("Delete an OAuth app")
     .action(async (id: string) => {
-      await del(`/api/v1/developer/apps/${encodePathSegment(id)}`);
+      await resolveClient(app).delete(`/api/v1/developer/apps/${encodePathSegment(id)}`);
       printSuccess(`App ${id} deleted.`);
     });
 }

@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { output } from "../api.js";
+import { printResult as output } from "../output.js";
 import { buildQuery, resolveClient } from "../client.js";
 import { parseCount } from "../pagination.js";
 
@@ -10,8 +10,8 @@ export function registerSearchCommands(program: Command): void {
     .command("search")
     .description("Search Arinova resources")
     .option("-q, --query <keyword>", "Search keyword")
-    .option("--limit <n>", "Max results per category", parseCount)
-    .action(async (opts: { query?: string; limit?: string }) => {
+    .option("--limit <n>", "Max results per category", parseCount, 50)
+    .action(async (opts: { query?: string; limit?: number }) => {
       if (!opts.query) throw new Error("--query is required");
       output(await clientFor(search).get(`/api/v1/search${buildQuery({
         q: opts.query, limit: opts.limit,

@@ -1,66 +1,53 @@
 import type { Command } from "commander";
-import { getOpts, apiCall, output } from "../api.js";
-import { encodePathSegment } from "../client.js";
+import { encodePathSegment, resolveClient } from "../client.js";
+import { printResult } from "../output.js";
+import { addPaginationOptions, paginationQuery } from "../pagination.js";
+import { registerResourceCommands } from "../resource-commands.js";
+
+const optionId = {
+  kind: "option" as const,
+  flags: "--id <id>",
+  key: "id",
+  description: "Notebook ID",
+};
 
 export function registerNotebookCommands(program: Command): void {
-  const notebook = program.command("notebook").description("Notebook management");
-
-  notebook.command("list").description("List all notebooks").action(async () => {
-    const { token, apiUrl } = getOpts(notebook);
-    output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/notebooks`, token }));
+  const notebook = registerResourceCommands(program, {
+    name: "notebook",
+    description: "Notebook management",
+    basePath: "/api/v1/notebooks",
+    identifier: optionId,
+    list: { description: "List all notebooks" },
+    create: {
+      description: "Create a new notebook",
+      configure(command) {
+        command.requiredOption("--name <name>", "Notebook name");
+      },
+      body: (options) => ({ name: options.name }),
+    },
+    show: {
+      identifier: { kind: "argument", syntax: "<id>" },
+    },
+    update: {
+      name: "rename",
+      description: "Rename a notebook",
+      configure(command) {
+        command.requiredOption("--name <name>", "New name");
+      },
+      body: (options) => ({ name: options.name }),
+    },
+    delete: { description: "Delete an archived notebook" },
+    actions: [
+      { name: "archive", description: "Archive a notebook" },
+      { name: "unarchive" },
+    ],
   });
 
-  notebook.command("create")
-    .description("Create a new notebook")
-    .requiredOption("--name <name>", "Notebook name")
-    .action(async (opts: { name: string }) => {
-      const { token, apiUrl } = getOpts(notebook);
-      output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/notebooks`, token, body: { name: opts.name } }));
-    });
-
-  notebook.command("rename")
-    .description("Rename a notebook")
-    .requiredOption("--id <id>", "Notebook ID")
-    .requiredOption("--name <name>", "New name")
-    .action(async (opts: { id: string; name: string }) => {
-      const { token, apiUrl } = getOpts(notebook);
-      output(await apiCall({ method: "PATCH", url: `${apiUrl}/api/v1/notebooks/${encodePathSegment(opts.id)}`, token, body: { name: opts.name } }));
-    });
-
-  notebook.command("archive")
-    .description("Archive a notebook")
-    .requiredOption("--id <id>", "Notebook ID")
-    .action(async (opts: { id: string }) => {
-      const { token, apiUrl } = getOpts(notebook);
-      output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/notebooks/${encodePathSegment(opts.id)}/archive`, token }));
-    });
-
-  notebook.command("delete")
-    .description("Delete an archived notebook")
-    .requiredOption("--id <id>", "Notebook ID")
-    .action(async (opts: { id: string }) => {
-      const { token, apiUrl } = getOpts(notebook);
-      output(await apiCall({ method: "DELETE", url: `${apiUrl}/api/v1/notebooks/${encodePathSegment(opts.id)}`, token }));
-    });
-
-  notebook.command("show")
-    .argument("<id>", "Notebook ID")
-    .action(async (id: string) => {
-      const { token, apiUrl } = getOpts(notebook);
-      output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/notebooks/${encodePathSegment(id)}`, token }));
-    });
-
-  notebook.command("notes")
-    .argument("<id>", "Notebook ID")
-    .action(async (id: string) => {
-      const { token, apiUrl } = getOpts(notebook);
-      output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/notebooks/${encodePathSegment(id)}/notes`, token }));
-    });
-
-  notebook.command("unarchive")
-    .requiredOption("--id <id>", "Notebook ID")
-    .action(async (opts) => {
-      const { token, apiUrl } = getOpts(notebook);
-      output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/notebooks/${encodePathSegment(opts.id)}/unarchive`, token }));
-    });
+  addPaginationOptions(notebook.command("notes").argument("<id>"), {
+    mode: "offset",
+  }).action(async (id: string, options) => {
+    printResult(await resolveClient(notebook).get(
+      `/api/v1/notebooks/${encodePathSegment(id)}/notes${paginationQuery(options)}`,
+    ));
+  });
 }

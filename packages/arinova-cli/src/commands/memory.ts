@@ -1,10 +1,9 @@
-import { readFileSync } from "node:fs";
-import { basename } from "node:path";
 import type { Command } from "commander";
-import { getOpts, apiCall, output } from "../api.js";
 import { buildQuery, encodePathSegment, resolveClient } from "../client.js";
+import { appendFileToForm } from "../file-upload.js";
 import { parseJsonArray, parseJsonOption } from "../json-options.js";
-import { parseCount } from "../pagination.js";
+import { printResult as output } from "../output.js";
+import { addPaginationOptions, paginationValues, parseCount } from "../pagination.js";
 
 type MemoryUpdateOptions = {
   id: string;
@@ -16,10 +15,9 @@ type MemoryUpdateOptions = {
 
 const clientFor = resolveClient;
 
-function importForm(filePath: string, agentId: string, source?: string): FormData {
-  const data = readFileSync(filePath);
+async function importForm(filePath: string, agentId: string, source?: string): Promise<FormData> {
   const form = new FormData();
-  form.append("file", new Blob([data]), basename(filePath));
+  await appendFileToForm(form, "file", filePath);
   form.append("agent_id", agentId);
   if (source) form.append("source", source);
   return form;
@@ -28,25 +26,22 @@ function importForm(filePath: string, agentId: string, source?: string): FormDat
 export function registerMemoryCommands(program: Command): void {
   const memory = program.command("memory").description("Agent memory commands");
 
-  memory.command("list")
+  addPaginationOptions(memory.command("list")
     .description("List agent memories")
     .requiredOption("--agent <id>", "Agent ID")
     .option("--category <cat>", "Filter by category")
     .option("--tier <tier>", "Filter by tier (hot/warm/cold)")
-    .option("--limit <n>", "Max results", parseCount, 20)
-    .option("--offset <n>", "Results to skip", parseCount, 0)
-    .option("--exclude-system", "Exclude system memories")
+    .option("--exclude-system", "Exclude system memories"), { mode: "offset" })
     .action(async (opts: {
-      agent: string; category?: string; tier?: string; limit?: string;
-      offset?: string; excludeSystem?: boolean;
+      agent: string; category?: string; tier?: string; limit?: number;
+      offset?: number; excludeSystem?: boolean;
     }) => {
       const client = clientFor(memory);
       output(await client.get(`/api/v1/memories${buildQuery({
         agent_id: opts.agent,
         category: opts.category,
         tier: opts.tier,
-        limit: opts.limit,
-        offset: opts.offset,
+        ...paginationValues(opts),
         exclude_system: opts.excludeSystem,
       })}`));
     });
@@ -106,14 +101,11 @@ export function registerMemoryCommands(program: Command): void {
     .option("--agent <id>", "Agent ID")
     .option("--limit <n>", "Max results", parseCount, 10)
     .action(async (opts: { query: string; agent?: string; limit?: string }) => {
-      const { token, apiUrl } = getOpts(memory);
-      output(await apiCall({
-        method: "GET",
-        url: `${apiUrl}/api/v1/memories/search${buildQuery({
+      output(await clientFor(memory).get(
+        `/api/v1/memories/search${buildQuery({
           q: opts.query, agentId: opts.agent, limit: opts.limit,
         })}`,
-        token,
-      }));
+      ));
     });
 
   memory.command("cleanup")
@@ -141,11 +133,14 @@ export function registerMemoryCommands(program: Command): void {
     });
 
   const grant = memory.command("grant").description("Memory sharing grants");
-  grant.command("list")
-    .requiredOption("--agent <id>", "Recipient agent ID")
-    .action(async (opts: { agent: string }) => {
+  addPaginationOptions(grant.command("list")
+    .requiredOption("--agent <id>", "Recipient agent ID"), { mode: "offset" })
+    .action(async (opts: { agent: string; limit?: number; offset?: number }) => {
       output(await clientFor(grant).get(
-        `/api/v1/memories/grants${buildQuery({ agent_id: opts.agent })}`,
+        `/api/v1/memories/grants${buildQuery({
+          agent_id: opts.agent,
+          ...paginationValues(opts),
+        })}`,
       ));
     });
   grant.command("set")
@@ -173,15 +168,18 @@ export function registerMemoryCommands(program: Command): void {
       .requiredOption("--file <path>", "Import file")
       .option("--source <source>", "Declared import source")
       .action(async (opts: { agent: string; file: string; source?: string }) => {
-        output(await clientFor(memoryImport).upload(path, importForm(opts.file, opts.agent, opts.source)));
+        output(await clientFor(memoryImport).upload(path, await importForm(opts.file, opts.agent, opts.source)));
       });
   }
 
-  memoryImport.command("list")
-    .option("--agent <id>", "Target agent ID")
-    .action(async (opts: { agent?: string }) => {
+  addPaginationOptions(memoryImport.command("list")
+    .option("--agent <id>", "Target agent ID"), { mode: "offset" })
+    .action(async (opts: { agent?: string; limit?: number; offset?: number }) => {
       output(await clientFor(memoryImport).get(
-        `/api/v1/memories/imports${buildQuery({ agent_id: opts.agent })}`,
+        `/api/v1/memories/imports${buildQuery({
+          agent_id: opts.agent,
+          ...paginationValues(opts),
+        })}`,
       ));
     });
 

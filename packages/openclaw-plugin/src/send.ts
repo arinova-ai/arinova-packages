@@ -3,6 +3,7 @@ import { resolveArinovaChatAccount } from "./accounts.js";
 import { getArinovaChatRuntime, getAgentInstance } from "./runtime.js";
 import { ArinovaAgent } from "@arinova-ai/agent-sdk";
 import { stripArinovaChatTargetPrefix } from "./normalize.js";
+import { normalizeTrustedApiUrl } from "./api-endpoint.js";
 
 const fallbackAgents = new Map<string, { agent: ArinovaAgent; apiUrl: string; botToken: string }>();
 
@@ -33,6 +34,10 @@ export async function sendMessageArinovaChat(
       `Arinova Chat apiUrl missing for account "${account.accountId}" (set channels.openclaw-arinova-ai.apiUrl).`,
     );
   }
+  const trustedApiUrl = normalizeTrustedApiUrl(
+    account.apiUrl,
+    `Arinova API URL for account "${account.accountId}"`,
+  );
 
   if (!text?.trim()) {
     throw new Error("Message must be non-empty for Arinova Chat sends");
@@ -61,11 +66,11 @@ export async function sendMessageArinovaChat(
     );
     if (!account.botToken?.trim()) throw new Error(`Arinova Chat botToken missing for account "${account.accountId}"`);
     let fallback = fallbackAgents.get(account.accountId);
-    if (!fallback || fallback.apiUrl !== account.apiUrl || fallback.botToken !== account.botToken) {
+    if (!fallback || fallback.apiUrl !== trustedApiUrl || fallback.botToken !== account.botToken) {
       fallback?.agent.disconnect();
       fallback = {
-        agent: new ArinovaAgent({ serverUrl: account.apiUrl, botToken: account.botToken }),
-        apiUrl: account.apiUrl,
+        agent: new ArinovaAgent({ serverUrl: trustedApiUrl, botToken: account.botToken }),
+        apiUrl: trustedApiUrl,
         botToken: account.botToken,
       };
       fallbackAgents.set(account.accountId, fallback);

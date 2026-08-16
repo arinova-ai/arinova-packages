@@ -10,11 +10,11 @@ describe("apiCall", () => {
 
     await expect(apiCall({
       method: "POST",
-      url: "https://api.test/items",
+      url: "https://api.chat.arinova.ai/items",
       token: "secret",
       body: { name: "item" },
     })).resolves.toEqual({ ok: true });
-    expect(fetchMock).toHaveBeenCalledWith("https://api.test/items", expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith("https://api.chat.arinova.ai/items", expect.objectContaining({
       method: "POST",
       headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
       body: '{"name":"item"}',
@@ -24,17 +24,28 @@ describe("apiCall", () => {
 
   it("maps an empty 204 body to undefined", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
-    await expect(apiCall({ method: "DELETE", url: "https://api.test/item", token: "x" }))
+    await expect(apiCall({ method: "DELETE", url: "https://api.chat.arinova.ai/item", token: "x" }))
       .resolves.toBeUndefined();
   });
 
   it("bounds HTTP errors and keeps non-JSON success text", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("plain", { status: 200 })));
-    await expect(apiCall({ method: "GET", url: "https://api.test/text", token: "x" }))
+    await expect(apiCall({ method: "GET", url: "https://api.chat.arinova.ai/text", token: "x" }))
       .resolves.toBe("plain");
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("denied", { status: 403 })));
-    await expect(apiCall({ method: "GET", url: "https://api.test/fail", token: "x" }))
+    await expect(apiCall({ method: "GET", url: "https://api.chat.arinova.ai/fail", token: "x" }))
       .rejects.toThrow("HTTP 403: denied");
+  });
+
+  it("rejects a buffered response whose declared size exceeds the cap", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("large", {
+      headers: { "Content-Length": String(10 * 1024 * 1024 + 1) },
+    })));
+    await expect(apiCall({
+      method: "GET",
+      url: "https://api.chat.arinova.ai/large",
+      token: "x",
+    })).rejects.toThrow("safety limit");
   });
 });

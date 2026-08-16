@@ -5,158 +5,29 @@ import {
   buildChannelInboundEventContext,
   resolveChannelInboundRouteEnvelope,
 } from "openclaw/plugin-sdk/channel-inbound";
-import { readChannelAllowFromStore } from "openclaw/plugin-sdk/channel-pairing";
 import type { ResolvedArinovaChatAccount } from "./accounts.js";
 import type { ArinovaChatInboundMessage, CoreConfig } from "./types.js";
 import { getArinovaChatRuntime } from "./runtime.js";
 import { replaceImagePaths, type UploadFn } from "./image-upload.js";
-import { stripArinovaChatTargetPrefix } from "./normalize.js";
+import { authorizeInbound, type AuthorizedInboundSender } from "./inbound-authorization.js";
+import {
+  buildEnrichedBody,
+  collapseToolBlocks,
+  mediaUrlsToMarkdown,
+  resolveMentions,
+  stripMediaLines,
+} from "./inbound-content.js";
+
+export {
+  buildEnrichedBody,
+  collapseToolBlocks,
+  formatFileSize,
+  mediaUrlsToMarkdown,
+  resolveMentions,
+  stripMediaLines,
+} from "./inbound-content.js";
 
 const CHANNEL_ID = "openclaw-arinova-ai" as const;
-
-function normalizeAllowEntry(value: string): string {
-  return stripArinovaChatTargetPrefix(value).toLowerCase();
-}
-
-async function resolveSenderAuthorization(params: {
-  account: ResolvedArinovaChatAccount;
-  senderId: string;
-  chatType: "direct" | "group";
-  runtime: RuntimeEnv;
-}): Promise<{ inboundAllowed: boolean; commandsAuthorized: boolean }> {
-  const { account, senderId, chatType, runtime } = params;
-  const policy = account.config.dmPolicy ?? "open";
-  const normalizedSender = normalizeAllowEntry(senderId);
-  const configuredAllowFrom = (account.config.allowFrom ?? [])
-    .map((entry) => normalizeAllowEntry(String(entry)))
-    .filter(Boolean);
-  const configuredMatch =
-    configuredAllowFrom.includes("*") || configuredAllowFrom.includes(normalizedSender);
-
-  let pairedMatch = false;
-  if (policy === "pairing") {
-    try {
-      const storedAllowFrom = await readChannelAllowFromStore(
-        CHANNEL_ID,
-        process.env,
-        account.accountId,
-      );
-      pairedMatch = storedAllowFrom
-        .map((entry) => normalizeAllowEntry(String(entry)))
-        .includes(normalizedSender);
-    } catch (error) {
-      runtime.error?.(
-        `openclaw-arinova-ai: unable to read pairing allowlist; denying sender: ${String(error)}`,
-      );
-    }
-  }
-
-  const commandsAuthorized = configuredMatch || pairedMatch;
-  if (chatType === "group") {
-    return { inboundAllowed: true, commandsAuthorized };
-  }
-
-  switch (policy) {
-    case "disabled":
-      return { inboundAllowed: false, commandsAuthorized: false };
-    case "open":
-      // Runtime configuration can bypass schema validation, so require the
-      // explicit wildcard that the schema mandates for open DMs.
-      return {
-        inboundAllowed: configuredAllowFrom.includes("*"),
-        commandsAuthorized: configuredAllowFrom.includes("*"),
-      };
-    case "allowlist":
-    case "pairing":
-      return { inboundAllowed: commandsAuthorized, commandsAuthorized };
-    default:
-      return { inboundAllowed: false, commandsAuthorized: false };
-  }
-}
-
-// Known tool names from Claude Code CLI bridge
-const TOOL_LINE_RE = /^\[(Bash|Read|Write|Edit|Grep|Glob|WebFetch|WebSearch|Task|Skill|NotebookEdit)\]/;
-const RESULT_PREFIX = "📎";
-
-// MEDIA: token regex — matches lines like `MEDIA: https://example.com/img.png`
-const MEDIA_LINE_RE = /^\s*MEDIA:\s/i;
-
-/**
- * Collapse consecutive tool blocks, keeping only the latest one.
- * When Claude Code runs multiple tools in sequence, each [Tool] line + its
- * 📎 result stacks up. Since the frontend replaces content (not appends),
- * we can show only the most recent tool activity for a cleaner UX.
- */
-export function collapseToolBlocks(text: string): string {
-  const lines = text.replace(/\r\n?/g, "\n").split("\n");
-  const output: string[] = [];
-  let pendingTool: string[] | null = null;
-  let inResult = false;
-  let fence: string | null = null;
-
-  for (const line of lines) {
-    const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(line);
-    if (fenceMatch) {
-      const marker = fenceMatch[1]![0];
-      if (fence === marker) fence = null;
-      else if (fence === null) fence = marker;
-    }
-
-    if (fence === null && TOOL_LINE_RE.test(line)) {
-      // New tool call — discard any previous pending tool block
-      pendingTool = [line];
-      inResult = false;
-    } else if (pendingTool !== null) {
-      if (line === "") {
-        pendingTool.push(line);
-        if (inResult) inResult = false; // blank line ends result section
-      } else if (line.startsWith(RESULT_PREFIX)) {
-        pendingTool.push(line);
-        inResult = true;
-      } else if (inResult) {
-        // Content line within result section
-        pendingTool.push(line);
-      } else {
-        // Non-tool content after tool block — flush pending tool, continue as text
-        output.push(...pendingTool);
-        pendingTool = null;
-        output.push(line);
-      }
-    } else {
-      output.push(line);
-    }
-  }
-
-  // Flush remaining pending tool block
-  if (pendingTool) {
-    output.push(...pendingTool);
-  }
-
-  return output.join("\n");
-}
-
-/**
- * Strip MEDIA: lines from streaming text so the raw token doesn't flash on screen.
- * OpenClaw parses these at block-completion time, but during streaming the raw lines
- * are still present.
- */
-export function stripMediaLines(text: string): string {
-  return text
-    .split("\n")
-    .filter((line) => {
-      if (MEDIA_LINE_RE.test(line)) return false;
-      const token = line.trim().toUpperCase();
-      return !token || !"MEDIA:".startsWith(token);
-    })
-    .join("\n");
-}
-
-/**
- * Convert media URLs to markdown image syntax.
- */
-export function mediaUrlsToMarkdown(urls: string[]): string {
-  return urls.map((url) => `![](${url})`).join("\n");
-}
 
 class StreamRelay {
   finalText = "";
@@ -205,56 +76,12 @@ class StreamRelay {
   }
 }
 
-async function authorizeInbound(params: {
-  message: ArinovaChatInboundMessage;
-  account: ResolvedArinovaChatAccount;
-  runtime: RuntimeEnv;
-}): Promise<{
-  senderAgentId?: string;
-  senderId: string;
-  senderDisplayName: string;
-  chatType: "group" | "direct";
-  commandsAuthorized: boolean;
-} | null> {
-  const { message, account, runtime } = params;
-  const senderAgentId = message.senderAgentId?.trim() || undefined;
-  const senderId = senderAgentId || message.senderUserId?.trim();
-  if (!senderId) {
-    runtime.log?.("openclaw-arinova-ai: drop inbound message without sender identity");
-    return null;
-  }
-  const chatType = message.conversationType === "group" ? "group" : "direct";
-  const allowedAgentSenders = (account.config.allowAgentMessagesFrom ?? [])
-    .map((entry) => normalizeAllowEntry(String(entry)))
-    .filter(Boolean);
-  const access = senderAgentId
-    ? {
-        inboundAllowed: allowedAgentSenders.includes(normalizeAllowEntry(senderId)),
-        commandsAuthorized: false,
-      }
-    : await resolveSenderAuthorization({ account, senderId, chatType, runtime });
-  if (!access.inboundAllowed) {
-    runtime.log?.(senderAgentId
-      ? "openclaw-arinova-ai: drop unlisted agent-authored message"
-      : `openclaw-arinova-ai: drop unauthorized ${chatType} sender (dmPolicy=${account.config.dmPolicy ?? "open"})`);
-    return null;
-  }
-  return {
-    senderAgentId,
-    senderId,
-    senderDisplayName: (senderAgentId ? message.senderAgentName : message.senderUsername)
-      ?? (senderAgentId ? "Arinova Agent" : "Arinova User"),
-    chatType,
-    commandsAuthorized: access.commandsAuthorized,
-  };
-}
-
 function buildInboundContext(params: {
   message: ArinovaChatInboundMessage;
   account: ResolvedArinovaChatAccount;
   config: CoreConfig;
   rawBody: string;
-  auth: NonNullable<Awaited<ReturnType<typeof authorizeInbound>>>;
+  auth: AuthorizedInboundSender;
 }) {
   const { message, account, config, rawBody, auth } = params;
   const peerId = message.conversationId || auth.senderId || message.taskId;
@@ -490,89 +317,4 @@ export async function handleArinovaChatInbound(params: {
   const mentionedIds = resolveMentions(completedText, message.members);
   completionSent = true;
   sendComplete(completedText, mentionedIds.length ? { mentions: mentionedIds } : undefined);
-}
-
-/**
- * Build an enriched body for the LLM by prepending context sections
- * (members, attachments, replyTo, history) before the raw user message.
- */
-export function buildEnrichedBody(
-  rawBody: string,
-  message: ArinovaChatInboundMessage,
-): string {
-  const sections: string[] = [];
-
-  const sender = message.senderAgentName ?? message.senderUsername;
-  if (sender) sections.push(`[Sender: ${sender}]`);
-
-  // Group members context
-  if (message.conversationType === "group" && message.members?.length) {
-    const names = message.members.map((m) => m.agentName).join(", ");
-    sections.push(`[Group: ${names}]`);
-  }
-
-  // Attachments
-  if (message.attachments?.length) {
-    const lines = message.attachments.map((a) => {
-      const size = formatFileSize(a.fileSize);
-      return `- ${a.fileName} (${a.fileType}, ${size}) ${a.url}`;
-    });
-    sections.push(`[Attachments]\n${lines.join("\n")}`);
-  }
-
-  // Reply context
-  if (message.replyTo) {
-    const sender = message.replyTo.senderAgentName ?? message.replyTo.role;
-    const quoted = message.replyTo.content
-      .split("\n")
-      .map((line) => `> ${line}`)
-      .join("\n");
-    sections.push(`> Replying to ${sender}:\n${quoted}`);
-  }
-
-  // Conversation history
-  if (message.history?.length) {
-    const historyLines = message.history.map((h) => {
-      const sender = h.senderAgentName ?? h.senderUsername ?? h.role;
-      return `[${sender}]: ${h.content}`;
-    });
-    sections.push(`[History]\n${historyLines.join("\n")}`);
-  }
-
-  if (sections.length === 0) return rawBody;
-  return sections.join("\n\n") + "\n\n" + rawBody;
-}
-
-/**
- * Extract @mentions from text and resolve them to agent IDs.
- * Matches @Name patterns against the members list (case-insensitive).
- */
-export function resolveMentions(
-  text: string,
-  members?: { agentId: string; agentName: string }[],
-): string[] {
-  if (!members?.length) return [];
-  const matches: Array<{ start: number; end: number; agentId: string }> = [];
-  const sorted = [...members].sort((a, b) => b.agentName.length - a.agentName.length);
-  for (const member of sorted) {
-    const escaped = member.agentName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp(`(^|[^\\w@])@${escaped}(?=$|[^\\w])`, "giu");
-    for (const match of text.matchAll(pattern)) {
-      const start = (match.index ?? 0) + match[1]!.length;
-      const end = start + member.agentName.length + 1;
-      if (!matches.some((existing) => start < existing.end && end > existing.start)) {
-        matches.push({ start, end, agentId: member.agentId });
-      }
-    }
-  }
-  const ids = new Set<string>();
-  for (const match of matches.sort((a, b) => a.start - b.start)) ids.add(match.agentId);
-  return [...ids];
-}
-
-/** Format bytes to human-readable size. */
-export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }

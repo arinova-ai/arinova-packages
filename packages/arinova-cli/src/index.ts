@@ -3,7 +3,7 @@ import { Command } from "commander";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { isJsonMode, setJsonMode } from "./output.js";
+import { isJsonMode, printWarning, setJsonMode } from "./output.js";
 import { migrateConfigIfNeeded } from "./config.js";
 import { configureClientDefaults } from "./client.js";
 import { registerCompletion } from "./completion.js";
@@ -32,7 +32,7 @@ import { registerConversation } from "./commands/conversation.js";
 import { registerSkill } from "./commands/skill.js";
 import { registerSearchCommands } from "./commands/search.js";
 import { registerResolveCommands } from "./commands/resolve.js";
-import { registerMemoCommands, registerWikiCommands } from "./commands/wiki.js";
+import { registerMemoCommands } from "./commands/wiki.js";
 import { registerAutoSendCommands } from "./commands/auto-send.js";
 import { registerPainterCommands } from "./commands/painter.js";
 import { registerAgentCommands } from "./commands/agent.js";
@@ -54,7 +54,7 @@ program
   .name("arinova")
   .description("Arinova CLI — manage messages, notes, kanban, memory, creator tools, and more")
   .version(pkg.version)
-  .option("--token <botToken>", "Bot/API token override (ari_...)")
+  .option("--token <botToken>", "Deprecated token override; visible in the process list (use --profile)")
   .option("--profile <name>", "Profile to use (required for most commands)")
   .option("--api-url <url>", "API endpoint override")
   .option("--json", "Output in JSON format")
@@ -63,6 +63,11 @@ program
     const opts = actionCommand.optsWithGlobals();
     if (opts.json) {
       setJsonMode(true);
+    }
+    if (opts.token) {
+      printWarning(
+        "--token exposes credentials in the process list; store the token in a named profile instead.",
+      );
     }
     // Auto-migrate legacy config on first run
     migrateConfigIfNeeded();
@@ -86,7 +91,6 @@ registerSkill(program);
 registerSearchCommands(program);
 registerResolveCommands(program);
 registerMemoCommands(program);
-registerWikiCommands(program);
 registerAutoSendCommands(program);
 registerPainterCommands(program);
 registerAgentCommands(program);

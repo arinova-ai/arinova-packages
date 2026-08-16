@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { loadConfig, saveConfig, setProfile, removeProfile, getEndpoint, getEnvironmentLabel, resolveApiKey, resolveProfileName, getProfile, listProfiles } from "../config.js";
 import { printResult, printSuccess, printNote } from "../output.js";
 import { ApiClient } from "../client.js";
+import { normalizeApiEndpoint } from "../endpoint.js";
 
 const LOGIN_TIMEOUT_MS = 120_000;
 
@@ -103,6 +104,7 @@ export function registerAuth(program: Command): void {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ callback }),
+            signal: AbortSignal.timeout(30_000),
           },
         );
         if (!registrationResponse.ok) {
@@ -258,16 +260,8 @@ export function registerAuth(program: Command): void {
         throw new Error(`Unknown config key: ${key}. Supported: endpoint`);
         return;
       }
-      try { new URL(value); } catch {
-        throw new Error("Invalid URL format");
-        return;
-      }
-      if (!value.startsWith("https://") && !value.startsWith("http://localhost")) {
-        throw new Error("Endpoint must use HTTPS (or http://localhost for dev)");
-        return;
-      }
       const cfg = loadConfig();
-      cfg.endpoint = value.replace(/\/+$/, "");
+      cfg.endpoint = normalizeApiEndpoint(value);
       saveConfig(cfg);
       printSuccess(`endpoint set to ${cfg.endpoint}`);
     });

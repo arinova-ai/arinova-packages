@@ -25,6 +25,7 @@ import { getArinovaChatRuntime, removeAgentInstance, setAgentInstance } from "./
 import { sendMessageArinovaChat } from "./send.js";
 import { ArinovaAgent } from "@arinova-ai/agent-sdk";
 import { handleArinovaChatInbound } from "./inbound.js";
+import { normalizeTrustedApiUrl } from "./api-endpoint.js";
 
 const meta = {
   id: "openclaw-arinova-ai",
@@ -241,6 +242,10 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
           `Arinova Chat not configured for account "${account.accountId}" (missing botToken)`,
         );
       }
+      const trustedApiUrl = normalizeTrustedApiUrl(
+        account.apiUrl,
+        `Arinova API URL for account "${account.accountId}"`,
+      );
 
       const core = getArinovaChatRuntime();
       const cfg = ctx.cfg as CoreConfig;
@@ -257,10 +262,10 @@ export const arinovaChatPlugin: ChannelPlugin<ResolvedArinovaChatAccount> = {
       };
 
       // Connect to backend via SDK (botToken auth, no pair step needed)
-      logger.info(`[${account.accountId}] connecting to backend: ${account.apiUrl}`);
+      logger.info(`[${account.accountId}] connecting to backend: ${trustedApiUrl}`);
 
       const agent = new ArinovaAgent({
-        serverUrl: account.apiUrl,
+        serverUrl: trustedApiUrl,
         botToken: account.botToken,
       });
 

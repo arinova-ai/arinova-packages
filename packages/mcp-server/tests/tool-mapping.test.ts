@@ -265,4 +265,38 @@ describe("mapManifestToTools", () => {
       reason: "invalid_input_schema",
     });
   });
+
+  it.each([
+    ["pattern", { type: "string", pattern: "^(a+)+$" }],
+    ["patternProperties", { type: "object", patternProperties: { "^(a+)+$": {} } }],
+  ])("rejects remote schemas containing %s", (_name, unsafeSchema) => {
+    const mapping = mapManifestToTools({
+      manifestVersion: "1",
+      actions: [{
+        name: "arinova.unsafe",
+        version: "1",
+        inputSchema: unsafeSchema,
+      }],
+    });
+
+    expect(mapping.tools).toEqual([]);
+    expect(mapping.skippedActions).toEqual([{
+      actionName: "arinova.unsafe",
+      reason: "unsafe_input_schema",
+    }]);
+  });
+
+  it("rejects remote schemas that exceed the depth budget", () => {
+    let schema: Record<string, unknown> = { type: "string" };
+    for (let index = 0; index < 40; index++) {
+      schema = { type: "array", items: schema };
+    }
+    const mapping = mapManifestToTools({
+      manifestVersion: "1",
+      actions: [{ name: "arinova.deep", version: "1", inputSchema: schema }],
+    });
+
+    expect(mapping.tools).toEqual([]);
+    expect(mapping.skippedActions[0]?.reason).toBe("unsafe_input_schema");
+  });
 });

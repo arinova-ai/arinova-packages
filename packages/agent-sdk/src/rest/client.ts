@@ -8,6 +8,7 @@ import type {
   CreateNoteBody,
   UpdateNoteBody,
   KanbanBoard,
+  ListBoardsOptions,
   KanbanColumn,
   KanbanCard,
   CreateBoardBody,
@@ -32,6 +33,8 @@ import { delayWithSignal, httpRetryDelayMs, toHttpBaseUrl } from "../transport.j
 import { encodePathSegment } from "./path.js";
 import { parseJsonWithoutDuplicateKeys } from "./json.js";
 
+export const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
+
 export class ArinovaApiError extends Error {
   readonly status: number;
   readonly body: unknown;
@@ -47,6 +50,7 @@ export class ArinovaApiError extends Error {
 export abstract class ArinovaRestClient {
   protected readonly serverUrl: string;
   protected botToken: string;
+  private readonly etagCache = new Map<string, { etag: string; value: unknown }>();
 
   protected constructor(serverUrl: string, botToken: string) {
     this.serverUrl = serverUrl;
@@ -69,11 +73,18 @@ export abstract class ArinovaRestClient {
       signal?: AbortSignal;
       timeoutMs?: number;
       retries?: number;
+      maxResponseBytes?: number;
+      etagCache?: boolean;
     } = {},
   ): Promise<T> {
     const timeoutMs = options.timeoutMs ?? 30_000;
     const deadline = Date.now() + timeoutMs;
-    const retries = options.retries ?? 0;
+    const hasIdempotencyKey = Object.keys(options.headers ?? {}).some(
+      (name) => name.toLowerCase() === "idempotency-key",
+    );
+    const retries = options.retries ??
+      (method === "GET" || method === "HEAD" || hasIdempotencyKey ? 2 : 0);
+    const cached = options.etagCache ? this.etagCache.get(path) : undefined;
     let response: Response | undefined;
     for (let attempt = 0; attempt <= retries; attempt++) {
       if (Date.now() >= deadline) {
@@ -97,6 +108,7 @@ export abstract class ArinovaRestClient {
           headers: {
             Authorization: `Bearer ${this.botToken}`,
             ...(!isForm && options.body !== undefined ? { "Content-Type": "application/json" } : {}),
+            ...(cached ? { "If-None-Match": cached.etag } : {}),
             ...options.headers,
           },
           ...(options.body !== undefined
@@ -146,8 +158,12 @@ export abstract class ArinovaRestClient {
     if (!response) {
       throw new ArinovaApiError(`${options.errorLabel ?? "Request"} failed`, 0, null);
     }
+    if (response.status === 304 && cached) return cached.value as T;
     if (!response.ok) {
-      const text = await response.text();
+      const text = await readBoundedText(
+        response,
+        options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
+      );
       let body: unknown = text;
       if (text) {
         try {
@@ -164,9 +180,15 @@ export abstract class ArinovaRestClient {
       );
     }
     if (options.response === "void" || response.status === 204) return undefined as T;
-    const text = await response.text();
+    const text = await readBoundedText(
+      response,
+      options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
+    );
     try {
-      return parseJsonWithoutDuplicateKeys(text) as T;
+      const value = parseJsonWithoutDuplicateKeys(text) as T;
+      const etag = response.headers.get("etag");
+      if (options.etagCache && etag) this.etagCache.set(path, { etag, value });
+      return value;
     } catch (error) {
       throw new ArinovaApiError(
         `${options.malformedJsonLabel ?? options.errorLabel ?? "Request"} returned malformed JSON: ${error instanceof Error ? error.message : String(error)}`,
@@ -221,13 +243,14 @@ export abstract class ArinovaRestClient {
     return this.request<FetchHistoryResult>(
       "GET",
       `/api/v1/messages/${encodePathSegment(conversationId, "conversationId")}${qs ? `?${qs}` : ""}`,
-      { errorLabel: "fetchHistory" },
+      { errorLabel: "fetchHistory", etagCache: true },
     );
   }
 
   /** List notes in the authenticated owner's notebook. */
   async listNotes(options?: ListNotesOptions): Promise<ListNotesResult> {
     const params = new URLSearchParams();
+    if (options?.notebookId) params.set("notebookId", options.notebookId);
     if (options?.before) params.set("before", options.before);
     if (options?.limit != null) params.set("limit", String(options.limit));
     if (options?.offset != null) params.set("offset", String(options.offset));
@@ -238,7 +261,7 @@ export abstract class ArinovaRestClient {
     return this.request<ListNotesResult>(
       "GET",
       `/api/v1/notes${qs ? `?${qs}` : ""}`,
-      { errorLabel: "listNotes" },
+      { errorLabel: "listNotes", etagCache: true },
     );
   }
 
@@ -276,6 +299,23 @@ export abstract class ArinovaRestClient {
     return this.request<KanbanBoard[]>("GET", "/api/v1/kanban/boards", {
       errorLabel: "listBoards",
     });
+  }
+
+  /**
+   * List a bounded page of the owner's kanban boards.
+   * Kept separate from listBoards() so existing bridge contracts retain their
+   * zero-argument signature.
+   */
+  async listBoardsWithOptions(options: ListBoardsOptions): Promise<KanbanBoard[]> {
+    const params = new URLSearchParams();
+    if (options.limit != null) params.set("limit", String(options.limit));
+    if (options.offset != null) params.set("offset", String(options.offset));
+    const qs = params.toString();
+    return this.request<KanbanBoard[]>(
+      "GET",
+      `/api/v1/kanban/boards${qs ? `?${qs}` : ""}`,
+      { errorLabel: "listBoardsWithOptions" },
+    );
   }
 
   /**
@@ -333,6 +373,14 @@ export abstract class ArinovaRestClient {
     await this.request<void>("POST", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/archive`, {
       response: "void",
       errorLabel: "archiveBoard",
+    });
+  }
+
+  /** Unarchive a kanban board. */
+  async unarchiveBoard(boardId: string): Promise<void> {
+    await this.request<void>("POST", `/api/v1/kanban/boards/${encodePathSegment(boardId, "boardId")}/unarchive`, {
+      response: "void",
+      errorLabel: "unarchiveBoard",
     });
   }
 
@@ -627,6 +675,42 @@ export abstract class ArinovaRestClient {
     );
   }
 
+}
+
+async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel();
+    throw new ArinovaApiError(
+      `Response exceeds ${maxBytes} byte limit`,
+      response.status,
+      null,
+    );
+  }
+  if (!response.body) return "";
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return text + decoder.decode();
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel();
+        throw new ArinovaApiError(
+          `Response exceeds ${maxBytes} byte limit`,
+          response.status,
+          null,
+        );
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 const MIME_TYPES: Record<string, string> = {

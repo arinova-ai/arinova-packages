@@ -19,38 +19,11 @@ import socket
 import sys
 from pathlib import Path
 
+from install_check_helpers import SDK_PACKAGE_FILES, SDK_PACKAGE_PUBLIC_METADATA_KEYS
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SDK_ROOT = ROOT.parent / "agent-sdk"
-SDK_DIST_FILES = (
-    "dist/client.d.ts",
-    "dist/client.d.ts.map",
-    "dist/client.js",
-    "dist/client.js.map",
-    "dist/index.d.ts",
-    "dist/index.d.ts.map",
-    "dist/index.js",
-    "dist/index.js.map",
-    "dist/types.d.ts",
-    "dist/types.d.ts.map",
-    "dist/types.js",
-    "dist/types.js.map",
-)
-SDK_PACKAGE_FILES = ("README.md", *SDK_DIST_FILES)
-SDK_PACKAGE_PUBLIC_METADATA_KEYS = (
-    "name",
-    "description",
-    "type",
-    "main",
-    "types",
-    "exports",
-    "files",
-    "keywords",
-    "license",
-    "dependencies",
-    "scripts",
-    "devDependencies",
-)
 SKIP_PREFIX = "live Arinova smoke skipped"
 DEFAULT_SEND_MESSAGE_CONTENT = "Hermes Arinova live smoke probe"
 DEFAULT_SEND_TELEMETRY_EVENT = "hermes_arinova_live_smoke"

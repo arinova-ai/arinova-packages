@@ -62,7 +62,7 @@ const cfg = {
   channels: {
     "openclaw-arinova-ai": {
       enabled: true,
-      apiUrl: "https://api.example.test",
+      apiUrl: "https://api.chat.arinova.ai",
       botToken: "ari_default",
       agentId: "agent-default",
       dmPolicy: "allowlist",
@@ -70,7 +70,7 @@ const cfg = {
       accounts: {
         named: {
           enabled: true,
-          apiUrl: "https://api.named.test",
+          apiUrl: "https://api.chat-staging.arinova.ai",
           botToken: "ari_named",
           agentId: "agent-named",
           dmPolicy: "open",
@@ -160,7 +160,7 @@ describe("arinovaChatPlugin channel contract", () => {
       accountId: "named",
       enabled: true,
       name: "Named",
-      apiUrl: "https://api.named.test",
+      apiUrl: "https://api.chat-staging.arinova.ai",
       botToken: "ari_secret",
       agentId: "agent-1",
       config: {},
@@ -194,7 +194,7 @@ describe("arinovaChatPlugin channel contract", () => {
         accountId: "default",
         enabled: true,
         name: "Default",
-        apiUrl: "https://api.example.test",
+        apiUrl: "https://api.chat.arinova.ai",
         botToken: "ari_default",
         agentId: "agent-default",
         config: { dmPolicy: "allowlist", allowFrom: ["UserA"] },
@@ -207,7 +207,7 @@ describe("arinovaChatPlugin channel contract", () => {
         accountId: "named",
         enabled: true,
         name: "Named",
-        apiUrl: "https://api.named.test",
+        apiUrl: "https://api.chat-staging.arinova.ai",
         botToken: "ari_named",
         agentId: "agent-named",
         config: { dmPolicy: "open", allowFrom: ["UserB"] },
@@ -241,7 +241,7 @@ describe("arinovaChatPlugin channel contract", () => {
       accountId: "named",
       input: {
         name: "Named Bot",
-        apiUrl: "https://api.named.test",
+        apiUrl: "https://api.chat-staging.arinova.ai",
         agentId: "agent-named",
       },
     });
@@ -255,7 +255,7 @@ describe("arinovaChatPlugin channel contract", () => {
     expect(namedConfig.channels?.["openclaw-arinova-ai"]?.accounts?.named).toMatchObject({
       enabled: true,
       name: "Named Bot",
-      apiUrl: "https://api.named.test",
+      apiUrl: "https://api.chat-staging.arinova.ai",
       agentId: "agent-named",
     });
   });
@@ -293,7 +293,7 @@ describe("arinovaChatPlugin channel contract", () => {
         accountId: "named",
         enabled: true,
         name: "Named",
-        apiUrl: "https://api.named.test",
+        apiUrl: "https://api.chat-staging.arinova.ai",
         botToken: "ari_secret",
         agentId: "agent-named",
         config: {},

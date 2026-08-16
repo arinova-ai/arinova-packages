@@ -64,7 +64,7 @@ ARINOVA_PING_TIMEOUT_MS=60000
 ARINOVA_MAX_CONSECUTIVE_PER_CONVERSATION=2
 ARINOVA_CONNECT_TIMEOUT_MS=30000
 ARINOVA_ADAPTER_POST_TIMEOUT_MS=10000
-ARINOVA_CONTROL_MAX_BODY_BYTES=134217728
+ARINOVA_CONTROL_MAX_BODY_BYTES=8388608
 ARINOVA_SIDECAR_POST_TIMEOUT_MS=10000
 ARINOVA_DOWNLOAD_ATTACHMENTS=true
 ARINOVA_ATTACHMENT_MAX_BYTES=52428800
@@ -125,7 +125,7 @@ arinova:
   max_consecutive_per_conversation: 2
   connect_timeout_ms: 30000
   adapter_post_timeout_ms: 10000
-  control_max_body_bytes: 134217728
+  control_max_body_bytes: 8388608
   sidecar_post_timeout_ms: 10000
   download_attachments: true
   attachment_max_bytes: 52428800
@@ -134,9 +134,9 @@ arinova:
   attachment_total_timeout_ms: 30000
 ```
 
-`control_max_body_bytes` defaults to 128 MiB and is always enforced by both
-the sidecar and adapter callback servers. Lower it for deployments whose task
-payloads have a smaller known maximum.
+`control_max_body_bytes` defaults to 8 MiB and is always enforced by both the
+sidecar and adapter callback servers. Larger limits are an explicit opt-in for
+deployments with unusually large task payloads.
 
 ## Architecture
 

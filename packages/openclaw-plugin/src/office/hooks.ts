@@ -2,6 +2,11 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { InternalEvent } from "./types.js";
 import { officeState } from "./state.js";
 import { getAgentInstance } from "../runtime.js";
+import {
+  forwardOfficeEvent,
+  setForwardTargets,
+  type OfficeForwardTarget,
+} from "./forwarder.js";
 
 /**
  * Model context window sizes (max input tokens).
@@ -294,34 +299,19 @@ export function registerHooks(api: OpenClawPluginApi): void {
   });
 }
 
-/** Forward URL + per-account tokens for HTTP POST to Rust server */
-let forwardUrl: string | null = null;
-let accountTokens: Map<string, string> = new Map();
-
 export function setForwardTarget(url: string, tokens: Map<string, string>): void {
-  forwardUrl = url;
-  accountTokens = tokens;
+  setForwardTargets(new Map(
+    [...tokens].map(([accountId, token]) => [
+      accountId,
+      { url, token } satisfies OfficeForwardTarget,
+    ]),
+  ));
 }
 
 function emit(event: InternalEvent, accountId?: string): void {
   officeState.ingest(event);
 
-  if (!forwardUrl) return;
-
-  // Try exact account token first, then fall back to "default" for single-agent setups
-  const token = (accountId ? accountTokens.get(accountId) : undefined) ?? accountTokens.get("default");
-  if (!token) return;
-
-  fetch(forwardUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(event),
-  }).catch(() => {
-    // Swallow — server may be temporarily unavailable
-  });
+  forwardOfficeEvent(event, accountId);
 }
 
 /**

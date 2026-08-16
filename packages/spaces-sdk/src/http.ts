@@ -19,9 +19,12 @@ export interface RequestOptions {
   timeoutMs?: number;
   retries?: number;
   token?: string;
+  maxResponseBytes?: number;
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+export const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
+export const MAX_RETRY_DELAY_MS = 5_000;
 
 type ErrorBody = {
   error?: string | {
@@ -70,6 +73,7 @@ function combinedSignal(signal: AbortSignal | undefined, timeoutMs: number): { s
 
 interface ResponseHandle {
   response: Response;
+  maxResponseBytes: number;
   close(): void;
   abortCode(): "timeout" | "aborted" | undefined;
   /** Stop the timeout clock while keeping caller-abort wiring intact. */
@@ -77,7 +81,14 @@ interface ResponseHandle {
 }
 
 async function fetchWithErrors(url: string, init: RequestOptions): Promise<ResponseHandle> {
-  const { token, headers, timeoutMs = DEFAULT_TIMEOUT_MS, retries = 0, ...rest } = init;
+  const {
+    token,
+    headers,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    retries = 0,
+    maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES,
+    ...rest
+  } = init;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new ArinovaError("timeoutMs must be a positive number", 0, "invalid_timeout");
   }
@@ -85,6 +96,7 @@ async function fetchWithErrors(url: string, init: RequestOptions): Promise<Respo
     throw new ArinovaError("retries must be an integer from 0 to 5", 0, "invalid_retries");
   }
   const deadline = combinedSignal(rest.signal, timeoutMs);
+  const deadlineAt = Date.now() + timeoutMs;
   const normalizedHeaders = new Headers(headers);
   if (!normalizedHeaders.has("Content-Type")) normalizedHeaders.set("Content-Type", "application/json");
   if (token) normalizedHeaders.set("Authorization", `Bearer ${token}`);
@@ -101,22 +113,23 @@ async function fetchWithErrors(url: string, init: RequestOptions): Promise<Respo
         if (attempt === retries || (response.status !== 429 && response.status < 500)) {
           return {
             response,
+            maxResponseBytes,
             close: deadline.clear,
             abortCode: () => deadline.signal.aborted ? (rest.signal?.aborted ? "aborted" : "timeout") : undefined,
             disarmTimeout: deadline.disarmTimeout,
           };
         }
-        await response.body?.cancel().catch(() => undefined);
         const retryAfterHeader = response.headers.get("retry-after");
-        const retryAfter = retryAfterHeader === null ? Number.NaN : Number(retryAfterHeader);
-        const delayMs = Number.isFinite(retryAfter) ? retryAfter * 1000 : 100 * 2 ** attempt;
-        await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(resolve, delayMs);
-          deadline.signal.addEventListener("abort", () => {
-            clearTimeout(timer);
-            reject(deadline.signal.reason);
-          }, { once: true });
-        });
+        const delayMs = Math.min(
+          retryDelayMs(retryAfterHeader, attempt),
+          MAX_RETRY_DELAY_MS,
+          Math.max(0, deadlineAt - Date.now()),
+        );
+        const delay = abortableDelay(delayMs, deadline.signal);
+        await Promise.all([
+          response.body?.cancel().catch(() => undefined),
+          delay,
+        ]);
       } catch (cause) {
         lastCause = cause;
         if (deadline.signal.aborted || attempt === retries) break;
@@ -138,12 +151,15 @@ export async function request<T>(url: string, init: RequestOptions = {}): Promis
   const { response: res } = handle;
   try {
     if (!res.ok) {
-      const body = await res.json().catch(() => undefined);
+      const body = await readBoundedJson(res, handle.maxResponseBytes).catch((error) => {
+        if (error instanceof ArinovaError) throw error;
+        return undefined;
+      });
       const error = parseError(body, `Request failed (${res.status})`);
       throw new ArinovaError(error.message, res.status, error.code ?? "http_error");
     }
     if (res.status === 204) return undefined as T;
-    return (await res.json()) as T;
+    return (await readBoundedJson(res, handle.maxResponseBytes)) as T;
   } catch (error) {
     if (error instanceof ArinovaError) throw error;
     const abortCode = handle.abortCode();
@@ -161,7 +177,10 @@ export async function requestStream(url: string, init: RequestOptions = {}): Pro
   const handle = await fetchWithErrors(url, init);
   const { response: res } = handle;
   if (!res.ok) {
-    const body = await res.json().catch(() => undefined);
+    const body = await readBoundedJson(res, handle.maxResponseBytes).catch((error) => {
+      if (error instanceof ArinovaError) throw error;
+      return undefined;
+    });
     const error = parseError(body, `Request failed (${res.status})`);
     handle.close();
     throw new ArinovaError(error.message, res.status, error.code ?? "http_error");
@@ -175,6 +194,72 @@ export async function requestStream(url: string, init: RequestOptions = {}): Pro
   // clock here; the caller's own AbortSignal still cancels mid-stream.
   handle.disarmTimeout();
   return handle;
+}
+
+function retryDelayMs(retryAfter: string | null, attempt: number): number {
+  if (retryAfter !== null) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds)) {
+      return seconds >= 0 ? seconds * 1_000 : 100 * 2 ** attempt;
+    }
+    const at = Date.parse(retryAfter);
+    if (Number.isFinite(at)) return Math.max(0, at - Date.now());
+  }
+  return 100 * 2 ** attempt;
+}
+
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      cleanup();
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function readBoundedJson(response: Response, maxBytes: number): Promise<unknown> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel();
+    throw new ArinovaError(
+      `Response exceeds ${maxBytes} byte limit`,
+      response.status,
+      "response_too_large",
+    );
+  }
+  if (!response.body) return undefined;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel();
+        throw new ArinovaError(
+          `Response exceeds ${maxBytes} byte limit`,
+          response.status,
+          "response_too_large",
+        );
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    return text ? JSON.parse(text) : undefined;
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 export function stripTrailingSlash(u: string): string {

@@ -31,7 +31,155 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
+
+try:
+    from ._runtime_contract import (
+        CONCURRENCY_MODES,
+        DEFAULT_ADAPTER_PORT,
+        DEFAULT_ATTACHMENT_ERROR_BODY_MAX_BYTES,
+        DEFAULT_ATTACHMENT_MAX_BYTES,
+        DEFAULT_ATTACHMENT_MAX_COUNT,
+        DEFAULT_ATTACHMENT_TOTAL_MAX_BYTES,
+        DEFAULT_ATTACHMENT_TOTAL_TIMEOUT_MS,
+        DEFAULT_BIND,
+        DEFAULT_CONNECT_TIMEOUT_MS,
+        DEFAULT_CONTROL_MAX_BODY_BYTES,
+        DEFAULT_SIDECAR_PORT,
+        DEFAULT_SIDECAR_POST_TIMEOUT_MS,
+    )
+except ImportError:  # Support Hermes loading adapter.py as a top-level module.
+    from _runtime_contract import (  # type: ignore[no-redef]
+        CONCURRENCY_MODES,
+        DEFAULT_ADAPTER_PORT,
+        DEFAULT_ATTACHMENT_ERROR_BODY_MAX_BYTES,
+        DEFAULT_ATTACHMENT_MAX_BYTES,
+        DEFAULT_ATTACHMENT_MAX_COUNT,
+        DEFAULT_ATTACHMENT_TOTAL_MAX_BYTES,
+        DEFAULT_ATTACHMENT_TOTAL_TIMEOUT_MS,
+        DEFAULT_BIND,
+        DEFAULT_CONNECT_TIMEOUT_MS,
+        DEFAULT_CONTROL_MAX_BODY_BYTES,
+        DEFAULT_SIDECAR_PORT,
+        DEFAULT_SIDECAR_POST_TIMEOUT_MS,
+    )
+
+try:
+    from ._attachments import (
+        attachment_urlopen as _attachment_urlopen_impl,
+        attachments_section as _attachments_section_impl,
+        cache_media_bytes,
+        collect_attachment_media as _collect_attachment_media_impl,
+        download_attachment_bytes as _download_attachment_bytes_impl,
+        download_attachment_media as _download_attachment_media_impl,
+        history_section as _history_section_impl,
+        members_section as _members_section_impl,
+        message_type_for_media as _message_type_for_media_impl,
+        metadata_section as _metadata_section_impl,
+        reply_section as _reply_section_impl,
+        skills_section as _skills_section_impl,
+        task_text as _task_text_impl,
+    )
+    from ._http import (
+        AttachmentRedirectHandler as _AttachmentRedirectHandler,
+        PinnedHTTPConnection as _PinnedHTTPConnection,
+        PinnedHTTPHandler as _PinnedHTTPHandler,
+        PinnedHTTPSConnection as _PinnedHTTPSConnection,
+        PinnedHTTPSHandler as _PinnedHTTPSHandler,
+        bridge_tokens_equal as _bridge_tokens_equal,
+        callback_content_length as _callback_content_length,
+        is_json_content_type as _is_json_content_type,
+        json_safe as _json_safe,
+        reject_duplicate_json_keys as _reject_duplicate_json_keys,
+        reject_json_constant as _reject_json_constant,
+        resolve_public_http_url as _resolve_public_http_url,
+        urlopen_json as _urlopen_json,
+        validate_public_http_url as _validate_public_http_url,
+    )
+    from ._sidecar import (
+        ADAPTER_CALLBACK_FIELDS,
+        ADAPTER_CALLBACK_REQUIRED_FIELDS,
+        DEFAULT_SDK_ROOT,
+        SDK_DIST_FILES,
+        SDK_PACKAGE_FILES,
+        SDK_PACKAGE_PUBLIC_METADATA_KEYS,
+        SIDECAR_DIR,
+        SIDECAR_JS_CHECK_FILES,
+        drain_sidecar_logs as _drain_sidecar_logs_impl,
+        local_sdk_package as _local_sdk_package,
+        node_syntax_error as _node_syntax_error_impl,
+        node_version_supported as _node_version_supported,
+        post_sidecar as _post_sidecar_impl,
+        sdk_package_file_drift as _sdk_package_file_drift,
+        sdk_public_metadata as _sdk_public_metadata,
+        sidecar_dependency_error as _sidecar_dependency_error_impl,
+        sidecar_env as _sidecar_env_impl,
+        sidecar_exit_error as _sidecar_exit_error_impl,
+        sidecar_lockfile_error as _sidecar_lockfile_error_impl,
+        sidecar_sdk_package as _sidecar_sdk_package_impl,
+        start_inbound_server as _start_inbound_server_impl,
+        start_sidecar as _start_sidecar_impl,
+        validate_adapter_callback_payload as _validate_adapter_callback_payload,
+        wait_for_sidecar as _wait_for_sidecar_impl,
+    )
+except ImportError:
+    from _attachments import (  # type: ignore[no-redef]
+        attachment_urlopen as _attachment_urlopen_impl,
+        attachments_section as _attachments_section_impl,
+        cache_media_bytes,
+        collect_attachment_media as _collect_attachment_media_impl,
+        download_attachment_bytes as _download_attachment_bytes_impl,
+        download_attachment_media as _download_attachment_media_impl,
+        history_section as _history_section_impl,
+        members_section as _members_section_impl,
+        message_type_for_media as _message_type_for_media_impl,
+        metadata_section as _metadata_section_impl,
+        reply_section as _reply_section_impl,
+        skills_section as _skills_section_impl,
+        task_text as _task_text_impl,
+    )
+    from _http import (  # type: ignore[no-redef]
+        AttachmentRedirectHandler as _AttachmentRedirectHandler,
+        PinnedHTTPConnection as _PinnedHTTPConnection,
+        PinnedHTTPHandler as _PinnedHTTPHandler,
+        PinnedHTTPSConnection as _PinnedHTTPSConnection,
+        PinnedHTTPSHandler as _PinnedHTTPSHandler,
+        bridge_tokens_equal as _bridge_tokens_equal,
+        callback_content_length as _callback_content_length,
+        is_json_content_type as _is_json_content_type,
+        json_safe as _json_safe,
+        reject_duplicate_json_keys as _reject_duplicate_json_keys,
+        reject_json_constant as _reject_json_constant,
+        resolve_public_http_url as _resolve_public_http_url,
+        urlopen_json as _urlopen_json,
+        validate_public_http_url as _validate_public_http_url,
+    )
+    from _sidecar import (  # type: ignore[no-redef]
+        ADAPTER_CALLBACK_FIELDS,
+        ADAPTER_CALLBACK_REQUIRED_FIELDS,
+        DEFAULT_SDK_ROOT,
+        SDK_DIST_FILES,
+        SDK_PACKAGE_FILES,
+        SDK_PACKAGE_PUBLIC_METADATA_KEYS,
+        SIDECAR_DIR,
+        SIDECAR_JS_CHECK_FILES,
+        drain_sidecar_logs as _drain_sidecar_logs_impl,
+        local_sdk_package as _local_sdk_package,
+        node_syntax_error as _node_syntax_error_impl,
+        node_version_supported as _node_version_supported,
+        post_sidecar as _post_sidecar_impl,
+        sdk_package_file_drift as _sdk_package_file_drift,
+        sdk_public_metadata as _sdk_public_metadata,
+        sidecar_dependency_error as _sidecar_dependency_error_impl,
+        sidecar_env as _sidecar_env_impl,
+        sidecar_exit_error as _sidecar_exit_error_impl,
+        sidecar_lockfile_error as _sidecar_lockfile_error_impl,
+        sidecar_sdk_package as _sidecar_sdk_package_impl,
+        start_inbound_server as _start_inbound_server_impl,
+        start_sidecar as _start_sidecar_impl,
+        validate_adapter_callback_payload as _validate_adapter_callback_payload,
+        wait_for_sidecar as _wait_for_sidecar_impl,
+    )
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import (
@@ -43,76 +191,8 @@ from gateway.platforms.base import (
 )
 from gateway.session import build_session_key
 
-try:
-    from gateway.platforms.base import cache_media_bytes
-except ImportError:
-    class _CachedMedia:
-        def __init__(self, path: str, media_type: str, filename: str):
-            self.path = path
-            self.media_type = media_type
-            self._filename = filename
-
-        def context_note(self) -> str:
-            return f"Downloaded attachment: {self._filename} ({self.media_type})"
-
-    def cache_media_bytes(data: bytes, *, filename: str, mime_type: str):
-        safe_name = Path(filename).name or "attachment"
-        suffix = Path(safe_name).suffix[:16]
-        descriptor, path = tempfile.mkstemp(prefix="hermes-arinova-", suffix=suffix)
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(data)
-        return _CachedMedia(path, mime_type, safe_name)
-
 logger = logging.getLogger(__name__)
 
-DEFAULT_SIDECAR_PORT = 8793
-DEFAULT_ADAPTER_PORT = 8794
-DEFAULT_BIND = "127.0.0.1"
-DEFAULT_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024
-DEFAULT_ATTACHMENT_MAX_COUNT = 8
-DEFAULT_ATTACHMENT_TOTAL_MAX_BYTES = 64 * 1024 * 1024
-DEFAULT_ATTACHMENT_TOTAL_TIMEOUT_MS = 30_000
-DEFAULT_CONNECT_TIMEOUT_MS = 30_000
-DEFAULT_SIDECAR_POST_TIMEOUT_MS = 10_000
-DEFAULT_CONTROL_MAX_BODY_BYTES = 128 * 1024 * 1024
-SIDECAR_DIR = Path(__file__).parent / "sidecar"
-DEFAULT_SDK_ROOT = Path(__file__).resolve().parent.parent / "agent-sdk"
-SDK_DIST_FILES = (
-    "dist/client.d.ts",
-    "dist/client.d.ts.map",
-    "dist/client.js",
-    "dist/client.js.map",
-    "dist/index.d.ts",
-    "dist/index.d.ts.map",
-    "dist/index.js",
-    "dist/index.js.map",
-    "dist/types.d.ts",
-    "dist/types.d.ts.map",
-    "dist/types.js",
-    "dist/types.js.map",
-)
-SDK_PACKAGE_FILES = ("README.md", *SDK_DIST_FILES)
-SDK_PACKAGE_PUBLIC_METADATA_KEYS = (
-    "name",
-    "description",
-    "type",
-    "main",
-    "types",
-    "exports",
-    "files",
-    "keywords",
-    "license",
-    "dependencies",
-    "scripts",
-    "devDependencies",
-)
-SIDECAR_JS_CHECK_FILES = (
-    "index.mjs",
-    "runtime.mjs",
-    "node_modules/@arinova-ai/agent-sdk/dist/client.js",
-    "node_modules/@arinova-ai/agent-sdk/dist/index.js",
-    "node_modules/@arinova-ai/agent-sdk/dist/types.js",
-)
 SDK_UPLOAD_MIME_TYPES = {
     "jpg": "image/jpeg",
     "jpeg": "image/jpeg",
@@ -143,58 +223,6 @@ VOID_AGENT_METHODS = {
 _active_adapter: "ArinovaAdapter | None" = None
 _TRUE_PAYLOAD_VALUES = {"1", "true", "yes", "on"}
 _FALSE_PAYLOAD_VALUES = {"0", "false", "no", "off"}
-CONCURRENCY_MODES = {"per-conversation", "agent-wide", "unbounded"}
-ADAPTER_CALLBACK_FIELDS = {
-    "/task": {
-        "taskId",
-        "taskKind",
-        "userMessageId",
-        "conversationId",
-        "conversationName",
-        "conversationType",
-        "content",
-        "senderUserId",
-        "senderUsername",
-        "senderAgentId",
-        "senderAgentName",
-        "members",
-        "replyTo",
-        "history",
-        "attachments",
-        "availableSkills",
-    },
-    "/cancel": {"taskId"},
-    "/token-claimed": {"agentId", "permanentToken"},
-    "/onboarding-seed": {"kind", "seedId", "agentId", "action", "prompt"},
-    "/connection-status": {"connected", "agentId"},
-    "/auth-failed": {"error", "retryable"},
-    "/sdk-error": {"error"},
-}
-ADAPTER_CALLBACK_REQUIRED_FIELDS = {
-    "/task": {"taskId", "content"},
-    "/cancel": {"taskId"},
-    "/token-claimed": {"permanentToken"},
-    "/onboarding-seed": {"kind", "seedId", "agentId", "action", "prompt"},
-    "/connection-status": {"connected"},
-    "/auth-failed": {"error", "retryable"},
-    "/sdk-error": {"error"},
-}
-TASK_CONTEXT_STRING_FIELDS = {
-    "taskKind",
-    "userMessageId",
-    "conversationId",
-    "conversationName",
-    "conversationType",
-    "senderUserId",
-    "senderUsername",
-    "senderAgentId",
-    "senderAgentName",
-}
-TASK_MEMBER_FIELDS = {"agentId", "agentName"}
-TASK_REPLY_FIELDS = {"id", "role", "content", "senderAgentId", "senderAgentName", "senderUsername"}
-TASK_HISTORY_FIELDS = {"role", "content", "senderAgentName", "senderUsername", "createdAt"}
-TASK_ATTACHMENT_FIELDS = {"id", "fileName", "fileType", "fileSize", "url"}
-TASK_SKILL_FIELDS = {"slug", "name", "slashCommand", "description"}
 POSITIVE_INT_SETTINGS = (
     ("ARINOVA_SIDECAR_PORT", "sidecar_port"),
     ("ARINOVA_ADAPTER_PORT", "adapter_port"),
@@ -219,120 +247,6 @@ NONNEGATIVE_INT_SETTINGS = (
 )
 INT_SETTINGS = POSITIVE_INT_SETTINGS + NONNEGATIVE_INT_SETTINGS
 _ZERO_ALLOWED_INT_ENV_NAMES = frozenset(env_name for env_name, _ in NONNEGATIVE_INT_SETTINGS)
-
-
-def _resolve_public_http_url(url: str) -> tuple[urllib.parse.SplitResult, str, int]:
-    parsed = urllib.parse.urlsplit(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError("attachment URL must be an absolute http(s) URL")
-    if parsed.username is not None or parsed.password is not None:
-        raise ValueError("attachment URL credentials are not allowed")
-
-    try:
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    except ValueError as exc:
-        raise ValueError("attachment URL port is invalid") from exc
-
-    try:
-        addresses = socket.getaddrinfo(
-            parsed.hostname,
-            port,
-            type=socket.SOCK_STREAM,
-        )
-    except socket.gaierror as exc:
-        raise ValueError("attachment URL host could not be resolved") from exc
-    if not addresses:
-        raise ValueError("attachment URL host could not be resolved")
-
-    pinned_ip = ""
-    for address in addresses:
-        raw_ip = address[4][0]
-        try:
-            ip = ipaddress.ip_address(raw_ip)
-        except ValueError as exc:
-            raise ValueError("attachment URL resolved to an invalid address") from exc
-        if not ip.is_global:
-            raise ValueError("attachment URL resolves to a non-public address")
-        if not pinned_ip:
-            pinned_ip = raw_ip
-    return parsed, pinned_ip, port
-
-
-def _validate_public_http_url(url: str) -> None:
-    _resolve_public_http_url(url)
-
-
-class _PinnedHTTPConnection(http.client.HTTPConnection):
-    def __init__(self, host: str, *, pinned_ip: str, **kwargs: Any):
-        self._pinned_ip = pinned_ip
-        super().__init__(host, **kwargs)
-
-    def connect(self) -> None:
-        self.sock = self._create_connection(
-            (self._pinned_ip, self.port),
-            self.timeout,
-            self.source_address,
-        )
-        if self._tunnel_host:
-            self._tunnel()
-
-
-class _PinnedHTTPSConnection(http.client.HTTPSConnection):
-    def __init__(self, host: str, *, pinned_ip: str, **kwargs: Any):
-        self._pinned_ip = pinned_ip
-        super().__init__(host, **kwargs)
-
-    def connect(self) -> None:
-        self.sock = self._create_connection(
-            (self._pinned_ip, self.port),
-            self.timeout,
-            self.source_address,
-        )
-        if self._tunnel_host:
-            self._tunnel()
-        self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
-
-
-class _PinnedHTTPHandler(urllib.request.HTTPHandler):
-    handler_order = 100
-
-    def http_open(self, req):
-        _, pinned_ip, _ = _resolve_public_http_url(req.full_url)
-        return self.do_open(
-            lambda host, **kwargs: _PinnedHTTPConnection(host, pinned_ip=pinned_ip, **kwargs),
-            req,
-        )
-
-
-class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
-    handler_order = 100
-
-    def __init__(self, context: ssl.SSLContext | None = None):
-        # Hostname checking must be configured on the SSLContext itself:
-        # Python 3.12 removed HTTPSHandler._check_hostname and
-        # http.client.HTTPSConnection no longer accepts check_hostname.
-        if context is None:
-            context = ssl.create_default_context()
-        super().__init__(context=context)
-
-    def https_open(self, req):
-        _, pinned_ip, _ = _resolve_public_http_url(req.full_url)
-        return self.do_open(
-            lambda host, **kwargs: _PinnedHTTPSConnection(host, pinned_ip=pinned_ip, **kwargs),
-            req,
-            context=self._context,
-        )
-
-
-class _AttachmentRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        target = urllib.parse.urljoin(req.full_url, newurl)
-        scheme = urllib.parse.urlsplit(target).scheme
-        if scheme not in {"http", "https"}:
-            raise ValueError("attachment redirect must use an http(s) URL")
-        _validate_public_http_url(target)
-        return super().redirect_request(req, fp, code, msg, headers, target)
-
 
 def _truthy(value: str | None, default: bool = False) -> bool:
     if value is None or value == "":
@@ -522,165 +436,6 @@ def _redact(value: str, keep: int = 6) -> str:
     return f"{value[:keep]}..."
 
 
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, (bytes, bytearray, memoryview)):
-        return {"base64": base64.b64encode(bytes(value)).decode("ascii")}
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(item) for item in value]
-    return value
-
-
-def _reject_json_constant(value: str) -> None:
-    raise ValueError(f"JSON contains non-finite constant: {value}")
-
-
-def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    data: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in data:
-            raise ValueError(f"JSON object contains duplicate key: {key}")
-        data[key] = value
-    return data
-
-
-def _is_json_content_type(value: str | None) -> bool:
-    content_type = str(value or "").split(";", 1)[0].strip().lower()
-    return content_type == "application/json"
-
-
-def _callback_content_length(value: str | None) -> int:
-    if value is None:
-        raise ValueError("callback Content-Length is required")
-    try:
-        length = int(str(value).strip())
-    except (TypeError, ValueError) as exc:
-        raise ValueError("callback Content-Length must be a non-negative integer") from exc
-    if length < 0:
-        raise ValueError("callback Content-Length must be a non-negative integer")
-    return length
-
-
-def _require_callback_object(value: Any, field: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"callback {field} must be an object")
-    return value
-
-
-def _require_callback_object_array(value: Any, field: str) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        raise ValueError(f"callback {field} must be an array")
-    items: list[dict[str, Any]] = []
-    for index, item in enumerate(value):
-        if not isinstance(item, dict):
-            raise ValueError(f"callback {field}[{index}] must be an object")
-        items.append(item)
-    return items
-
-
-def _reject_callback_unknown_fields(value: dict[str, Any], field: str, allowed: set[str]) -> None:
-    unknown = sorted(set(value) - allowed)
-    if unknown:
-        raise ValueError(f"callback {field} has unsupported field(s): {', '.join(unknown)}")
-
-
-def _require_callback_string_fields(value: dict[str, Any], field: str, keys: tuple[str, ...]) -> None:
-    for key in keys:
-        if not isinstance(value.get(key), str):
-            raise ValueError(f"callback {field}.{key} must be a string")
-
-
-def _require_callback_optional_string_fields(value: dict[str, Any], field: str, keys: tuple[str, ...]) -> None:
-    for key in keys:
-        if key in value and value.get(key) is not None and not isinstance(value.get(key), str):
-            raise ValueError(f"callback {field}.{key} must be a string or null")
-
-
-def _validate_task_context_payload(payload: dict[str, Any]) -> None:
-    for key in TASK_CONTEXT_STRING_FIELDS:
-        if key in payload and payload.get(key) is not None and not isinstance(payload.get(key), str):
-            raise ValueError(f"callback {key} must be a string or null")
-
-    if "members" in payload and payload.get("members") is not None:
-        for index, member in enumerate(_require_callback_object_array(payload.get("members"), "members")):
-            field = f"members[{index}]"
-            _reject_callback_unknown_fields(member, field, TASK_MEMBER_FIELDS)
-            _require_callback_string_fields(member, field, ("agentId", "agentName"))
-
-    if "replyTo" in payload and payload.get("replyTo") is not None:
-        reply_to = _require_callback_object(payload.get("replyTo"), "replyTo")
-        _reject_callback_unknown_fields(reply_to, "replyTo", TASK_REPLY_FIELDS)
-        _require_callback_string_fields(reply_to, "replyTo", ("role", "content"))
-        _require_callback_optional_string_fields(
-            reply_to,
-            "replyTo",
-            ("id", "senderAgentId", "senderAgentName", "senderUsername"),
-        )
-
-    if "history" in payload and payload.get("history") is not None:
-        for index, item in enumerate(_require_callback_object_array(payload.get("history"), "history")):
-            field = f"history[{index}]"
-            _reject_callback_unknown_fields(item, field, TASK_HISTORY_FIELDS)
-            _require_callback_string_fields(item, field, ("role", "content", "createdAt"))
-            _require_callback_optional_string_fields(item, field, ("senderAgentName", "senderUsername"))
-
-    if "attachments" in payload and payload.get("attachments") is not None:
-        for index, attachment in enumerate(_require_callback_object_array(payload.get("attachments"), "attachments")):
-            field = f"attachments[{index}]"
-            _reject_callback_unknown_fields(attachment, field, TASK_ATTACHMENT_FIELDS)
-            _require_callback_string_fields(attachment, field, ("id", "fileName", "fileType", "url"))
-            size = attachment.get("fileSize")
-            if isinstance(size, bool) or not isinstance(size, (int, float)) or not math.isfinite(size):
-                raise ValueError(f"callback {field}.fileSize must be a finite number")
-
-    if "availableSkills" in payload and payload.get("availableSkills") is not None:
-        for index, skill in enumerate(_require_callback_object_array(payload.get("availableSkills"), "availableSkills")):
-            field = f"availableSkills[{index}]"
-            _reject_callback_unknown_fields(skill, field, TASK_SKILL_FIELDS)
-            _require_callback_string_fields(skill, field, ("slug", "name", "description"))
-            slash = skill.get("slashCommand")
-            if slash is not None and not isinstance(slash, str):
-                raise ValueError(f"callback {field}.slashCommand must be a string or null")
-
-
-def _validate_adapter_callback_payload(path: str, payload: dict[str, Any]) -> None:
-    allowed = ADAPTER_CALLBACK_FIELDS.get(path)
-    required = ADAPTER_CALLBACK_REQUIRED_FIELDS.get(path)
-    if allowed is None and required is None:
-        raise ValueError(f"unsupported callback path: {path}")
-    unknown = sorted(set(payload) - (allowed or set()))
-    if unknown:
-        raise ValueError(f"callback request body has unsupported field(s): {', '.join(unknown)}")
-    missing = sorted((required or set()) - set(payload))
-    if missing:
-        raise ValueError(f"callback request body is missing required field(s): {', '.join(missing)}")
-    if path in {"/task", "/cancel"}:
-        task_id = payload.get("taskId")
-        if not isinstance(task_id, str) or not task_id.strip():
-            raise ValueError("callback taskId must be a non-empty string")
-    if path == "/task":
-        if not isinstance(payload.get("content"), str):
-            raise ValueError("callback content must be a string")
-        _validate_task_context_payload(payload)
-    if path == "/connection-status" and not isinstance(payload.get("connected"), bool):
-        raise ValueError("callback connected must be a boolean")
-    if path == "/token-claimed":
-        agent_id = payload.get("agentId")
-        if agent_id is not None and not isinstance(agent_id, str):
-            raise ValueError("callback agentId must be a string or null")
-        token = payload.get("permanentToken")
-        if not isinstance(token, str) or not token.strip():
-            raise ValueError("callback permanentToken must be a non-empty string")
-    if path == "/onboarding-seed":
-        for key in ("kind", "seedId", "agentId", "action", "prompt"):
-            if not isinstance(payload.get(key), str):
-                raise ValueError(f"callback {key} must be a string")
-    if path in {"/auth-failed", "/sdk-error"} and not isinstance(payload.get("error"), str):
-        raise ValueError("callback error must be a string")
-    if path == "/auth-failed" and not isinstance(payload.get("retryable"), bool):
-        raise ValueError("callback retryable must be a boolean")
-
 
 def _mention_values(value: Any) -> list[str]:
     mentions: list[str] = []
@@ -743,37 +498,6 @@ def _sdk_mime_type(file_name: str) -> str:
     ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
     return SDK_UPLOAD_MIME_TYPES.get(ext, "application/octet-stream")
 
-
-def _urlopen_json(req: urllib.request.Request, *, timeout: float, label: str) -> dict:
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as res:
-            if not _is_json_content_type(res.headers.get("Content-Type")):
-                content_type = res.headers.get("Content-Type") or "<missing>"
-                raise RuntimeError(f"{label} returned non-JSON response content type: {content_type}")
-            body = res.read()
-            try:
-                raw = body.decode("utf-8")
-            except UnicodeDecodeError as exc:
-                raise RuntimeError(f"{label} returned non-UTF-8 response body") from exc
-            try:
-                parsed = json.loads(
-                    raw,
-                    parse_constant=_reject_json_constant,
-                    object_pairs_hook=_reject_duplicate_json_keys,
-                )
-            except (json.JSONDecodeError, ValueError) as exc:
-                raise RuntimeError(f"{label} returned malformed JSON: {raw!r}") from exc
-            if not isinstance(parsed, dict):
-                raise RuntimeError(f"{label} returned malformed response: {parsed!r}")
-            return parsed
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"{label} failed ({exc.code}): {body}") from exc
-    except urllib.error.URLError as exc:
-        reason = getattr(exc, "reason", exc)
-        raise RuntimeError(f"{label} failed: {reason}") from exc
-    except TimeoutError as exc:
-        raise RuntimeError(f"{label} timed out") from exc
 
 
 def _send_message_http(server_url: str, bot_token: str, conversation_id: str, content: str) -> dict:
@@ -924,165 +648,38 @@ def check_requirements() -> bool:
 
 
 def _sidecar_sdk_package() -> Path:
-    return SIDECAR_DIR / "node_modules/@arinova-ai/agent-sdk/package.json"
+    return _sidecar_sdk_package_impl(SIDECAR_DIR)
 
 
-def _local_sdk_package(sdk_root: str | Path | None = None) -> Path | None:
-    root = Path(sdk_root or os.getenv("ARINOVA_AGENT_SDK_ROOT") or DEFAULT_SDK_ROOT).expanduser()
-    package_path = root / "package.json"
-    return package_path if package_path.is_file() else None
-
-
-def _sdk_public_metadata(package: dict[str, Any]) -> dict[str, Any]:
-    return {key: package.get(key) for key in SDK_PACKAGE_PUBLIC_METADATA_KEYS}
-
-
-def _sdk_package_file_drift(installed_sdk_dir: Path, local_sdk_dir: Path) -> list[str]:
-    drift: list[str] = []
-    for relative_path in SDK_PACKAGE_FILES:
-        installed_path = installed_sdk_dir / relative_path
-        local_path = local_sdk_dir / relative_path
-        try:
-            installed_content = installed_path.read_text(encoding="utf-8")
-            local_content = local_path.read_text(encoding="utf-8")
-        except OSError:
-            drift.append(relative_path)
-            continue
-        if installed_content != local_content:
-            drift.append(relative_path)
-    return drift
-
-
-def _sidecar_lockfile_error(sidecar_package: dict[str, Any], sdk_package: dict[str, Any]) -> str | None:
-    lockfile_path = SIDECAR_DIR / "package-lock.json"
-    try:
-        lockfile = json.loads(lockfile_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        return f"sidecar package-lock.json could not be read: {exc}"
-    if lockfile.get("lockfileVersion") != 3:
-        return "sidecar package-lock.json is not an npm v3 lockfile"
-    if lockfile.get("requires") is not True:
-        return "sidecar package-lock.json does not declare dependency requirements"
-    root_package = lockfile.get("packages", {}).get("", {})
-    for field in ("name", "version", "dependencies", "engines"):
-        if root_package.get(field) != sidecar_package.get(field):
-            return f"sidecar package-lock.json root {field} drifted"
-    package_name = sdk_package.get("name")
-    locked_sdk = lockfile.get("packages", {}).get(f"node_modules/{package_name}", {})
-    expected_version = sidecar_package.get("dependencies", {}).get(package_name)
-    if locked_sdk.get("version") != expected_version:
-        return "sidecar package-lock.json SDK package version drifted"
-    expected_resolved = f"https://registry.npmjs.org/{package_name}/-/agent-sdk-{expected_version}.tgz"
-    if locked_sdk.get("resolved") != expected_resolved:
-        return "sidecar package-lock.json SDK package tarball drifted"
-    if locked_sdk.get("license") != sdk_package.get("license"):
-        return "sidecar package-lock.json SDK package license drifted"
-    if not isinstance(locked_sdk.get("integrity"), str) or not locked_sdk.get("integrity", "").startswith("sha512-"):
-        return "sidecar package-lock.json SDK package integrity is missing or not sha512"
-    return None
+def _sidecar_lockfile_error(
+    sidecar_package: dict[str, Any],
+    sdk_package: dict[str, Any],
+) -> str | None:
+    return _sidecar_lockfile_error_impl(
+        sidecar_package,
+        sdk_package,
+        sidecar_dir=SIDECAR_DIR,
+    )
 
 
 def _node_syntax_error(node_bin: str, relative_path: str) -> str | None:
-    path = SIDECAR_DIR / relative_path
-    if not path.is_file():
-        return f"sidecar JavaScript file is missing: {relative_path}"
-    try:
-        result = subprocess.run(
-            [node_bin, "--check", str(path)],
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=10,
-        )
-    except Exception as exc:
-        return f"sidecar JavaScript syntax check failed for {relative_path}: {exc}"
-    if result.returncode != 0:
-        output = (result.stdout or "").strip()
-        suffix = f": {output}" if output else ""
-        return f"sidecar JavaScript syntax check failed for {relative_path}{suffix}"
-    return None
-
-
-def _sidecar_dependency_error(node_bin: str | None = None, sdk_root: str | Path | None = None) -> str | None:
-    sidecar_package_path = SIDECAR_DIR / "package.json"
-    sdk_package_path = _sidecar_sdk_package()
-    if not sdk_package_path.exists():
-        return f"sidecar dependencies are missing; run `npm install` in {SIDECAR_DIR}"
-    try:
-        sidecar_package = json.loads(sidecar_package_path.read_text(encoding="utf-8"))
-        sdk_package = json.loads(sdk_package_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        return f"sidecar dependency metadata could not be read: {exc}"
-    expected_version = (
-        sidecar_package.get("dependencies", {})
-        .get("@arinova-ai/agent-sdk")
+    return _node_syntax_error_impl(
+        node_bin,
+        relative_path,
+        sidecar_dir=SIDECAR_DIR,
     )
-    actual_version = sdk_package.get("version")
-    if not expected_version:
-        return "sidecar package.json is missing @arinova-ai/agent-sdk dependency"
-    if sdk_package.get("name") != "@arinova-ai/agent-sdk":
-        return f"sidecar installed unexpected SDK package: {sdk_package.get('name')!r}"
-    if actual_version != expected_version:
-        return f"sidecar SDK version mismatch: installed {actual_version!r}, expected {expected_version!r}"
-    if sdk_package.get("type") != "module":
-        return "sidecar SDK package is not ESM"
-    lockfile_error = _sidecar_lockfile_error(sidecar_package, sdk_package)
-    if lockfile_error:
-        return lockfile_error
-    local_sdk_package_path = _local_sdk_package(sdk_root)
-    if local_sdk_package_path is not None:
-        try:
-            local_sdk_package = json.loads(local_sdk_package_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            return f"local SDK package metadata could not be read: {exc}"
-        local_metadata = _sdk_public_metadata(local_sdk_package)
-        installed_metadata = _sdk_public_metadata(sdk_package)
-        if installed_metadata != local_metadata:
-            return f"sidecar SDK package metadata drifted: {installed_metadata!r}"
-    exports = sdk_package.get("exports", {}).get(".")
-    if not isinstance(exports, dict) or not exports.get("import") or not exports.get("types"):
-        return f"sidecar SDK package exports drifted: {exports!r}"
-    sdk_package_dir = sdk_package_path.parent
-    missing_package_files = [
-        relative_path
-        for relative_path in SDK_PACKAGE_FILES
-        if not (sdk_package_dir / relative_path).is_file()
-    ]
-    if missing_package_files:
-        return f"sidecar SDK package files are missing: {', '.join(missing_package_files)}"
-    if local_sdk_package_path is not None:
-        drifted_package_files = _sdk_package_file_drift(sdk_package_dir, local_sdk_package_path.parent)
-        if drifted_package_files:
-            return f"sidecar SDK package files drifted: {', '.join(drifted_package_files)}"
-    node = node_bin or os.getenv("ARINOVA_NODE_BIN") or "node"
-    for relative_path in SIDECAR_JS_CHECK_FILES:
-        error = _node_syntax_error(node, relative_path)
-        if error:
-            return error
-    return None
 
 
-def _node_version_supported(node_bin: str) -> bool:
-    try:
-        result = subprocess.run(
-            [node_bin, "--version"],
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=5,
-        )
-    except Exception:
-        return False
-    if result.returncode != 0:
-        return False
-    version = (result.stdout or "").strip().lstrip("v")
-    try:
-        major = int(version.split(".", 1)[0])
-    except (TypeError, ValueError):
-        return False
-    return major >= 22
+def _sidecar_dependency_error(
+    node_bin: str | None = None,
+    sdk_root: str | Path | None = None,
+) -> str | None:
+    return _sidecar_dependency_error_impl(
+        node_bin,
+        sdk_root,
+        sidecar_dir=SIDECAR_DIR,
+    )
+
 
 
 def validate_config(cfg: PlatformConfig) -> bool:
@@ -1649,229 +1246,30 @@ class ArinovaAdapter(BasePlatformAdapter):
             self._forget_task(task_id)
 
     def _start_inbound_server(self) -> None:
-        if self._httpd:
-            return
-
-        adapter = self
-
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, fmt: str, *args: Any) -> None:
-                logger.debug("Arinova inbound: " + fmt, *args)
-
-            def do_GET(self) -> None:
-                if self.path != "/healthz":
-                    self.send_error(404)
-                    return
-                self._send_json(200, {"ok": True})
-
-            def do_POST(self) -> None:
-                supplied_token = self.headers.get("X-Arinova-Bridge-Token") or ""
-                if not hmac.compare_digest(supplied_token, adapter._shared_token):
-                    self.send_error(401)
-                    return
-                if not _is_json_content_type(self.headers.get("Content-Type")):
-                    self._send_json(415, {"ok": False, "error": "callback request body must use application/json"})
-                    return
-                try:
-                    length = _callback_content_length(self.headers.get("Content-Length"))
-                    if adapter.control_max_body_bytes is not None and length > adapter.control_max_body_bytes:
-                        self._send_json(
-                            413,
-                            {
-                                "ok": False,
-                                "error": f"callback request body exceeds {adapter.control_max_body_bytes} bytes",
-                            },
-                        )
-                        return
-                    body = self.rfile.read(length)
-                    if adapter.control_max_body_bytes is not None and len(body) > adapter.control_max_body_bytes:
-                        self._send_json(
-                            413,
-                            {
-                                "ok": False,
-                                "error": f"callback request body exceeds {adapter.control_max_body_bytes} bytes",
-                            },
-                        )
-                        return
-                    payload = json.loads(
-                        body.decode("utf-8") or "{}",
-                        parse_constant=_reject_json_constant,
-                        object_pairs_hook=_reject_duplicate_json_keys,
-                    )
-                    if not isinstance(payload, dict):
-                        raise ValueError("request body must be a JSON object")
-                    _validate_adapter_callback_payload(self.path, payload)
-                except Exception as exc:
-                    self._send_json(400, {"ok": False, "error": str(exc)})
-                    return
-
-                if self.path == "/task":
-                    adapter._schedule_task(payload)
-                    self._send_json(202, {"ok": True})
-                    return
-                if self.path == "/cancel":
-                    adapter._schedule_cancel(payload)
-                    self._send_json(202, {"ok": True})
-                    return
-                if self.path == "/token-claimed":
-                    adapter._schedule_callback(adapter._handle_token_claimed, payload)
-                    self._send_json(202, {"ok": True})
-                    return
-                if self.path == "/onboarding-seed":
-                    adapter._schedule_callback(adapter._handle_onboarding_seed, payload)
-                    self._send_json(202, {"ok": True})
-                    return
-                if self.path == "/connection-status":
-                    adapter._schedule_callback(adapter._handle_connection_status, payload)
-                    self._send_json(202, {"ok": True})
-                    return
-                if self.path == "/auth-failed":
-                    adapter._schedule_callback(adapter._handle_auth_failed, payload)
-                    self._send_json(202, {"ok": True})
-                    return
-                if self.path == "/sdk-error":
-                    adapter._schedule_callback(adapter._handle_sdk_error, payload)
-                    self._send_json(202, {"ok": True})
-                    return
-                self.send_error(404)
-
-            def _send_json(self, status: int, payload: dict) -> None:
-                data = json.dumps(payload, allow_nan=False).encode("utf-8")
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-        self._httpd = ThreadingHTTPServer((self.bind_host, self.adapter_port), Handler)
-        self._http_thread = threading.Thread(
-            target=self._httpd.serve_forever,
-            name="arinova-adapter-http",
-            daemon=True,
-        )
-        self._http_thread.start()
+        _start_inbound_server_impl(self)
 
     def _start_sidecar(self) -> None:
-        if self._sidecar_proc and self._sidecar_proc.poll() is None:
-            return
-        if self._sidecar_proc:
-            if self._sidecar_proc.stdout:
-                self._sidecar_proc.stdout.close()
-            if self._sidecar_log_thread and self._sidecar_log_thread.is_alive():
-                self._sidecar_log_thread.join(timeout=1)
-            self._sidecar_proc = None
-            self._sidecar_log_thread = None
-        if not shutil.which(self.node_bin):
-            raise RuntimeError(f"Node executable not found for Arinova sidecar: {self.node_bin}")
-        if not _node_version_supported(self.node_bin):
-            raise RuntimeError(f"Arinova sidecar requires Node >=22: {self.node_bin}")
-        dependency_error = _sidecar_dependency_error(self.node_bin, self.agent_sdk_root)
-        if dependency_error:
-            raise RuntimeError(dependency_error)
-
-        env = self._sidecar_env()
-        logger.info("Arinova: starting sidecar for %s token=%s", self.server_url, _redact(self.bot_token))
-        self._sidecar_proc = subprocess.Popen(
-            [self.node_bin, str(SIDECAR_DIR / "index.mjs")],
-            cwd=str(SIDECAR_DIR),
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
+        _start_sidecar_impl(
+            self,
+            sidecar_dir=SIDECAR_DIR,
+            node_version_check=_node_version_supported,
+            dependency_check=_sidecar_dependency_error,
         )
-        self._sidecar_log_thread = threading.Thread(
-            target=self._drain_sidecar_logs,
-            name="arinova-sidecar-logs",
-            daemon=True,
-        )
-        self._sidecar_log_thread.start()
 
     def _sidecar_env(self) -> dict[str, str]:
-        env = os.environ.copy()
-        env.update(
-            {
-                "ARINOVA_SERVER_URL": self.server_url,
-                "ARINOVA_BOT_TOKEN": self.bot_token,
-                "ARINOVA_SIDECAR_PORT": str(self.sidecar_port),
-                "ARINOVA_SIDECAR_BIND": self.sidecar_host,
-                "ARINOVA_ADAPTER_URL": f"http://{self.bind_host}:{self.adapter_port}",
-                "ARINOVA_BRIDGE_TOKEN": self._shared_token,
-                "ARINOVA_CONCURRENCY_MODE": str(self.concurrency_mode),
-            }
-        )
-        optional_env = {
-            "ARINOVA_AGENT_SKILLS_JSON": self.agent_skills_json,
-            "ARINOVA_RECONNECT_INTERVAL_MS": self.reconnect_interval_ms,
-            "ARINOVA_PING_INTERVAL_MS": self.ping_interval_ms,
-            "ARINOVA_PING_TIMEOUT_MS": self.ping_timeout_ms,
-            "ARINOVA_MAX_CONSECUTIVE_PER_CONVERSATION": self.max_consecutive_per_conversation,
-            "ARINOVA_MAX_QUEUED_TASKS": self.max_queued_tasks,
-            "ARINOVA_ADAPTER_POST_TIMEOUT_MS": self.adapter_post_timeout_ms,
-            "ARINOVA_CONTROL_MAX_BODY_BYTES": self.control_max_body_bytes,
-            "ARINOVA_AGENT_SDK_ROOT": self.agent_sdk_root,
-        }
-        env.update({key: str(value) for key, value in optional_env.items() if value not in (None, "")})
-        return env
+        return _sidecar_env_impl(self)
 
     def _drain_sidecar_logs(self) -> None:
-        proc = self._sidecar_proc
-        if not proc or not proc.stdout:
-            return
-        for line in proc.stdout:
-            message = line.rstrip()
-            self._sidecar_log_tail.append(message)
-            logger.info("[arinova-sidecar] %s", message)
+        _drain_sidecar_logs_impl(self)
 
     def _sidecar_exit_error(self) -> RuntimeError:
-        code = self._sidecar_proc.returncode if self._sidecar_proc else None
-        detail = f"sidecar exited before SDK authentication (exit {code})"
-        if self._sidecar_log_tail:
-            detail = f"{detail}; recent sidecar output: " + " | ".join(list(self._sidecar_log_tail)[-5:])
-        return RuntimeError(detail)
+        return _sidecar_exit_error_impl(self)
 
     async def _wait_for_sidecar(self) -> None:
-        deadline = time.monotonic() + max(self.connect_timeout_ms, 1000) / 1000
-        last_error: Exception | None = None
-        while time.monotonic() < deadline:
-            if self._sidecar_proc and self._sidecar_proc.poll() is not None:
-                raise self._sidecar_exit_error()
-            try:
-                health = await asyncio.to_thread(self._post_sidecar, "/healthz", {})
-                if health.get("ok") is not True:
-                    last_error = RuntimeError(f"sidecar control server reported unhealthy state: {health}")
-                    await asyncio.sleep(0.5)
-                    continue
-                if health.get("connected") is True:
-                    agent_id = health.get("agentId")
-                    if isinstance(agent_id, str) and agent_id:
-                        self._claimed_agent_id = agent_id
-                    return
-                last_error = RuntimeError("sidecar control server is up but SDK is not authenticated yet")
-            except Exception as exc:
-                last_error = exc
-            if self.has_fatal_error:
-                raise RuntimeError(self.fatal_error_message or "sidecar reported a fatal error")
-            await asyncio.sleep(0.5)
-        raise RuntimeError(f"sidecar did not become healthy: {last_error}")
+        await _wait_for_sidecar_impl(self)
 
     def _post_sidecar(self, path: str, payload: dict) -> dict:
-        url = f"http://{self.sidecar_host}:{self.sidecar_port}{path}"
-        data = json.dumps(payload, allow_nan=False).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=data,
-            method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "X-Arinova-Bridge-Token": self._shared_token,
-            },
-        )
-        return _urlopen_json(
-            req,
-            timeout=max(self.sidecar_post_timeout_ms, 1) / 1000,
-            label=path,
-        )
+        return _post_sidecar_impl(self, path, payload)
 
     def _schedule_task(self, task: dict) -> None:
         if not self._loop or self._loop.is_closed() or not self._loop.is_running():
@@ -2140,15 +1538,7 @@ class ArinovaAdapter(BasePlatformAdapter):
             return
 
     def _message_type_for_media(self, media_types: list[str]) -> MessageType:
-        if any(item.startswith("image/") for item in media_types):
-            return MessageType.PHOTO
-        if any(item.startswith("video/") for item in media_types):
-            return MessageType.VIDEO
-        if any(item.startswith("audio/") for item in media_types):
-            return MessageType.AUDIO
-        if media_types:
-            return MessageType.DOCUMENT
-        return MessageType.TEXT
+        return _message_type_for_media_impl(media_types)
 
     async def _collect_attachment_media(
         self,
@@ -2156,63 +1546,7 @@ class ArinovaAdapter(BasePlatformAdapter):
         *,
         authorized: bool,
     ) -> tuple[list[str], list[str], list[str]]:
-        media_urls: list[str] = []
-        media_types: list[str] = []
-        media_notes: list[str] = []
-        if not self.download_attachments:
-            return media_urls, media_types, media_notes
-
-        attachments = task.get("attachments")
-        if not isinstance(attachments, list):
-            return media_urls, media_types, media_notes
-        candidates = [
-            attachment
-            for attachment in attachments
-            if isinstance(attachment, dict) and attachment.get("url")
-        ]
-        if not candidates:
-            return media_urls, media_types, media_notes
-        if not authorized:
-            logger.warning("Arinova: skipped attachment downloads for unauthorized sender")
-            return media_urls, media_types, media_notes
-        if len(candidates) > self.attachment_max_count:
-            logger.warning(
-                "Arinova: rejected %s attachments (maximum %s)",
-                len(candidates),
-                self.attachment_max_count,
-            )
-            return media_urls, media_types, media_notes
-
-        deadline = time.monotonic() + (self.attachment_total_timeout_ms / 1000)
-        total_bytes = 0
-        for attachment in candidates:
-            remaining_bytes = self.attachment_total_max_bytes - total_bytes
-            remaining_seconds = deadline - time.monotonic()
-            if remaining_bytes <= 0 or remaining_seconds <= 0:
-                logger.warning("Arinova: attachment aggregate budget exhausted")
-                break
-            try:
-                result = await asyncio.to_thread(
-                    self._download_attachment_media,
-                    attachment,
-                    max_bytes=min(self.attachment_max_bytes, remaining_bytes),
-                    timeout_seconds=min(30.0, remaining_seconds),
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Arinova: failed to download attachment %s: %s",
-                    attachment.get("fileName") or attachment.get("id") or "<unknown>",
-                    exc,
-                )
-                continue
-            if not result:
-                continue
-            path, media_type, note, downloaded_bytes = result
-            total_bytes += downloaded_bytes
-            media_urls.append(path)
-            media_types.append(media_type)
-            media_notes.append(note)
-        return media_urls, media_types, media_notes
+        return await _collect_attachment_media_impl(self, task, authorized=authorized)
 
     def _download_attachment_media(
         self,
@@ -2220,37 +1554,18 @@ class ArinovaAdapter(BasePlatformAdapter):
         *,
         max_bytes: int,
         timeout_seconds: float,
+        on_bytes: Callable[[int], None] | None = None,
     ) -> tuple[str, str, str, int] | None:
-        url = str(attachment.get("url") or "")
-        data, response_type = self._download_attachment_bytes(
-            url,
+        return _download_attachment_media_impl(
+            self,
+            attachment,
             max_bytes=max_bytes,
             timeout_seconds=timeout_seconds,
+            on_bytes=on_bytes,
         )
-        filename = str(attachment.get("fileName") or attachment.get("id") or "attachment")
-        mime_type = str(attachment.get("fileType") or response_type or "application/octet-stream")
-        cached = cache_media_bytes(data, filename=filename, mime_type=mime_type)
-        if cached is None:
-            return None
-        return cached.path, cached.media_type, cached.context_note(), len(data)
 
     def _attachment_urlopen(self, req: urllib.request.Request, *, timeout: float):
-        # Build the opener from an explicit safe handler list only. Never use
-        # build_opener() here: it installs default FileHandler/FTPHandler/
-        # DataHandler entries, which would let file:///ftp:/data: attachment
-        # URLs or redirects read local files.
-        opener = urllib.request.OpenerDirector()
-        for handler in (
-            urllib.request.ProxyHandler({}),
-            urllib.request.UnknownHandler(),
-            urllib.request.HTTPDefaultErrorHandler(),
-            _PinnedHTTPHandler(),
-            _PinnedHTTPSHandler(context=ssl.create_default_context()),
-            _AttachmentRedirectHandler(),
-            urllib.request.HTTPErrorProcessor(),
-        ):
-            opener.add_handler(handler)
-        return opener.open(req, timeout=timeout)
+        return _attachment_urlopen_impl(req, timeout=timeout)
 
     def _download_attachment_bytes(
         self,
@@ -2258,201 +1573,42 @@ class ArinovaAdapter(BasePlatformAdapter):
         *,
         max_bytes: int | None = None,
         timeout_seconds: float = 30.0,
+        on_bytes: Callable[[int], None] | None = None,
     ) -> tuple[bytes, str]:
-        byte_limit = self.attachment_max_bytes if max_bytes is None else max_bytes
-        if byte_limit <= 0 or timeout_seconds <= 0:
-            raise ValueError("attachment download budget exhausted")
-        _validate_public_http_url(url)
-        req = urllib.request.Request(
+        return _download_attachment_bytes_impl(
+            self,
             url,
-            headers={"User-Agent": "Hermes-Arinova-Plugin/0.1"},
-            method="GET",
+            max_bytes=max_bytes,
+            timeout_seconds=timeout_seconds,
+            on_bytes=on_bytes,
         )
-        try:
-            with self._attachment_urlopen(req, timeout=timeout_seconds) as res:
-                chunks = []
-                total = 0
-                deadline = time.monotonic() + timeout_seconds
-                while True:
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError()
-                    chunk = res.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    total += len(chunk)
-                    if total > byte_limit:
-                        raise ValueError(f"attachment exceeds {byte_limit} bytes")
-                    chunks.append(chunk)
-                content_type = res.headers.get("Content-Type", "").split(";", 1)[0].strip()
-        except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"attachment download failed ({exc.code}): {body}") from exc
-        except urllib.error.URLError as exc:
-            reason = getattr(exc, "reason", exc)
-            raise RuntimeError(f"attachment download failed: {reason}") from exc
-        except TimeoutError as exc:
-            raise RuntimeError("attachment download timed out") from exc
-        return b"".join(chunks), content_type
 
     @staticmethod
     def _reply_section(task: dict) -> str:
-        reply_to = task.get("replyTo")
-        if isinstance(reply_to, dict):
-            reply_content = str(reply_to.get("content") or "").strip()
-            if reply_content:
-                reply_sender = reply_to.get("senderAgentName") or reply_to.get("senderUsername") or reply_to.get("role")
-                prefix = f"Replying to {reply_sender}:" if reply_sender else "Replying to:"
-                reply_lines = [prefix, reply_content]
-                if reply_to.get("role") and reply_to.get("role") != reply_sender:
-                    reply_lines.append(f"role={reply_to.get('role')}")
-                return "\n".join(reply_lines)
-        return ""
+        return _reply_section_impl(task)
 
     @staticmethod
     def _history_section(task: dict) -> str:
-        history = task.get("history")
-        if isinstance(history, list) and history:
-            lines = []
-            for item in history[-5:]:
-                if not isinstance(item, dict):
-                    continue
-                text = str(item.get("content") or "").strip()
-                if not text:
-                    continue
-                sender = (
-                    item.get("senderAgentName")
-                    or item.get("senderUsername")
-                    or item.get("role")
-                    or "message"
-                )
-                created = item.get("createdAt")
-                label = str(sender)
-                if created:
-                    label += f" @ {created}"
-                details = []
-                if item.get("role") and item.get("role") != sender:
-                    details.append(f"role={item.get('role')}")
-                suffix = f" ({', '.join(details)})" if details else ""
-                lines.append(f"- {label}{suffix}: {text}")
-            if lines:
-                return "Recent Arinova history:\n" + "\n".join(lines)
-        return ""
+        return _history_section_impl(task)
 
     @staticmethod
     def _members_section(task: dict) -> str:
-        members = task.get("members")
-        if isinstance(members, list) and members:
-            lines = []
-            for member in members:
-                if not isinstance(member, dict):
-                    continue
-                agent_id = member.get("agentId")
-                agent_name = member.get("agentName") or agent_id
-                if agent_name:
-                    detail = str(agent_name)
-                    if agent_id and agent_id != agent_name:
-                        detail += f" ({agent_id})"
-                    lines.append(f"- {detail}")
-            if lines:
-                return "Arinova conversation agents:\n" + "\n".join(lines)
-        return ""
+        return _members_section_impl(task)
 
     @staticmethod
     def _attachments_section(task: dict) -> str:
-        attachments = task.get("attachments")
-        if isinstance(attachments, list) and attachments:
-            lines = []
-            for attachment in attachments:
-                if not isinstance(attachment, dict):
-                    continue
-                name = attachment.get("fileName") or attachment.get("id") or "attachment"
-                attachment_id = attachment.get("id")
-                file_type = attachment.get("fileType") or "application/octet-stream"
-                size = attachment.get("fileSize")
-                url = attachment.get("url")
-                detail = f"- {name} ({file_type}"
-                if attachment_id and attachment_id != name:
-                    detail += f", id={attachment_id}"
-                if (
-                    size is not None
-                    and not isinstance(size, bool)
-                    and isinstance(size, (int, float))
-                    and math.isfinite(size)
-                ):
-                    detail += f", {size} bytes"
-                detail += ")"
-                if url:
-                    detail += f": {url}"
-                lines.append(detail)
-            if lines:
-                return "Attachments:\n" + "\n".join(lines)
-        return ""
+        return _attachments_section_impl(task)
 
     @staticmethod
     def _skills_section(task: dict) -> str:
-        skills = task.get("availableSkills")
-        if isinstance(skills, list) and skills:
-            lines = []
-            for skill in skills:
-                if not isinstance(skill, dict):
-                    continue
-                name = skill.get("name") or skill.get("slug") or "skill"
-                slug = skill.get("slug")
-                slash = skill.get("slashCommand")
-                desc = skill.get("description")
-                parts = [str(name)]
-                if slug:
-                    parts.append(f"slug={slug}")
-                if slash:
-                    parts.append(f"slash={slash}")
-                if desc:
-                    parts.append(str(desc))
-                lines.append("- " + " | ".join(parts))
-            if lines:
-                return (
-                    "Available Arinova skills (use arinova_fetch_skill_prompt with slug for full prompt):\n"
-                    + "\n".join(lines)
-                )
-        return ""
+        return _skills_section_impl(task)
 
     @staticmethod
     def _metadata_section(task: dict) -> str:
-        metadata_lines = []
-        for label, key in (
-            ("taskId", "taskId"),
-            ("userMessageId", "userMessageId"),
-            ("conversationId", "conversationId"),
-            ("conversationName", "conversationName"),
-            ("conversationType", "conversationType"),
-            ("senderUserId", "senderUserId"),
-            ("senderUsername", "senderUsername"),
-            ("senderAgentId", "senderAgentId"),
-            ("senderAgentName", "senderAgentName"),
-        ):
-            if key not in task or task.get(key) is None:
-                continue
-            value = task.get(key)
-            if isinstance(value, str) or value:
-                metadata_lines.append(f"- {label}: {value}")
-        if metadata_lines:
-            return "Arinova task metadata:\n" + "\n".join(metadata_lines)
-        return ""
+        return _metadata_section_impl(task)
 
     def _task_text(self, task: dict, *, media_notes: list[str] | None = None) -> str:
-        content = str(task.get("content") or "")
-        sections = [
-            content,
-            self._reply_section(task),
-            self._history_section(task),
-            self._members_section(task),
-            self._attachments_section(task),
-            "Downloaded attachments:\n" + "\n".join(media_notes) if media_notes else "",
-            self._skills_section(task),
-            f"Arinova task kind: {task.get('taskKind')}" if task.get("taskKind") else "",
-            self._metadata_section(task),
-        ]
-
-        return "\n\n".join(section for section in sections if section).strip()
+        return _task_text_impl(self, task, media_notes=media_notes)
 
     async def _handle_arinova_cancel(self, payload: dict) -> None:
         task_id = self._task_id_value(payload.get("taskId"))

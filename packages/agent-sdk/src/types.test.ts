@@ -2,6 +2,8 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import type {
   ActionCallOptions,
   ActionCallResult,
+  AgentRuntimeInfo,
+  ListBoardsResult,
   TokenClaimedData,
   TaskAttachment,
   TaskContext,
@@ -38,7 +40,7 @@ describe("agent SDK type contracts", () => {
     });
   });
 
-  it("models action success, error, and confirmation results", () => {
+  it("models action lifecycle, success, error, and confirmation results", () => {
     const success = {
       callId: "call-1",
       action: "arinova.message.send",
@@ -74,7 +76,13 @@ describe("agent SDK type contracts", () => {
     expect(failure.error?.details).toEqual({ field: "content" });
     expect(confirmation.confirmation?.confirmationId).toBe("confirm-1");
     expectTypeOf<ActionCallResult["status"]>().toEqualTypeOf<
-      "success" | "error" | "requires_confirmation" | "cancelled"
+      | "success"
+      | "error"
+      | "requires_confirmation"
+      | "cancelled"
+      | "processing"
+      | "received"
+      | "validating"
     >();
   });
 
@@ -121,5 +129,17 @@ describe("agent SDK type contracts", () => {
     expectTypeOf<TaskContext["callAction"]>().returns.resolves.toEqualTypeOf<ActionCallResult>();
     expectTypeOf<TaskContext["content"]>().toEqualTypeOf<string | undefined>();
     expectTypeOf<TokenClaimedData["agentId"]>().toEqualTypeOf<string | null>();
+  });
+
+  it("exports runtime and aggregate board contracts", () => {
+    expectTypeOf<AgentRuntimeInfo>().toMatchTypeOf<{
+      name: string;
+      version: string;
+      language?: string;
+      platform?: string;
+    }>();
+    expectTypeOf<ListBoardsResult>().toHaveProperty("boards");
+    expectTypeOf<ListBoardsResult>().toHaveProperty("columns");
+    expectTypeOf<ListBoardsResult>().toHaveProperty("cards");
   });
 });

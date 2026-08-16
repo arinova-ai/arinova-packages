@@ -1,6 +1,7 @@
 export { ArinovaAgent, ArinovaApiError } from "./client.js";
 export type {
   ArinovaAgentOptions,
+  AgentRuntimeInfo,
   AgentSkill,
   TaskAttachment,
   UploadResult,
@@ -17,6 +18,8 @@ export type {
   CreateNoteBody,
   UpdateNoteBody,
   KanbanBoard,
+  ListBoardsOptions,
+  ListBoardsResult,
   KanbanColumn,
   KanbanCard,
   CreateCardBody,

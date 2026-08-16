@@ -22,6 +22,16 @@ const fixture = JSON.parse(
   readFileSync(join(contractsDirectory, "api-v1-routes.json"), "utf8"),
 ) as RouteFixture;
 const commandsDirectory = join(contractsDirectory, "../commands");
+const openClawSourceDirectory = resolve(contractsDirectory, "../../../openclaw-plugin/src");
+
+function readProductionTypeScriptSources(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return readProductionTypeScriptSources(path);
+    if (!entry.name.endsWith(".ts") || entry.name.endsWith(".test.ts")) return [];
+    return [readFileSync(path, "utf8")];
+  });
+}
 
 describe("API v1 route contract fixture", () => {
   it("is internally fresh and matches the configured server checkout", () => {
@@ -51,10 +61,10 @@ describe("API v1 route contract fixture", () => {
   });
 
   it("contains no known stale endpoint literals in command sources", () => {
-    const source = readdirSync(commandsDirectory)
-      .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
-      .map((name) => readFileSync(join(commandsDirectory, name), "utf8"))
-      .join("\n");
+    const source = [
+      ...readProductionTypeScriptSources(commandsDirectory),
+      ...readProductionTypeScriptSources(openClawSourceDirectory),
+    ].join("\n");
     for (const stale of [
       "/api/v1/auto-send",
       "/api/v1/wiki",

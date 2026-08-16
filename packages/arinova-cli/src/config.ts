@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { normalizeApiEndpoint } from "./endpoint.js";
 
 export type TokenType = "user" | "bot";
 
@@ -121,7 +122,7 @@ export function listProfiles(): { name: string; profile: Profile }[] {
 
 /**
  * Resolve the active profile name.
- * Only accepts --profile flag. No env var, no default.
+ * Accepts --profile or ARINOVA_PROFILE. There is no implicit default profile.
  */
 export function resolveProfileName(flagValue?: string): string {
   if (flagValue) return flagValue;
@@ -172,10 +173,10 @@ export function isStaging(): boolean {
 export function getEndpoint(): string {
   // Priority: env var > config file > version-based auto-detect
   if (process.env.ARINOVA_ENDPOINT) {
-    return process.env.ARINOVA_ENDPOINT.replace(/\/+$/, "");
+    return normalizeApiEndpoint(process.env.ARINOVA_ENDPOINT, "ARINOVA_ENDPOINT");
   }
   const cfg = loadConfig();
-  if (cfg.endpoint) return cfg.endpoint.replace(/\/+$/, "");
+  if (cfg.endpoint) return normalizeApiEndpoint(cfg.endpoint, "Configured endpoint");
   return isStaging() ? STAGING_ENDPOINT : PRODUCTION_ENDPOINT;
 }
 

@@ -23,7 +23,7 @@ import {
 } from "./check-sdk-http-fixtures.mjs";
 
 const requests = [];
-let failNextListBoards = false;
+let remainingListBoardFailures = 0;
 let duplicateNextListBoards = false;
 const calledMethods = new Set();
 function requestFor(method, path) {
@@ -153,8 +153,8 @@ const backend = createServer(async (req, res) => {
       duplicateNextListBoards = false;
       return rawJson(res, 200, '[{"id":"board-1","id":"board-2","name":"Board"}]');
     }
-    if (failNextListBoards) {
-      failNextListBoards = false;
+    if (remainingListBoardFailures > 0) {
+      remainingListBoardFailures -= 1;
       return text(res, 503, "boards unavailable");
     }
     return json(res, 200, [{ id: "board-1", name: "Board", createdAt: "now" }]);
@@ -559,10 +559,16 @@ try {
     await sdkError("listBoards", []),
     /listBoards returned malformed JSON: JSON object contains duplicate key: id/
   );
-  failNextListBoards = true;
+  const listBoardRequestsBeforeRetryFailure = requestsFor("GET", "/api/v1/kanban/boards").length;
+  remainingListBoardFailures = 3;
   assert.match(
     await sdkError("listBoards", []),
     /listBoards failed \(503\): boards unavailable/
+  );
+  assert.equal(
+    requestsFor("GET", "/api/v1/kanban/boards").length - listBoardRequestsBeforeRetryFailure,
+    3,
+    "listBoards should stop after its bounded retry budget"
   );
   assert.deepEqual(await sdk("createCard", [{ title: "Card", description: "Desc", priority: "high", columnName: "Todo", columnId: "col-1", boardId: "board-1" }]), card());
   assert.deepEqual(await sdk("updateCard", ["card-1", { title: "Card", description: "Desc 2", priority: "urgent", columnId: "col-1", sortOrder: 7 }]), card());

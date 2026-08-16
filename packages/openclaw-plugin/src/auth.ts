@@ -1,3 +1,6 @@
+import { normalizeTrustedApiUrl } from "./api-endpoint.js";
+import { readBoundedText } from "./http.js";
+
 /**
  * Exchange a bot token for the agent ID.
  * Also registers the A2A endpoint with Arinova so the backend knows
@@ -8,7 +11,8 @@ export async function exchangeBotToken(params: {
   botToken: string;
   a2aEndpoint?: string;
 }): Promise<{ agentId: string; name: string; wsUrl?: string }> {
-  const { apiUrl, botToken, a2aEndpoint } = params;
+  const { botToken, a2aEndpoint } = params;
+  const apiUrl = normalizeTrustedApiUrl(params.apiUrl);
 
   const body: Record<string, string> = { botToken };
   if (a2aEndpoint) body.a2aEndpoint = a2aEndpoint;
@@ -17,14 +21,15 @@ export async function exchangeBotToken(params: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
   });
 
+  const responseText = await readBoundedText(response);
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
     throw new Error(
-      `Pairing code exchange failed (${response.status}): ${body || "invalid code"}`,
+      `Pairing code exchange failed (${response.status}): ${responseText || "invalid code"}`,
     );
   }
 
-  return (await response.json()) as { agentId: string; name: string; wsUrl?: string };
+  return JSON.parse(responseText) as { agentId: string; name: string; wsUrl?: string };
 }

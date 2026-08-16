@@ -1,17 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  resolveAccount: vi.fn(),
-  apiCall: vi.fn(),
-  exchangeBotToken: vi.fn(),
-  replaceConfigFile: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const client = {
+    sendMessage: vi.fn(),
+    replyToMessage: vi.fn(),
+    fetchHistory: vi.fn(),
+    listNotes: vi.fn(),
+    createNote: vi.fn(),
+    listBoardsWithOptions: vi.fn(),
+    unarchiveBoard: vi.fn(),
+    listCards: vi.fn(),
+  };
+  return {
+    client,
+    ArinovaAgent: vi.fn(() => client),
+    resolveAccount: vi.fn(),
+    apiCall: vi.fn(),
+    exchangeBotToken: vi.fn(),
+    replaceConfigFile: vi.fn(),
+  };
+});
 
 vi.mock("./tools.js", () => ({
   resolveAccount: mocks.resolveAccount,
   apiCall: mocks.apiCall,
 }));
 vi.mock("./auth.js", () => ({ exchangeBotToken: mocks.exchangeBotToken }));
+vi.mock("@arinova-ai/agent-sdk", () => ({ ArinovaAgent: mocks.ArinovaAgent }));
 
 import { registerCli, resolveAccountWithOverrides } from "./cli.js";
 
@@ -40,7 +55,7 @@ const ACCOUNT = {
   accountId: "default",
   enabled: true,
   name: "Test Bot",
-  apiUrl: "https://api.test.arinova.ai",
+  apiUrl: "https://api.chat.arinova.ai",
   botToken: "ari_test123",
   agentId: "agent-1",
   config: {},
@@ -85,46 +100,58 @@ describe("resolveAccountWithOverrides", () => {
 });
 
 describe("registered CLI commands", () => {
-  it("executes the real message request mapper", async () => {
+  it("routes message sends through the typed SDK client", async () => {
     const arinova = await buildCli();
     await arinova.child("message", "send").handler?.({
       conversationId: "conv/1", content: "hello", replyTo: "message-2",
     });
-    expect(mocks.apiCall).toHaveBeenCalledWith({
-      method: "POST",
-      url: "https://api.test.arinova.ai/api/v1/messages/send",
-      token: "ari_test123",
-      body: { conversationId: "conv/1", content: "hello", replyTo: "message-2" },
+    expect(mocks.client.replyToMessage).toHaveBeenCalledWith(
+      "conv/1", "hello", "message-2",
+    );
+    expect(mocks.apiCall).not.toHaveBeenCalled();
+  });
+
+  it("sends notebook scope through typed note methods", async () => {
+    const arinova = await buildCli();
+    await arinova.child("note", "list").handler?.({ notebookId: "book/1", limit: "5" });
+    expect(mocks.client.listNotes).toHaveBeenLastCalledWith({
+      notebookId: "book/1", limit: 5,
+    });
+    await arinova.child("note", "create").handler?.({ notebookId: "book/1", title: "Title" });
+    expect(mocks.client.createNote).toHaveBeenLastCalledWith({
+      notebookId: "book/1", title: "Title", content: "", tags: [],
     });
   });
 
-  it("sends notebook scope in note list and create requests", async () => {
-    const arinova = await buildCli();
-    await arinova.child("note", "list").handler?.({ notebookId: "book/1", limit: "5" });
-    expect(mocks.apiCall).toHaveBeenLastCalledWith(expect.objectContaining({
-      method: "GET",
-      url: "https://api.test.arinova.ai/api/v1/notes?limit=5&notebookId=book%2F1",
-    }));
-    await arinova.child("note", "create").handler?.({ notebookId: "book/1", title: "Title" });
-    expect(mocks.apiCall).toHaveBeenLastCalledWith(expect.objectContaining({
-      method: "POST",
-      body: { notebookId: "book/1", title: "Title", content: "", tags: [] },
-    }));
-  });
-
-  it("uses the verified board unarchive endpoint", async () => {
+  it("uses the typed board unarchive method", async () => {
     const arinova = await buildCli();
     await arinova.child("kanban", "board", "unarchive").handler?.({ boardId: "board/1" });
-    expect(mocks.apiCall).toHaveBeenCalledWith(expect.objectContaining({
-      method: "POST",
-      url: "https://api.test.arinova.ai/api/v1/kanban/boards/board%2F1/unarchive",
-    }));
+    expect(mocks.client.unarchiveBoard).toHaveBeenCalledWith("board/1");
+  });
+
+  it("always applies bounded defaults to paginated list commands", async () => {
+    const arinova = await buildCli();
+    await arinova.child("message", "list").handler?.({ conversationId: "conv-1" });
+    await arinova.child("note", "list").handler?.({ notebookId: "book-1" });
+    await arinova.child("kanban", "board", "list").handler?.({});
+    await arinova.child("kanban", "card", "list").handler?.({});
+
+    expect(mocks.client.fetchHistory).toHaveBeenCalledWith("conv-1", { limit: 50 });
+    expect(mocks.client.listNotes).toHaveBeenCalledWith({ notebookId: "book-1", limit: 50 });
+    expect(mocks.client.listBoardsWithOptions).toHaveBeenCalledWith({ limit: 50 });
+    expect(mocks.client.listCards).toHaveBeenCalledWith({ limit: 50 });
+  });
+
+  it("does not register removed wiki or unsupported card archive commands", async () => {
+    const arinova = await buildCli();
+    expect(arinova.children.has("wiki")).toBe(false);
+    expect(arinova.child("kanban", "card").children.has("archive")).toBe(false);
   });
 
   it("registers setup under the same root and persists paired credentials", async () => {
     const arinova = await buildCli();
-    await arinova.child("setup-openclaw").handler?.({ token: "ari_new", apiUrl: "https://new.test" });
-    expect(mocks.exchangeBotToken).toHaveBeenCalledWith({ apiUrl: "https://new.test", botToken: "ari_new" });
+    await arinova.child("setup-openclaw").handler?.({ token: "ari_new", apiUrl: "https://api.chat.arinova.ai" });
+    expect(mocks.exchangeBotToken).toHaveBeenCalledWith({ apiUrl: "https://api.chat.arinova.ai", botToken: "ari_new" });
     expect(mocks.replaceConfigFile).toHaveBeenCalledWith(expect.objectContaining({
       nextConfig: expect.objectContaining({
         channels: expect.objectContaining({

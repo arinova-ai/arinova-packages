@@ -1,9 +1,19 @@
 import { Command } from "commander";
-import { readFileSync, writeFileSync, copyFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  readFileSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getEndpoint, resolveApiKey } from "../config.js";
 import { ApiClient, ApiError } from "../client.js";
+import { normalizeTrustedArinovaApiEndpoint } from "../endpoint.js";
 import { printSuccess, printNote, printWarning } from "../output.js";
 
 interface OpenclawAgent {
@@ -41,19 +51,52 @@ interface RemoteAgent {
 interface OpenclawConfigWriteOps {
   writeFileSync: typeof writeFileSync;
   copyFileSync: typeof copyFileSync;
+  chmodSync: typeof chmodSync;
 }
+
+export const OPENCLAW_BACKUP_RETENTION = 5;
 
 export function writeConfigWithRollback(
   configPath: string,
   backupPath: string,
   serializedConfig: string,
-  ops: OpenclawConfigWriteOps = { writeFileSync, copyFileSync },
+  ops: OpenclawConfigWriteOps = { writeFileSync, copyFileSync, chmodSync },
 ): void {
   try {
-    ops.writeFileSync(configPath, serializedConfig, "utf-8");
+    ops.writeFileSync(configPath, serializedConfig, {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
+    ops.chmodSync(configPath, 0o600);
   } catch (err) {
     ops.copyFileSync(backupPath, configPath);
+    ops.chmodSync(configPath, 0o600);
     throw err;
+  }
+}
+
+export function secureAndPruneConfigBackups(
+  configPath: string,
+  keep = OPENCLAW_BACKUP_RETENTION,
+): void {
+  if (!Number.isSafeInteger(keep) || keep < 1) {
+    throw new TypeError("Backup retention must be a positive safe integer");
+  }
+  const directory = dirname(configPath);
+  const escapedName = basename(configPath).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const managedBackup = new RegExp(
+    `^${escapedName}\\.\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z\\.bak$`,
+  );
+  const backups = readdirSync(directory)
+    .filter((name) => managedBackup.test(name))
+    .filter((name) => lstatSync(join(directory, name)).isFile())
+    .sort()
+    .reverse();
+  for (const name of backups) {
+    chmodSync(join(directory, name), 0o600);
+  }
+  for (const name of backups.slice(keep)) {
+    unlinkSync(join(directory, name));
   }
 }
 
@@ -68,7 +111,10 @@ export function registerSetupOpenclaw(program: Command): void {
     .action(async (opts: { workspace?: string; force?: boolean; dryRun?: boolean; apiUrl?: string }) => {
       // Resolve API base: local --api-url > global --api-url > auto-detect (version-based)
       const globalOpts = program.optsWithGlobals() as { apiUrl?: string };
-      const apiBase = (opts.apiUrl ?? globalOpts.apiUrl ?? getEndpoint()).replace(/\/+$/, "");
+      const apiBase = normalizeTrustedArinovaApiEndpoint(
+        opts.apiUrl ?? globalOpts.apiUrl ?? getEndpoint(),
+        "setup-openclaw API URL",
+      );
 
       printNote(`Using API endpoint: ${apiBase}`);
 
@@ -223,7 +269,7 @@ export function registerSetupOpenclaw(program: Command): void {
 
             if (!token) {
               printWarning(`Bot created for "${agent.name}" but no token in response. You may need to retrieve it manually.`);
-              printNote(`  Response: ${JSON.stringify(created, null, 2)}`);
+              printNote("  The response did not include a supported token field; raw response data was not printed.");
               summary.push({ agent: agent.name, action: "created bot (token not found in response)" });
               continue;
             }
@@ -250,6 +296,7 @@ export function registerSetupOpenclaw(program: Command): void {
       // 8. Backup
       const backupPath = `${configPath}.${new Date().toISOString().replace(/[:.]/g, "-")}.bak`;
       copyFileSync(configPath, backupPath);
+      chmodSync(backupPath, 0o600);
       printNote(`Backup saved to: ${backupPath}`);
 
       // 9. Write channels config
@@ -297,6 +344,7 @@ export function registerSetupOpenclaw(program: Command): void {
 
       // 11. Write back; restore backup if writing fails.
       writeConfigWithRollback(configPath, backupPath, JSON.stringify(config, null, 2) + "\n");
+      secureAndPruneConfigBackups(configPath);
 
       // 12. Print summary
       printSetupSummary(summary, channelApiUrl, Object.keys(accountsConfig).length, agents.length);

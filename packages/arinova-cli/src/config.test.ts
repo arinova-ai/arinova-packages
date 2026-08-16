@@ -73,6 +73,29 @@ describe("CLI config", () => {
     expect(config.getEndpoint()).toBe("https://api.example.test");
   });
 
+  it.each([
+    "http://localhost.attacker.test",
+    "http://localhost@attacker.test",
+    "http://127.0.0.1.attacker.test",
+    "ftp://localhost",
+  ])("rejects unsafe ARINOVA_ENDPOINT value %s", async (endpoint) => {
+    vi.stubEnv("ARINOVA_ENDPOINT", endpoint);
+    const config = await loadConfigModule();
+
+    expect(() => config.getEndpoint()).toThrow();
+  });
+
+  it.each([
+    "http://localhost:8787/",
+    "http://127.0.0.1:8787/",
+    "http://[::1]:8787/",
+  ])("allows loopback development endpoint %s", async (endpoint) => {
+    vi.stubEnv("ARINOVA_ENDPOINT", endpoint);
+    const config = await loadConfigModule();
+
+    expect(config.getEndpoint()).toBe(endpoint.replace(/\/$/, ""));
+  });
+
   it("uses configured endpoint when env is absent", async () => {
     const config = await loadConfigModule();
     config.saveConfig({ endpoint: "https://configured.example.test" });

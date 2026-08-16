@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Command } from "commander";
 import {
   ApiClient,
   ApiError,
@@ -11,7 +12,9 @@ import {
   encodePathSegment,
   get,
   post,
+  resolveClient,
   resetClientDefaults,
+  ResponseBodyTooLargeError,
   uploadMultipart,
   upload,
 } from "./client.js";
@@ -41,6 +44,13 @@ afterEach(() => {
 });
 
 describe("CLI client", () => {
+  it("reuses one configured client per command", () => {
+    configureClientDefaults({ endpoint: "https://api.example.test", token: "ari_cached" });
+    const command = new Command("list");
+
+    expect(resolveClient(command)).toBe(resolveClient(command));
+  });
+
   it("GET uses configured endpoint and bearer auth header", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
@@ -56,6 +66,33 @@ describe("CLI client", () => {
           Authorization: "Bearer ari_cli_default",
         },
         signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it("reuses ETag responses for repeated hot GET requests", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [1] }), {
+        status: 200,
+        headers: { ETag: '"items-v1"' },
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 304 }));
+    const client = new ApiClient({
+      endpoint: "https://api.example.test",
+      token: "ari_etag",
+    });
+
+    await expect(client.get("/api/v1/items?limit=50")).resolves.toEqual({ items: [1] });
+    await expect(client.get("/api/v1/items?limit=50")).resolves.toEqual({ items: [1] });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.example.test/api/v1/items?limit=50",
+      expect.objectContaining({
+        headers: {
+          Authorization: "Bearer ari_etag",
+          "If-None-Match": '"items-v1"',
+        },
       }),
     );
   });
@@ -228,6 +265,9 @@ describe("CLI client", () => {
 
   it("encodes path segments and omits undefined query values", () => {
     expect(encodePathSegment("a/b c")).toBe("a%2Fb%20c");
+    expect(encodePathSegment("version.1")).toBe("version%2E1");
+    expect(() => encodePathSegment(".")).toThrow("cannot be '.' or '..'");
+    expect(() => encodePathSegment("..")).toThrow("cannot be '.' or '..'");
     expect(buildQuery({ q: "a b", limit: 20, cursor: undefined })).toBe(
       "?q=a+b&limit=20",
     );
@@ -249,6 +289,44 @@ describe("CLI client", () => {
         responseMode: "binary",
       }),
     ).resolves.toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it("rejects oversized buffered responses from Content-Length", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("four", {
+        headers: { "Content-Length": "4" },
+      }),
+    );
+    const client = new ApiClient({
+      endpoint: "https://api.example.test",
+      token: "ari_bounded",
+      maxResponseBytes: 3,
+    });
+
+    await expect(client.get("/api/v1/large")).rejects.toBeInstanceOf(
+      ResponseBodyTooLargeError,
+    );
+  });
+
+  it("counts streamed bytes when Content-Length is absent", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2]));
+        controller.enqueue(new Uint8Array([3, 4]));
+        controller.close();
+      },
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(body));
+    const client = new ApiClient({
+      endpoint: "https://api.example.test",
+      token: "ari_bounded",
+      maxResponseBytes: 3,
+    });
+
+    await expect(client.get("/api/v1/large")).rejects.toMatchObject({
+      name: "ResponseBodyTooLargeError",
+      receivedBytes: 4,
+    });
   });
 
   it("downloads exact bytes, protects existing files, and supports force", async () => {

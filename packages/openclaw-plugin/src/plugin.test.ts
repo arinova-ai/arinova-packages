@@ -18,12 +18,17 @@ describe("Arinova plugin", () => {
       logger: { warn: vi.fn() },
       registerChannel: vi.fn(),
       registerCli: vi.fn(),
+      registerHttpRoute: vi.fn(),
       on: vi.fn((name: string, handler: () => void) => handlers.set(name, handler)),
     };
 
     plugin.register(api as never);
     expect(api.registerChannel).toHaveBeenCalledOnce();
     expect(api.registerCli).toHaveBeenCalledOnce();
+    expect(api.registerHttpRoute).toHaveBeenCalledWith(expect.objectContaining({
+      path: "/plugins/openclaw-arinova-ai/office/status",
+      auth: "gateway",
+    }));
     expect(isHealthy()).toBe(true);
 
     handlers.get("gateway_stop")?.();

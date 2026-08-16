@@ -1,60 +1,64 @@
 import type { Command } from "commander";
-import { getOpts, apiCall, output } from "../api.js";
-import { encodePathSegment, UnsupportedCommandError } from "../client.js";
-import { parseCount } from "../pagination.js";
+import { ApiError, encodePathSegment, resolveClient } from "../client.js";
 import { parseJsonArray } from "../json-options.js";
+import { printResult } from "../output.js";
+import {
+  collectAllPages,
+  DEFAULT_PAGE_LIMIT,
+  addPaginationOptions,
+  pageLimit,
+  paginationQuery,
+} from "../pagination.js";
 
 const e = encodePathSegment;
 
 export function registerKanbanCommands(program: Command): void {
   const kanban = program.command("kanban").description("Kanban board commands");
 
-  // Board commands
   const board = kanban.command("board").description("Board management");
-  board.command("list").action(async () => {
-    const { token, apiUrl } = getOpts(board);
-    output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/kanban/boards`, token }));
-  });
+  addPaginationOptions(board.command("list"), { mode: "offset" })
+    .action(async (options: { limit?: number; offset?: number }) => {
+      printResult(await resolveClient(board).get(
+        `/api/v1/kanban/boards${paginationQuery(options)}`,
+      ));
+    });
   board.command("create").requiredOption("--name <name>", "Board name").action(async (opts: { name: string }) => {
-    const { token, apiUrl } = getOpts(board);
-    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/boards`, token, body: { name: opts.name } }));
+    printResult(await resolveClient(board).post("/api/v1/kanban/boards", { name: opts.name }));
   });
   board.command("update").requiredOption("--board-id <id>", "Board ID").requiredOption("--name <name>", "New name").option("--auto-archive-days <n>", "Auto-archive days (0=off)").action(async (opts: { boardId: string; name: string; autoArchiveDays?: string }) => {
-    const { token, apiUrl } = getOpts(board);
     const body: Record<string, unknown> = { name: opts.name };
     if (opts.autoArchiveDays != null) body.autoArchiveDays = parseInt(opts.autoArchiveDays);
-    output(await apiCall({ method: "PATCH", url: `${apiUrl}/api/v1/kanban/boards/${e(opts.boardId)}`, token, body }));
+    printResult(await resolveClient(board).patch(`/api/v1/kanban/boards/${e(opts.boardId)}`, body));
   });
   board.command("archive").requiredOption("--board-id <id>", "Board ID").action(async (opts: { boardId: string }) => {
-    const { token, apiUrl } = getOpts(board);
-    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/boards/${e(opts.boardId)}/archive`, token }));
+    printResult(await resolveClient(board).post(`/api/v1/kanban/boards/${e(opts.boardId)}/archive`));
   });
   board.command("unarchive").requiredOption("--board-id <id>", "Board ID").action(async (opts: { boardId: string }) => {
-    const { token, apiUrl } = getOpts(board);
-    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/boards/${e(opts.boardId)}/unarchive`, token }));
+    printResult(await resolveClient(board).post(`/api/v1/kanban/boards/${e(opts.boardId)}/unarchive`));
   });
   board.command("archived-cards").requiredOption("--board-id <id>", "Board ID").action(async (opts: { boardId: string }) => {
-    const { token, apiUrl } = getOpts(board);
-    output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/kanban/boards/${e(opts.boardId)}/archived-cards`, token }));
+    printResult(await resolveClient(board).get(`/api/v1/kanban/boards/${e(opts.boardId)}/archived-cards`));
   });
   board.command("delete").requiredOption("--board-id <id>", "Board ID").description("Delete an archived board (must be archived first)").action(async (opts: { boardId: string }) => {
-    const { token, apiUrl } = getOpts(board);
-    output(await apiCall({ method: "DELETE", url: `${apiUrl}/api/v1/kanban/boards/${e(opts.boardId)}`, token }));
+    printResult(await resolveClient(board).delete(`/api/v1/kanban/boards/${e(opts.boardId)}`));
   });
 
-  // Column commands
   const column = kanban.command("column").description("Column management");
-  column.command("list").requiredOption("--board-id <id>", "Board ID").action(async (opts: { boardId: string }) => {
-    const { token, apiUrl } = getOpts(column);
-    output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/kanban/boards/${e(opts.boardId)}/columns`, token }));
+  addPaginationOptions(column.command("list").requiredOption("--board-id <id>", "Board ID"), {
+    mode: "offset",
+  }).action(async (opts: { boardId: string; limit?: number; offset?: number }) => {
+    printResult(await resolveClient(column).get(
+      `/api/v1/kanban/boards/${e(opts.boardId)}/columns${paginationQuery(opts)}`,
+    ));
   });
   column.command("create").requiredOption("--board-id <id>", "Board ID").requiredOption("--name <name>", "Column name").action(async (opts: { boardId: string; name: string }) => {
-    const { token, apiUrl } = getOpts(column);
-    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/boards/${e(opts.boardId)}/columns`, token, body: { name: opts.name } }));
+    printResult(await resolveClient(column).post(`/api/v1/kanban/boards/${e(opts.boardId)}/columns`, { name: opts.name }));
   });
   column.command("reorder").requiredOption("--board-id <id>", "Board ID").requiredOption("--column-ids <ids>", "Comma-separated column IDs in desired order").action(async (opts: { boardId: string; columnIds: string }) => {
-    const { token, apiUrl } = getOpts(column);
-    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/boards/${e(opts.boardId)}/columns/reorder`, token, body: { columnIds: opts.columnIds.split(",").map((s) => s.trim()) } }));
+    printResult(await resolveClient(column).post(
+      `/api/v1/kanban/boards/${e(opts.boardId)}/columns/reorder`,
+      { columnIds: opts.columnIds.split(",").map((value) => value.trim()) },
+    ));
   });
   column.command("update")
     .requiredOption("--column-id <id>", "Column ID")
@@ -63,177 +67,154 @@ export function registerKanbanCommands(program: Command): void {
     .option("--wip-limit <n>", "WIP limit")
     .option("--column-type <type>", "Column type")
     .action(async (opts: { columnId: string; name?: string; sortOrder?: string; wipLimit?: string; columnType?: string }) => {
-      const { token, apiUrl } = getOpts(column);
-      output(await apiCall({
-        method: "PATCH", url: `${apiUrl}/api/v1/kanban/columns/${e(opts.columnId)}`, token,
-        body: {
-          name: opts.name,
-          sortOrder: opts.sortOrder == null ? undefined : Number(opts.sortOrder),
-          wipLimit: opts.wipLimit == null ? undefined : Number(opts.wipLimit),
-          columnType: opts.columnType,
-        },
+      printResult(await resolveClient(column).patch(`/api/v1/kanban/columns/${e(opts.columnId)}`, {
+        name: opts.name,
+        sortOrder: opts.sortOrder == null ? undefined : Number(opts.sortOrder),
+        wipLimit: opts.wipLimit == null ? undefined : Number(opts.wipLimit),
+        columnType: opts.columnType,
       }));
     });
   column.command("delete").requiredOption("--column-id <id>", "Column ID").action(async (opts: { columnId: string }) => {
-    const { token, apiUrl } = getOpts(column);
-    output(await apiCall({ method: "DELETE", url: `${apiUrl}/api/v1/kanban/columns/${e(opts.columnId)}`, token }));
+    printResult(await resolveClient(column).delete(`/api/v1/kanban/columns/${e(opts.columnId)}`));
   });
 
-  // Card commands
   const card = kanban.command("card").description("Card management");
-  card.command("list")
-    .description("List cards. --search matches ID prefix (4+ hex), title, or description.")
-    .option("--search <query>", "Search by ID prefix (4+ hex), title, or description")
-    .option("--limit <n>", "Max cards to return (default 200)", parseCount)
-    .option("--offset <n>", "Skip first N cards (pagination)", parseCount)
-    .option("--all", "Fetch all matching cards (paginates internally)")
+  addPaginationOptions(card.command("list")
+    .description("List cards using the server-side search filter.")
+    .option("--search <query>", "Server-side card search query"), {
+      mode: "offset",
+      allowAll: true,
+    })
     .action(async (opts: { search?: string; limit?: number; offset?: number; all?: boolean }) => {
-      const { token, apiUrl } = getOpts(card);
+      const client = resolveClient(card);
       const searchTrimmed = opts.search?.trim();
-      const isHexPrefix = !!searchTrimmed && /^[0-9a-f]{4,}$/i.test(searchTrimmed);
-      // ID-prefix search needs full scan: server `search` only matches title/description.
-      const fetchAll = opts.all === true || isHexPrefix;
-      const target = fetchAll ? Number.POSITIVE_INFINITY : (opts.limit ?? 200);
       const startOffset = opts.offset ?? 0;
-      const PAGE = 100; // server caps `limit` at 100 per request
+      if (opts.limit === 0) {
+        printResult([]);
+        return;
+      }
 
-      const collected: Record<string, unknown>[] = [];
-      let cursor = startOffset;
-      while (collected.length < target) {
-        const remaining = target === Number.POSITIVE_INFINITY
-          ? PAGE
-          : Math.min(PAGE, target - collected.length);
+      const fetchPage = async (offset: number, limit: number) => {
         const params = new URLSearchParams();
-        // Don't send hex prefix to server — it would yield zero hits via title/description ILIKE.
-        if (searchTrimmed && !isHexPrefix) params.set("search", searchTrimmed);
-        params.set("limit", String(remaining));
-        params.set("offset", String(cursor));
-        const page = await apiCall({
-          method: "GET",
-          url: `${apiUrl}/api/v1/kanban/cards?${params.toString()}`,
-          token,
-        });
-        if (!Array.isArray(page) || page.length === 0) break;
-        collected.push(...(page as Record<string, unknown>[]));
-        if (page.length < remaining) break;
-        cursor += page.length;
+        if (searchTrimmed) params.set("search", searchTrimmed);
+        params.set("limit", String(limit));
+        params.set("offset", String(offset));
+        const page = await client.get(`/api/v1/kanban/cards?${params.toString()}`);
+        return Array.isArray(page) ? page as Record<string, unknown>[] : [];
+      };
+
+      if (!opts.all) {
+        printResult(await fetchPage(startOffset, pageLimit(opts.limit, DEFAULT_PAGE_LIMIT)));
+        return;
       }
 
-      let result: Record<string, unknown>[] = collected;
-      if (searchTrimmed && isHexPrefix) {
-        const q = searchTrimmed.toLowerCase();
-        result = collected.filter((c) => {
-          const id = typeof c.id === "string" ? c.id.toLowerCase() : "";
-          const title = typeof c.title === "string" ? c.title.toLowerCase() : "";
-          const desc = typeof c.description === "string" ? c.description.toLowerCase() : "";
-          return id.startsWith(q) || title.includes(q) || desc.includes(q);
-        });
-      }
-      output(result);
+      const pageSize = pageLimit(opts.limit, 100);
+      printResult(await collectAllPages(startOffset, async (offset) => {
+        const items = await fetchPage(offset, pageSize);
+        return {
+          items,
+          next: items.length < pageSize ? undefined : offset + items.length,
+        };
+      }, {
+        retries: 2,
+        retryBaseDelayMs: 100,
+        retryMaxDelayMs: 1_000,
+        interPageDelayMs: 50,
+        shouldRetry: (error) => error instanceof ApiError
+          && (error.status === 429 || error.status >= 500),
+      }));
     });
   card.command("create").requiredOption("--title <title>", "Card title").option("--board-id <id>", "Board ID").option("--column-name <name>", "Column name").option("--description <desc>", "Description").action(async (opts: { title: string; boardId?: string; columnName?: string; description?: string }) => {
-    const { token, apiUrl } = getOpts(card);
-    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/cards`, token, body: {
+    printResult(await resolveClient(card).post("/api/v1/kanban/cards", {
       title: opts.title,
       boardId: opts.boardId,
       columnName: opts.columnName,
       description: opts.description,
-    } }));
+    }));
   });
   card.command("update").requiredOption("--card-id <id>", "Card ID").option("--title <text>", "New title").option("--description <text>", "New description").option("--column-id <id>", "Move to column").action(async (opts: { cardId: string; title?: string; description?: string; columnId?: string }) => {
-    const { token, apiUrl } = getOpts(card);
-    output(await apiCall({ method: "PATCH", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}`, token, body: { title: opts.title, description: opts.description, columnId: opts.columnId } }));
+    printResult(await resolveClient(card).patch(`/api/v1/kanban/cards/${e(opts.cardId)}`, {
+      title: opts.title,
+      description: opts.description,
+      columnId: opts.columnId,
+    }));
   });
   card.command("complete").requiredOption("--card-id <id>", "Card ID").action(async (opts: { cardId: string }) => {
-    const { token, apiUrl } = getOpts(card);
-    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}/complete`, token }));
+    printResult(await resolveClient(card).post(`/api/v1/kanban/cards/${e(opts.cardId)}/complete`));
   });
   card.command("delete").requiredOption("--card-id <id>", "Card ID").action(async (opts: { cardId: string }) => {
-    const { token, apiUrl } = getOpts(card);
-    output(await apiCall({ method: "DELETE", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}`, token }));
+    printResult(await resolveClient(card).delete(`/api/v1/kanban/cards/${e(opts.cardId)}`));
   });
   card.command("move").requiredOption("--card-id <id>", "Card ID").requiredOption("--column-name <name>", "Target column name").action(async (opts: { cardId: string; columnName: string }) => {
-    const { token, apiUrl } = getOpts(card);
-    output(await apiCall({ method: "PATCH", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}`, token, body: { columnName: opts.columnName } }));
+    printResult(await resolveClient(card).patch(`/api/v1/kanban/cards/${e(opts.cardId)}`, { columnName: opts.columnName }));
   });
   card.command("add-commit").requiredOption("--card-id <id>", "Card ID").requiredOption("--sha <sha>", "Commit SHA").requiredOption("--message <msg>", "Commit message").option("--url <url>", "Commit URL").action(async (opts: { cardId: string; sha: string; message: string; url?: string }) => {
-    const { token, apiUrl } = getOpts(card);
-    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}/commits`, token, body: { commitHash: opts.sha, message: opts.message, url: opts.url } }));
-  });
-  card.command("archive").description("Archive a card").requiredOption("--card-id <id>", "Card ID").action(async (opts: { cardId: string }) => {
-    void opts;
-    throw new UnsupportedCommandError("Card archive has no supported /api/v1 contract");
-  });
-  card.command("unarchive").description("Unarchive a card").requiredOption("--card-id <id>", "Card ID").action(async (opts: { cardId: string }) => {
-    void opts;
-    throw new UnsupportedCommandError("Card unarchive has no supported /api/v1 contract");
+    printResult(await resolveClient(card).post(`/api/v1/kanban/cards/${e(opts.cardId)}/commits`, {
+      commitHash: opts.sha,
+      message: opts.message,
+      url: opts.url,
+    }));
   });
   card.command("link-note").description("Link a note to a card").requiredOption("--card-id <id>", "Card ID").requiredOption("--note-id <id>", "Note ID").action(async (opts: { cardId: string; noteId: string }) => {
-    const { token, apiUrl } = getOpts(card);
-    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}/notes`, token, body: { noteId: opts.noteId } }));
+    printResult(await resolveClient(card).post(`/api/v1/kanban/cards/${e(opts.cardId)}/notes`, { noteId: opts.noteId }));
   });
   card.command("unlink-note").description("Unlink a note from a card").requiredOption("--card-id <id>", "Card ID").requiredOption("--note-id <id>", "Note ID").action(async (opts: { cardId: string; noteId: string }) => {
-    const { token, apiUrl } = getOpts(card);
-    output(await apiCall({ method: "DELETE", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}/notes/${e(opts.noteId)}`, token }));
+    printResult(await resolveClient(card).delete(`/api/v1/kanban/cards/${e(opts.cardId)}/notes/${e(opts.noteId)}`));
   });
   card.command("notes").description("List linked notes").requiredOption("--card-id <id>", "Card ID").action(async (opts: { cardId: string }) => {
-    const { token, apiUrl } = getOpts(card);
-    output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}/notes`, token }));
+    printResult(await resolveClient(card).get(`/api/v1/kanban/cards/${e(opts.cardId)}/notes`));
   });
   card.command("commits").description("List linked commits").requiredOption("--card-id <id>", "Card ID").action(async (opts: { cardId: string }) => {
-    const { token, apiUrl } = getOpts(card);
-    output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}/commits`, token }));
+    printResult(await resolveClient(card).get(`/api/v1/kanban/cards/${e(opts.cardId)}/commits`));
   });
   const comment = card.command("comment").description("Card comments");
-  comment.command("list").requiredOption("--card-id <id>", "Card ID").option("--limit <n>", "Maximum results", parseCount).option("--offset <n>", "Results to skip", parseCount).action(async (opts: { cardId: string; limit?: number; offset?: number }) => {
-    const { token, apiUrl } = getOpts(comment);
-    const qs = new URLSearchParams();
-    if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
-    if (opts.offset !== undefined) qs.set("offset", String(opts.offset));
-    output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}/comments${qs.size ? `?${qs}` : ""}`, token }));
+  addPaginationOptions(comment.command("list").requiredOption("--card-id <id>", "Card ID"), {
+    mode: "offset",
+  }).action(async (opts: { cardId: string; limit?: number; offset?: number }) => {
+    printResult(await resolveClient(comment).get(
+      `/api/v1/kanban/cards/${e(opts.cardId)}/comments${paginationQuery(opts)}`,
+    ));
   });
   comment.command("add").requiredOption("--card-id <id>", "Card ID").requiredOption("--content <text>", "Comment content").action(async (opts: { cardId: string; content: string }) => {
-    const { token, apiUrl } = getOpts(comment);
-    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}/comments`, token, body: { content: opts.content } }));
+    printResult(await resolveClient(comment).post(`/api/v1/kanban/cards/${e(opts.cardId)}/comments`, { content: opts.content }));
   });
   comment.command("get").argument("<comment-id>", "Comment ID").action(async (commentId: string) => {
-    const { token, apiUrl } = getOpts(comment);
-    output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/kanban/comments/${e(commentId)}`, token }));
+    printResult(await resolveClient(comment).get(`/api/v1/kanban/comments/${e(commentId)}`));
   });
   const cardLabel = card.command("label").description("Card labels");
   cardLabel.command("add").requiredOption("--card-id <id>", "Card ID").requiredOption("--label-id <id>", "Label ID").action(async (opts: { cardId: string; labelId: string }) => {
-    const { token, apiUrl } = getOpts(cardLabel);
-    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}/labels`, token, body: { labelId: opts.labelId } }));
+    printResult(await resolveClient(cardLabel).post(`/api/v1/kanban/cards/${e(opts.cardId)}/labels`, { labelId: opts.labelId }));
   });
   cardLabel.command("remove").requiredOption("--card-id <id>", "Card ID").requiredOption("--label-id <id>", "Label ID").action(async (opts: { cardId: string; labelId: string }) => {
-    const { token, apiUrl } = getOpts(cardLabel);
-    output(await apiCall({ method: "DELETE", url: `${apiUrl}/api/v1/kanban/cards/${e(opts.cardId)}/labels/${e(opts.labelId)}`, token }));
-  });
-  cardLabel.command("list").requiredOption("--card-id <id>", "Card ID").action(async (opts: { cardId: string }) => {
-    void opts;
-    throw new UnsupportedCommandError("kanban card-label list is unavailable because the server has no card-label list route");
+    printResult(await resolveClient(cardLabel).delete(`/api/v1/kanban/cards/${e(opts.cardId)}/labels/${e(opts.labelId)}`));
   });
   card.command("bulk-move").requiredOption("--moves <json>", "JSON array of {cardId,toColumnId}").action(async (opts: { moves: string }) => {
-    const { token, apiUrl } = getOpts(card);
-    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/cards/bulk-move`, token, body: { moves: parseJsonArray(opts.moves, "--moves") } }));
+    printResult(await resolveClient(card).post("/api/v1/kanban/cards/bulk-move", {
+      moves: parseJsonArray(opts.moves, "--moves"),
+    }));
   });
 
-  // Label commands
   const label = kanban.command("label").description("Label management");
-  label.command("list").requiredOption("--board-id <id>", "Board ID").action(async (opts: { boardId: string }) => {
-    const { token, apiUrl } = getOpts(label);
-    output(await apiCall({ method: "GET", url: `${apiUrl}/api/v1/kanban/boards/${e(opts.boardId)}/labels`, token }));
+  addPaginationOptions(label.command("list").requiredOption("--board-id <id>", "Board ID"), {
+    mode: "offset",
+  }).action(async (opts: { boardId: string; limit?: number; offset?: number }) => {
+    printResult(await resolveClient(label).get(
+      `/api/v1/kanban/boards/${e(opts.boardId)}/labels${paginationQuery(opts)}`,
+    ));
   });
   label.command("create").requiredOption("--board-id <id>", "Board ID").requiredOption("--name <name>", "Label name").requiredOption("--color <color>", "Color hex").action(async (opts: { boardId: string; name: string; color: string }) => {
-    const { token, apiUrl } = getOpts(label);
-    output(await apiCall({ method: "POST", url: `${apiUrl}/api/v1/kanban/boards/${e(opts.boardId)}/labels`, token, body: { name: opts.name, color: opts.color } }));
+    printResult(await resolveClient(label).post(`/api/v1/kanban/boards/${e(opts.boardId)}/labels`, {
+      name: opts.name,
+      color: opts.color,
+    }));
   });
   label.command("update").requiredOption("--label-id <id>", "Label ID").option("--name <name>").option("--color <color>").action(async (opts: { labelId: string; name?: string; color?: string }) => {
-    const { token, apiUrl } = getOpts(label);
-    output(await apiCall({ method: "PATCH", url: `${apiUrl}/api/v1/kanban/labels/${e(opts.labelId)}`, token, body: { name: opts.name, color: opts.color } }));
+    printResult(await resolveClient(label).patch(`/api/v1/kanban/labels/${e(opts.labelId)}`, {
+      name: opts.name,
+      color: opts.color,
+    }));
   });
   label.command("delete").requiredOption("--label-id <id>", "Label ID").action(async (opts: { labelId: string }) => {
-    const { token, apiUrl } = getOpts(label);
-    output(await apiCall({ method: "DELETE", url: `${apiUrl}/api/v1/kanban/labels/${e(opts.labelId)}`, token }));
+    printResult(await resolveClient(label).delete(`/api/v1/kanban/labels/${e(opts.labelId)}`));
   });
 }

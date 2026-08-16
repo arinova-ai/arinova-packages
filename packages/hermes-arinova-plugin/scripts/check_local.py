@@ -10,28 +10,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+from install_check_helpers import REQUIRED_PLUGIN_FILES
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SDK_ROOT = ROOT.parent / "agent-sdk"
 COMMAND_TIMEOUT_SECONDS = 300
 LIVE_SKIP_PREFIX = "live Arinova smoke skipped"
 HERMES_SKIP_PREFIX = "Hermes integration checks skipped"
-PY_COMPILE_FILES = (
-    "adapter.py",
-    "__init__.py",
-    "arinova_tools.py",
-    "scripts/check_local.py",
-    "scripts/check_sdk_surface.py",
-    "scripts/check_agent_sdk_source.py",
-    "scripts/check_hermes_plugin_load.py",
-    "scripts/check_arinova_tools.py",
-    "scripts/check_gateway_config_load.py",
-    "scripts/check_live_connection.py",
-    "scripts/check_live_connection_gate.py",
-    "scripts/check_clean_install.py",
-    "scripts/check_user_install.py",
-    "scripts/install_check_helpers.py",
-)
+PY_COMPILE_FILES = tuple(path for path in REQUIRED_PLUGIN_FILES if path.endswith(".py"))
 
 
 def parse_args() -> argparse.Namespace:
@@ -217,6 +204,7 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 1
     commands = [
+        [sys.executable, "scripts/check_runtime_contract.py"],
         [sys.executable, "scripts/check_agent_sdk_source.py", "--sdk-root", sdk_root],
         [sys.executable, "scripts/check_sdk_surface.py", "--sdk-root", sdk_root],
         [sys.executable, "scripts/check_arinova_tools.py"],

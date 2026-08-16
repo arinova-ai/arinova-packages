@@ -93,18 +93,6 @@ describe.skipIf(!HAS_TOKEN)("skill toggle", () => {
   });
 });
 
-describe.skipIf(!HAS_TOKEN)("kanban card archive/unarchive", () => {
-  it("card archive with invalid id does not crash", () => {
-    const r = runSafe("kanban card archive --card-id 00000000-0000-0000-0000-000000000000");
-    expect(typeof r.status).toBe("number");
-  });
-
-  it("card unarchive with invalid id does not crash", () => {
-    const r = runSafe("kanban card unarchive --card-id 00000000-0000-0000-0000-000000000000");
-    expect(typeof r.status).toBe("number");
-  });
-});
-
 describe.skipIf(!HAS_TOKEN)("kanban column create/reorder", () => {
   it("column create with invalid board does not crash", () => {
     const r = runSafe('kanban column create --board-id 00000000-0000-0000-0000-000000000000 --name "__cli_test_col"');

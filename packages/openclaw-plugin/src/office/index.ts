@@ -1,14 +1,21 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { registerHooks as registerOfficeHooks, setForwardTarget } from "./hooks.js";
 import { officeState } from "./state.js";
+import type { CoreConfig } from "../types.js";
+import { normalizeTrustedApiUrl } from "../api-endpoint.js";
+import {
+  clearForwardTargets,
+  setForwardTargets,
+  type OfficeForwardTarget,
+} from "./forwarder.js";
+import { handleSSEConnection } from "./sse.js";
 
 // Re-export public API
 export { officeState } from "./state.js";
 export { handleSSEConnection } from "./sse.js";
 export { ingestHookEvent } from "./hooks.js";
 export type { AgentState, AgentStatus, TokenUsage, OfficeStatusEvent, InternalEvent, InternalEventType } from "./types.js";
-// Legacy aliases
-export type { HookEvent, HookEventType } from "./types.js";
+export { getForwardMetrics } from "./forwarder.js";
 
 /** Idle-check interval handle */
 let tickInterval: NodeJS.Timeout | null = null;
@@ -25,6 +32,39 @@ export function isHealthy(): boolean {
  */
 export function configure(opts: { forwardUrl: string; forwardToken: string }): void {
   setForwardTarget(opts.forwardUrl, new Map([["default", opts.forwardToken]]));
+}
+
+export function configureFromChannelConfig(
+  config: CoreConfig,
+  logger?: (message: string) => void,
+): void {
+  const channel = config.channels?.["openclaw-arinova-ai"];
+  const nextTargets = new Map<string, OfficeForwardTarget>();
+  const addTarget = (
+    accountId: string,
+    apiUrl: string | undefined,
+    token: string | undefined,
+  ) => {
+    if (!apiUrl?.trim() || !token?.trim()) return;
+    try {
+      const base = normalizeTrustedApiUrl(apiUrl.trim());
+      nextTargets.set(accountId, {
+        url: new URL("/api/office/event", base).toString(),
+        token: token.trim(),
+      });
+    } catch (error) {
+      logger?.(`openclaw-arinova-ai: office forwarding disabled for ${accountId}: ${String(error)}`);
+    }
+  };
+  addTarget("default", channel?.apiUrl, channel?.botToken);
+  for (const [accountId, account] of Object.entries(channel?.accounts ?? {})) {
+    addTarget(
+      accountId,
+      account?.apiUrl ?? channel?.apiUrl,
+      account?.botToken ?? channel?.botToken,
+    );
+  }
+  setForwardTargets(nextTargets, logger);
 }
 
 /**
@@ -45,6 +85,7 @@ export function shutdown(): void {
     clearInterval(tickInterval);
     tickInterval = null;
   }
+  clearForwardTargets();
 }
 
 /**
@@ -55,5 +96,18 @@ export function shutdown(): void {
  */
 export function registerOffice(api: OpenClawPluginApi): void {
   registerOfficeHooks(api);
+  api.registerHttpRoute({
+    path: "/plugins/openclaw-arinova-ai/office/status",
+    auth: "gateway",
+    match: "exact",
+    handler: (_request, response) => {
+      handleSSEConnection(response);
+      return true;
+    },
+  });
+  configureFromChannelConfig(
+    api.config as CoreConfig,
+    (message) => api.logger.warn(message),
+  );
   initialize();
 }

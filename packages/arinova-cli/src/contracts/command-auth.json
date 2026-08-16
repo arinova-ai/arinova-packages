@@ -27,7 +27,7 @@
       "identities": ["userApiKey", "oauthUser"]
     },
     {
-      "commands": ["auth whoami", "message", "file", "note", "notebook", "memory", "kanban", "conversation", "skill", "skill-package", "search", "resolve", "memo", "wiki", "agent", "profile", "sticker", "theme", "community", "lounge", "space", "stats", "list", "app", "action", "workflow", "cron", "trigger", "webhook", "autopilot"],
+      "commands": ["auth whoami", "message", "file", "note", "notebook", "memory", "kanban", "conversation", "skill", "skill-package", "search", "resolve", "memo", "agent", "profile", "sticker", "theme", "community", "space", "stats", "list", "app", "action", "workflow", "cron", "trigger", "webhook", "autopilot"],
       "identities": ["userApiKey", "botToken"],
       "note": "Specific route scopes and ownership are still enforced by the server."
     },

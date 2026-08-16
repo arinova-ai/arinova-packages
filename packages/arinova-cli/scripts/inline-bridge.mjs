@@ -1,15 +1,26 @@
 #!/usr/bin/env node
 // Copies the published theme-sdk bridge into a TS constant so `arinova theme dev`
 // serves the EXACT production bridge (dev === prod) with no runtime file lookup
-// and no extra dependency. Runs as arinova-cli's `prebuild` and fails closed
-// when the source is unavailable so a stale bridge cannot be published.
+// and no runtime dependency. The source is a declared workspace build dependency.
+// Runs as arinova-cli's `prebuild` and fails closed when the source is unavailable
+// so a stale bridge cannot be published.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const src = join(here, "..", "..", "theme-sdk", "src", "bridge.js");
+const args = process.argv.slice(2);
+if (args.some((arg) => arg !== "--check")) {
+  throw new Error("Usage: inline-bridge.mjs [--check]");
+}
+const checkOnly = args.includes("--check");
+let src;
+try {
+  src = fileURLToPath(import.meta.resolve("@arinova-ai/theme-sdk/bridge.js"));
+} catch (cause) {
+  throw new Error("[inline-bridge] @arinova-ai/theme-sdk/bridge.js is not resolvable", { cause });
+}
 const outDir = join(here, "..", "src", "generated");
 const out = join(outDir, "theme-bridge.ts");
 
@@ -25,6 +36,17 @@ export const THEME_BRIDGE_SOURCE_SHA256 = ${JSON.stringify(sourceHash)};
 export const THEME_BRIDGE = ${JSON.stringify(bridge)};
 `;
 
-mkdirSync(outDir, { recursive: true });
-writeFileSync(out, body);
-console.log(`[inline-bridge] wrote ${out} (${bridge.length} bytes)`);
+if (checkOnly) {
+  if (!existsSync(out) || readFileSync(out, "utf8") !== body) {
+    throw new Error("[inline-bridge] generated theme bridge is stale; run the CLI build and commit the result");
+  }
+  console.log(`[inline-bridge] ${out} is up to date`);
+} else {
+  mkdirSync(outDir, { recursive: true });
+  if (!existsSync(out) || readFileSync(out, "utf8") !== body) {
+    writeFileSync(out, body);
+    console.log(`[inline-bridge] wrote ${out} (${bridge.length} bytes)`);
+  } else {
+    console.log(`[inline-bridge] ${out} is already up to date`);
+  }
+}

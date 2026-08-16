@@ -1,0 +1,22 @@
+{
+  "concurrencyModes": [
+    "per-conversation",
+    "agent-wide",
+    "unbounded"
+  ],
+  "defaults": {
+    "adapterPort": 8794,
+    "adapterPostTimeoutMs": 10000,
+    "attachmentErrorBodyMaxBytes": 65536,
+    "attachmentMaxBytes": 52428800,
+    "attachmentMaxCount": 8,
+    "attachmentTotalMaxBytes": 67108864,
+    "attachmentTotalTimeoutMs": 30000,
+    "bind": "127.0.0.1",
+    "connectTimeoutMs": 30000,
+    "controlMaxBodyBytes": 8388608,
+    "maxPendingTaskOutputs": 256,
+    "sidecarPort": 8793,
+    "sidecarPostTimeoutMs": 10000
+  }
+}

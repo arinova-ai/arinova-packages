@@ -9,25 +9,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+from install_check_helpers import (
+    SDK_DIST_FILES,
+    SDK_PACKAGE_FILES,
+    SDK_PACKAGE_PUBLIC_METADATA_KEYS,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 COMMAND_TIMEOUT_SECONDS = 300
-DEFAULT_SDK_ROOT = Path.home() / ".arinova-bridge/workspace/projects/arinova-packages/packages/agent-sdk"
-SDK_DIST_FILES = (
-    "dist/client.d.ts",
-    "dist/client.d.ts.map",
-    "dist/client.js",
-    "dist/client.js.map",
-    "dist/index.d.ts",
-    "dist/index.d.ts.map",
-    "dist/index.js",
-    "dist/index.js.map",
-    "dist/types.d.ts",
-    "dist/types.d.ts.map",
-    "dist/types.js",
-    "dist/types.js.map",
-)
-SDK_PACKAGE_FILES = ("README.md", *SDK_DIST_FILES)
+DEFAULT_SDK_ROOT = ROOT.parent / "agent-sdk"
 SDK_SOURCE_FILES = (
     "package.json",
     "src/client.ts",
@@ -35,20 +26,6 @@ SDK_SOURCE_FILES = (
     "src/index.ts",
     "src/client.test.ts",
     "src/types.test.ts",
-)
-SDK_PACKAGE_PUBLIC_METADATA_KEYS = (
-    "name",
-    "description",
-    "type",
-    "main",
-    "types",
-    "exports",
-    "files",
-    "keywords",
-    "license",
-    "dependencies",
-    "scripts",
-    "devDependencies",
 )
 
 
