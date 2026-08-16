@@ -18,6 +18,9 @@ LIVE_SKIP_PREFIX = "live Arinova smoke skipped"
 HERMES_SKIP_PREFIX = "Hermes integration checks skipped"
 PY_COMPILE_FILES = (
     "adapter.py",
+    "_attachments.py",
+    "_http.py",
+    "_sidecar.py",
     "__init__.py",
     "arinova_tools.py",
     "scripts/check_local.py",

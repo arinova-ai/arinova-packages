@@ -8,7 +8,10 @@ import sys
 REQUIRED_PLUGIN_FILES = (
     "README.md",
     "__init__.py",
+    "_attachments.py",
+    "_http.py",
     "adapter.py",
+    "_sidecar.py",
     "arinova_tools.py",
     "sdk-contract.json",
     "runtime-contract.json",
