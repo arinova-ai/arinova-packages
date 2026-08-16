@@ -11,9 +11,17 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from install_check_helpers import (
+    EXPECTED_SIDECAR_CHECKS,
+    REQUIRED_PLUGIN_FILES,
+    SDK_DIST_FILES,
+    SDK_PACKAGE_FILES,
+    SDK_PACKAGE_PUBLIC_METADATA_KEYS,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SDK_ROOT = Path.home() / ".arinova-bridge/workspace/projects/arinova-packages/packages/agent-sdk"
+DEFAULT_SDK_ROOT = ROOT.parent / "agent-sdk"
 DEFAULT_SDK_CLIENT = DEFAULT_SDK_ROOT / "src/client.ts"
 EXPECTED_SDK_CLIENT_TEST_NAMES = {
     "constructs base URL from options",
@@ -416,11 +424,6 @@ EXPECTED_YAML_SPECIAL_KEYS = {
     "home_channel",
     "home_conversation",
 }
-EXPECTED_SIDECAR_CHECKS = {
-    "check-runtime.mjs",
-    "check-sdk-e2e.mjs",
-    "check-sdk-http.mjs",
-}
 EXPECTED_README_CHECK_SNIPPETS = {
     "python3 scripts/check_local.py --hermes-root ~/hermes-agent",
     "python3 scripts/check_sdk_surface.py",
@@ -434,37 +437,6 @@ EXPECTED_README_CHECK_SNIPPETS = {
     "python3.13 scripts/check_clean_install.py --hermes-root ~/hermes-agent",
     "cd sidecar && npm run check",
 }
-SDK_DIST_FILES = (
-    "dist/client.d.ts",
-    "dist/client.d.ts.map",
-    "dist/client.js",
-    "dist/client.js.map",
-    "dist/index.d.ts",
-    "dist/index.d.ts.map",
-    "dist/index.js",
-    "dist/index.js.map",
-    "dist/types.d.ts",
-    "dist/types.d.ts.map",
-    "dist/types.js",
-    "dist/types.js.map",
-)
-SDK_PACKAGE_FILES = ("README.md", *SDK_DIST_FILES)
-SDK_PACKAGE_PUBLIC_METADATA_KEYS = (
-    "name",
-    "description",
-    "type",
-    "main",
-    "types",
-    "exports",
-    "files",
-    "keywords",
-    "license",
-    "dependencies",
-    "scripts",
-    "devDependencies",
-)
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -474,32 +446,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--sdk-root", help="Path to the agent-sdk checkout.")
     return parser.parse_args()
-
-
-REQUIRED_PLUGIN_FILES = (
-    "README.md",
-    "__init__.py",
-    "adapter.py",
-    "arinova_tools.py",
-    "plugin.yaml",
-    "sidecar/index.mjs",
-    "sidecar/runtime.mjs",
-    "sidecar/package.json",
-    "sidecar/package-lock.json",
-    "sidecar/check-runtime.mjs",
-    "sidecar/check-sdk-e2e.mjs",
-    "sidecar/check-sdk-http.mjs",
-    "scripts/check_local.py",
-    "scripts/check_sdk_surface.py",
-    "scripts/check_agent_sdk_source.py",
-    "scripts/check_arinova_tools.py",
-    "scripts/check_live_connection.py",
-    "scripts/check_live_connection_gate.py",
-    "scripts/check_gateway_config_load.py",
-    "scripts/check_hermes_plugin_load.py",
-    "scripts/check_user_install.py",
-    "scripts/check_clean_install.py",
-)
 
 
 def public_agent_methods(source: str) -> set[str]:
