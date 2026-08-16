@@ -2,6 +2,8 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import type {
   ActionCallOptions,
   ActionCallResult,
+  AgentRuntimeInfo,
+  ListBoardsResult,
   TokenClaimedData,
   TaskAttachment,
   TaskContext,
@@ -127,5 +129,17 @@ describe("agent SDK type contracts", () => {
     expectTypeOf<TaskContext["callAction"]>().returns.resolves.toEqualTypeOf<ActionCallResult>();
     expectTypeOf<TaskContext["content"]>().toEqualTypeOf<string | undefined>();
     expectTypeOf<TokenClaimedData["agentId"]>().toEqualTypeOf<string | null>();
+  });
+
+  it("exports runtime and aggregate board contracts", () => {
+    expectTypeOf<AgentRuntimeInfo>().toMatchTypeOf<{
+      name: string;
+      version: string;
+      language?: string;
+      platform?: string;
+    }>();
+    expectTypeOf<ListBoardsResult>().toHaveProperty("boards");
+    expectTypeOf<ListBoardsResult>().toHaveProperty("columns");
+    expectTypeOf<ListBoardsResult>().toHaveProperty("cards");
   });
 });

@@ -526,10 +526,12 @@ describe("per-conversation task queue", () => {
       flushPendingTerminalEvents: () => void;
       sendChunkEvent: (event: Record<string, unknown>) => void;
       activeConversationTasks: Map<string, string>;
-      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      taskQueue: { queues: Map<string, Array<Record<string, unknown>>> };
       taskAbortControllers: Map<string, AbortController>;
-      pendingChunkEvents: Array<Record<string, unknown>>;
-      pendingTerminalEvents: Array<Record<string, unknown>>;
+      outbound: {
+        pendingChunks: Array<Record<string, unknown>>;
+        pendingTerminal: Array<Record<string, unknown>>;
+      };
       ws: { readyState: number; send: ReturnType<typeof vi.fn> } | null;
       send: (event: Record<string, unknown>) => void;
       pendingActionCalls: Map<string, unknown>;
@@ -557,7 +559,7 @@ describe("per-conversation task queue", () => {
 
     expect(a.taskAbortControllers.has("t1")).toBe(true);
     expect(a.taskAbortControllers.has("t2")).toBe(false); // queued, not started
-    expect(a.conversationQueues.get("conv-A")?.length).toBe(1);
+    expect(a.taskQueue.queues.get("conv-A")?.length).toBe(1);
   });
 
   it("forwards agent-sender identity (senderAgentId/senderAgentName) to the task context", () => {
@@ -617,12 +619,12 @@ describe("per-conversation task queue", () => {
     a.handleTask({ taskId: "t2", conversationId: "conv-A", content: "second" });
 
     expect(a.activeConversationTasks.get("conv-A")).toBe("t1");
-    expect(a.conversationQueues.get("conv-A")?.length).toBe(1);
+    expect(a.taskQueue.queues.get("conv-A")?.length).toBe(1);
 
     // Complete t1 — should auto-start t2
     savedCtx!.sendComplete("done");
     expect(a.activeConversationTasks.get("conv-A")).toBe("t2");
-    expect(a.conversationQueues.has("conv-A")).toBe(false);
+    expect(a.taskQueue.queues.has("conv-A")).toBe(false);
   });
 
   it("cancel queued task removes from queue without aborting active", () => {
@@ -634,11 +636,11 @@ describe("per-conversation task queue", () => {
     a.handleTask({ taskId: "t3", conversationId: "conv-A", content: "third" });
 
     // Simulate cancel_task for queued t2
-    const queue = a.conversationQueues.get("conv-A")!;
+    const queue = a.taskQueue.queues.get("conv-A")!;
     const idx = queue.findIndex((t) => t.taskId === "t2");
     queue.splice(idx, 1);
 
-    expect(a.conversationQueues.get("conv-A")?.length).toBe(1);
+    expect(a.taskQueue.queues.get("conv-A")?.length).toBe(1);
     expect(a.taskAbortControllers.has("t1")).toBe(true); // active untouched
   });
 
@@ -662,20 +664,20 @@ describe("per-conversation task queue", () => {
     expect(c1.signal.aborted).toBe(true);
     expect(a.taskAbortControllers.size).toBe(0);
     expect(a.activeConversationTasks.size).toBe(0);
-    expect(a.conversationQueues.size).toBe(0);
+    expect(a.taskQueue.queues.size).toBe(0);
     // Critical: t2 should NOT have been started by cleanup's abort
     expect(handlerCalls).toEqual(["t1"]);
   });
 
   it("full cleanup clears buffered chunks and terminal events", () => {
     const { a } = createAgent();
-    a.pendingChunkEvents.push({ type: "agent_chunk", taskId: "stale", chunk: "stale chunk" });
-    a.pendingTerminalEvents.push({ type: "agent_complete", taskId: "stale", content: "stale done" });
+    a.outbound.pendingChunks.push({ type: "agent_chunk", taskId: "stale", chunk: "stale chunk" });
+    a.outbound.pendingTerminal.push({ type: "agent_complete", taskId: "stale", content: "stale done" });
 
     a.cleanup();
 
-    expect(a.pendingChunkEvents).toEqual([]);
-    expect(a.pendingTerminalEvents).toEqual([]);
+    expect(a.outbound.pendingChunks).toEqual([]);
+    expect(a.outbound.pendingTerminal).toEqual([]);
   });
 
   it("reconnect cleanup preserves active tasks and queued work", () => {
@@ -695,7 +697,7 @@ describe("per-conversation task queue", () => {
     expect(c1.signal.aborted).toBe(false);
     expect(a.taskAbortControllers.has("t1")).toBe(true);
     expect(a.activeConversationTasks.get("conv-A")).toBe("t1");
-    expect(a.conversationQueues.get("conv-A")?.[0]?.taskId).toBe("t2");
+    expect(a.taskQueue.queues.get("conv-A")?.[0]?.taskId).toBe("t2");
     expect(handlerCalls).toEqual(["t1"]);
   });
 
@@ -752,7 +754,7 @@ describe("per-conversation task queue", () => {
     a.handleTask({ taskId: "t1", conversationId: "conv-A", content: "a" });
     savedCtx!.sendComplete("done while offline");
 
-    expect(a.pendingTerminalEvents).toEqual([
+    expect(a.outbound.pendingTerminal).toEqual([
       { type: "agent_complete", taskId: "t1", content: "done while offline" },
     ]);
 
@@ -766,7 +768,7 @@ describe("per-conversation task queue", () => {
       taskId: "t1",
       content: "done while offline",
     }));
-    expect(a.pendingTerminalEvents).toEqual([]);
+    expect(a.outbound.pendingTerminal).toEqual([]);
   });
 
   it("buffers chunks while disconnected and flushes them before terminal events", () => {
@@ -787,11 +789,11 @@ describe("per-conversation task queue", () => {
     savedCtx!.sendChunk("world");
     savedCtx!.sendComplete("hello world");
 
-    expect(a.pendingChunkEvents).toEqual([
+    expect(a.outbound.pendingChunks).toEqual([
       { type: "agent_chunk", taskId: "t1", chunk: "hello " },
       { type: "agent_chunk", taskId: "t1", chunk: "world" },
     ]);
-    expect(a.pendingTerminalEvents).toEqual([
+    expect(a.outbound.pendingTerminal).toEqual([
       { type: "agent_complete", taskId: "t1", content: "hello world" },
     ]);
 
@@ -806,8 +808,8 @@ describe("per-conversation task queue", () => {
       { type: "agent_chunk", taskId: "t1", chunk: "world" },
       { type: "agent_complete", taskId: "t1", content: "hello world" },
     ]);
-    expect(a.pendingChunkEvents).toEqual([]);
-    expect(a.pendingTerminalEvents).toEqual([]);
+    expect(a.outbound.pendingChunks).toEqual([]);
+    expect(a.outbound.pendingTerminal).toEqual([]);
   });
 
   it("caps offline chunks and discards chunks older than reconnect grace", () => {
@@ -816,8 +818,8 @@ describe("per-conversation task queue", () => {
     for (let i = 0; i < 1_005; i++) {
       a.sendChunkEvent({ type: "agent_chunk", taskId: "t1", chunk: String(i) });
     }
-    expect(a.pendingChunkEvents).toHaveLength(1_000);
-    expect(a.pendingChunkEvents[0]?.chunk).toBe("5");
+    expect(a.outbound.pendingChunks).toHaveLength(1_000);
+    expect(a.outbound.pendingChunks[0]?.chunk).toBe("5");
 
     now.mockReturnValue(60_001);
     const send = vi.fn();
@@ -829,21 +831,21 @@ describe("per-conversation task queue", () => {
       taskId: "t1",
       reason: "offline_chunk_buffer_expired",
     }]);
-    expect(a.pendingChunkEvents).toEqual([]);
+    expect(a.outbound.pendingChunks).toEqual([]);
   });
 
   it("re-buffers unsent chunk and terminal events when a flush write fails", () => {
     const { a } = createAgent();
     a.sendChunkEvent({ type: "agent_chunk", taskId: "t1", chunk: "one" });
-    a.pendingTerminalEvents.push({ type: "agent_complete", taskId: "t1", content: "one" });
+    a.outbound.pendingTerminal.push({ type: "agent_complete", taskId: "t1", content: "one" });
     a.authenticated = true;
     a.ws = { readyState: 1, send: vi.fn(() => { throw new Error("wire failed"); }) };
     expect(() => a.flushPendingChunkEvents()).toThrow("wire failed");
-    expect(a.pendingChunkEvents).toHaveLength(1);
+    expect(a.outbound.pendingChunks).toHaveLength(1);
 
     a.ws = { readyState: 1, send: vi.fn(() => { throw new Error("wire failed"); }) };
     expect(() => a.flushPendingTerminalEvents()).toThrow("wire failed");
-    expect(a.pendingTerminalEvents).toHaveLength(1);
+    expect(a.outbound.pendingTerminal).toHaveLength(1);
   });
 
   it("reports action progress and tool calls synchronously", () => {
@@ -913,7 +915,7 @@ describe("per-conversation task queue", () => {
     const c1 = a.taskAbortControllers.get("t1")!;
     c1.abort();
 
-    expect(a.pendingTerminalEvents).toContainEqual({
+    expect(a.outbound.pendingTerminal).toContainEqual({
       type: "agent_error",
       taskId: "t1",
       error: "cancelled",
@@ -931,13 +933,13 @@ describe("per-conversation task queue", () => {
     for (let i = 1; i <= 10; i++) {
       a.handleTask({ taskId: `t${i}`, conversationId: "conv-A", content: `msg${i}` });
     }
-    expect(a.conversationQueues.get("conv-A")?.length).toBe(10);
+    expect(a.taskQueue.queues.get("conv-A")?.length).toBe(10);
 
     // Push one more — it is rejected without disturbing queued work.
     a.handleTask({ taskId: "t11", conversationId: "conv-A", content: "overflow" });
-    expect(a.conversationQueues.get("conv-A")?.length).toBe(10);
+    expect(a.taskQueue.queues.get("conv-A")?.length).toBe(10);
 
-    const queue = a.conversationQueues.get("conv-A")!;
+    const queue = a.taskQueue.queues.get("conv-A")!;
     expect(queue[0].taskId).toBe("t1");
     expect(queue[queue.length - 1].taskId).toBe("t10");
 
@@ -991,7 +993,7 @@ describe("agent-wide task queue", () => {
       taskHandler: ((ctx: unknown) => Promise<void>) | null;
       handleTask: (data: Record<string, unknown>) => void;
       activeConversationTasks: Map<string, string>;
-      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      taskQueue: { queues: Map<string, Array<Record<string, unknown>>> };
       taskAbortControllers: Map<string, AbortController>;
       send: (event: Record<string, unknown>) => void;
     };
@@ -1015,7 +1017,7 @@ describe("agent-wide task queue", () => {
       taskHandler: ((ctx: unknown) => Promise<void>) | null;
       handleTask: (data: Record<string, unknown>) => void;
       taskAbortControllers: Map<string, AbortController>;
-      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      taskQueue: { queues: Map<string, Array<Record<string, unknown>>> };
       send: ReturnType<typeof vi.fn>;
     };
     a.send = vi.fn();
@@ -1025,7 +1027,7 @@ describe("agent-wide task queue", () => {
     a.handleTask({ taskId: "b1", conversationId: "conv-B", content: "second" });
 
     expect([...a.taskAbortControllers.keys()]).toEqual(["a1"]);
-    expect(a.conversationQueues.get("conv-B")?.map((task) => task.taskId)).toEqual(["b1"]);
+    expect(a.taskQueue.queues.get("conv-B")?.map((task) => task.taskId)).toEqual(["b1"]);
   });
 
   it("caps aggregate queued tasks across distinct conversations", () => {
@@ -1037,7 +1039,7 @@ describe("agent-wide task queue", () => {
     const a = agent as unknown as {
       taskHandler: ((ctx: unknown) => Promise<void>) | null;
       handleTask: (data: Record<string, unknown>) => void;
-      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      taskQueue: { queues: Map<string, Array<Record<string, unknown>>> };
       send: ReturnType<typeof vi.fn>;
     };
     a.send = vi.fn();
@@ -1052,8 +1054,8 @@ describe("agent-wide task queue", () => {
       });
     }
 
-    expect([...a.conversationQueues.values()].flat()).toHaveLength(3);
-    expect(a.conversationQueues.has("conv-4")).toBe(false);
+    expect([...a.taskQueue.queues.values()].flat()).toHaveLength(3);
+    expect(a.taskQueue.queues.has("conv-4")).toBe(false);
     expect(a.send).toHaveBeenCalledWith({
       type: "agent_error",
       taskId: "queued-4",
@@ -1072,7 +1074,7 @@ describe("agent-wide task queue", () => {
     // instead of starting in parallel — the Gina-regression fix.
     expect(a.taskAbortControllers.has("a1")).toBe(true);
     expect(a.taskAbortControllers.has("b1")).toBe(false);
-    expect(a.conversationQueues.get("conv-B")?.length).toBe(1);
+    expect(a.taskQueue.queues.get("conv-B")?.length).toBe(1);
     expect(a.activeConversationTasks.size).toBe(1);
   });
 
@@ -1127,7 +1129,7 @@ describe("agent-wide task queue", () => {
     // Overflow: pushing t11 rejects the incoming task and preserves the queue.
     a.handleTask({ taskId: "t11", conversationId: "conv-A", content: "" });
     expect(a.send).toHaveBeenCalledWith({ type: "agent_error", taskId: "t11", error: "queue_overflow" });
-    expect(a.conversationQueues.get("conv-A")?.length).toBe(10);
+    expect(a.taskQueue.queues.get("conv-A")?.length).toBe(10);
   });
 
   it("task_queued globalQueueSize spans multiple conversations", () => {
@@ -1177,13 +1179,13 @@ describe("task execution modes", () => {
     });
     const a = agent as unknown as {
       handleTask: (data: Record<string, unknown>) => void;
-      pendingTerminalEvents: Array<Record<string, unknown>>;
+      outbound: { pendingTerminal: Array<Record<string, unknown>> };
     };
     agent.onTask(() => { throw new Error("handler exploded"); });
     a.handleTask({ taskId: "t1", conversationId: "conv-1", content: "one" });
     await Promise.resolve();
     await Promise.resolve();
-    expect(a.pendingTerminalEvents).toContainEqual({
+    expect(a.outbound.pendingTerminal).toContainEqual({
       type: "agent_error",
       taskId: "t1",
       error: "handler exploded",
@@ -1737,7 +1739,7 @@ describe("tasks without conversationId (cron/trigger wakeups)", () => {
       taskHandler: ((ctx: unknown) => Promise<void>) | null;
       handleTask: (data: Record<string, unknown>) => void;
       activeConversationTasks: Map<string, string>;
-      conversationQueues: Map<string, Array<Record<string, unknown>>>;
+      taskQueue: { queues: Map<string, Array<Record<string, unknown>>> };
       taskAbortControllers: Map<string, AbortController>;
       send: (event: Record<string, unknown>) => void;
     };
@@ -1794,7 +1796,7 @@ describe("tasks without conversationId (cron/trigger wakeups)", () => {
 
     expect(a.taskAbortControllers.has("t1")).toBe(true);
     expect(a.taskAbortControllers.has("t2")).toBe(false); // queued
-    expect(a.conversationQueues.get("__no_conversation__")?.length).toBe(1);
+    expect(a.taskQueue.queues.get("__no_conversation__")?.length).toBe(1);
   });
 
   it("drains the sentinel queue after sendComplete", () => {
@@ -1809,7 +1811,7 @@ describe("tasks without conversationId (cron/trigger wakeups)", () => {
 
     savedCtx!.sendComplete("done");
     expect(a.activeConversationTasks.get("__no_conversation__")).toBe("t2");
-    expect(a.conversationQueues.has("__no_conversation__")).toBe(false);
+    expect(a.taskQueue.queues.has("__no_conversation__")).toBe(false);
   });
 
   it("rejects conversation-scoped APIs with a descriptive error", async () => {

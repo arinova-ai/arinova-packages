@@ -15,7 +15,6 @@ import type {
 } from "./types.js";
 import packageJson from "../package.json" with { type: "json" };
 import {
-  decodeWebSocketFrame,
   normalizeWebSocketBaseUrl,
   reconnectDelayMs,
   WS_OPEN,
@@ -27,21 +26,24 @@ import {
   authRetryDelayMs,
   parseServerAuthError,
 } from "./auth-retry.js";
+import {
+  bindWebSocketHandlers,
+  createAgentAuthFrame,
+  parseOnboardingSeed,
+} from "./connect.js";
+import { OutboundFrames } from "./outbound.js";
+import { TaskQueue } from "./task-queue.js";
 export { ArinovaApiError } from "./rest/client.js";
 
 const DEFAULT_RECONNECT_INTERVAL = 5_000;
 const DEFAULT_PING_INTERVAL = 30_000;
 const TASK_HEARTBEAT_INTERVAL = 60_000;
-const ACTION_PROTOCOL_VERSION = "2026-05-05";
 // Read the SDK version from package.json (single source of truth) so the
 // version reported in agent_auth never drifts from the published package.
 const SDK_VERSION = packageJson.version;
 const DEFAULT_ACTION_TIMEOUT = 60_000;
 const DEFAULT_MAX_QUEUED_TASKS = 100;
 const DEFAULT_MAX_INBOUND_FRAME_BYTES = 1024 * 1024;
-const MAX_PENDING_CHUNK_EVENTS = 1_000;
-const MAX_PENDING_TERMINAL_EVENTS = 1_000;
-const MAX_PENDING_CHUNK_AGE_MS = 60_000;
 
 function noConversationError(api: string, taskKind: string | undefined): Error {
   return new Error(
@@ -49,32 +51,6 @@ function noConversationError(api: string, taskKind: string | undefined): Error {
   );
 }
 
-/**
- * Validate a raw `auth_ok.onboardingSeed` payload (OB-11 §5.7). The server is
- * authoritative; this guard only ensures we surface a well-formed seed and
- * silently drop anything malformed or of an unknown kind, so a partial/garbled
- * field never drives a seeded turn. Returns `null` when absent or invalid.
- */
-function parseOnboardingSeed(raw: unknown): OnboardingSeed | null {
-  if (!raw || typeof raw !== "object") return null;
-  const seed = raw as Record<string, unknown>;
-  if (seed.kind !== "first_touch_opening") return null;
-  if (
-    typeof seed.seedId !== "string" ||
-    typeof seed.agentId !== "string" ||
-    typeof seed.action !== "string" ||
-    typeof seed.prompt !== "string"
-  ) {
-    return null;
-  }
-  return {
-    kind: "first_touch_opening",
-    seedId: seed.seedId,
-    agentId: seed.agentId,
-    action: seed.action,
-    prompt: seed.prompt,
-  };
-}
 export class ArinovaAgent extends ArinovaRestClient {
   private readonly skills: AgentSkill[];
   private readonly reconnectInterval: number;
@@ -108,26 +84,13 @@ export class ArinovaAgent extends ArinovaRestClient {
   private taskHandler: TaskHandler | null = null;
   private taskAbortControllers: Map<string, AbortController> = new Map();
   private activeConversationTasks: Map<string, string> = new Map(); // conversationId → taskId
-  private conversationQueues: Map<string, Array<Record<string, unknown>>> = new Map(); // conversationId → queued task data
-  private pendingChunkEvents: Array<Record<string, unknown>> = [];
-  private pendingChunkTimes = new WeakMap<Record<string, unknown>, number>();
-  private pendingTerminalEvents: Array<Record<string, unknown>> = [];
+  private readonly taskQueue: TaskQueue;
+  private readonly outbound: OutboundFrames;
   private pendingActionCalls: Map<string, {
     resolve: (result: ActionCallResult) => void;
     reject: (error: Error) => void;
     timer: ReturnType<typeof setTimeout>;
   }> = new Map();
-  // agent-wide mode only: how many tasks have run back-to-back from a given
-  // conv. Incremented in executeTask, reset when the scheduler rotates away.
-  private consecutiveTaskCount: Map<string, number> = new Map();
-  // agent-wide mode only: synchronous lock flag. handleTask flips this inside
-  // the same sync frame as its queue/execute decision so two tasks arriving
-  // back-to-back can't both observe an "empty Map" and race into parallel
-  // execution (the scheduler-read → executeTask-write window). executeTask
-  // re-asserts it so the drain path (processNextTaskAgentWide → executeTask)
-  // preserves the invariant "lock == a task is live under agent-wide mode".
-  private agentWideLock = false;
-
   private listeners: Record<string, Array<(...args: unknown[]) => void>> = {
     connected: [],
     disconnected: [],
@@ -158,6 +121,16 @@ export class ArinovaAgent extends ArinovaRestClient {
         ? options.maxInboundFrameBytes!
         : DEFAULT_MAX_INBOUND_FRAME_BYTES;
     this.logger = options.logger ?? console;
+    this.taskQueue = new TaskQueue(
+      this.concurrencyMode,
+      this.maxConsecutive,
+      this.maxQueuedTasks,
+    );
+    this.outbound = new OutboundFrames(() => ({
+      authenticated: this.authenticated,
+      socket: this.ws,
+      tearingDown: this.tearingDown,
+    }));
   }
 
   /** Register a task handler. Called when the server sends a task. */
@@ -385,90 +358,31 @@ export class ArinovaAgent extends ArinovaRestClient {
   }
 
   private send(event: Record<string, unknown>): void {
-    if (this.authenticated && this.ws && this.ws.readyState === WS_OPEN) {
-      this.ws.send(JSON.stringify(event));
-    }
+    this.outbound.send(event);
   }
 
   private sendOrThrow(event: Record<string, unknown>): void {
-    if (!this.authenticated || !this.ws || this.ws.readyState !== WS_OPEN) {
-      throw new Error("WebSocket is not authenticated");
-    }
-    this.ws.send(JSON.stringify(event));
+    this.outbound.sendOrThrow(event);
   }
 
   private sendBeforeAuth(event: Record<string, unknown>): void {
-    if (!this.ws || this.ws.readyState !== WS_OPEN) {
-      throw new Error("WebSocket is not open");
-    }
-    this.ws.send(JSON.stringify(event));
+    this.outbound.sendBeforeAuth(event);
   }
 
   private sendTerminal(event: Record<string, unknown>): void {
-    if (this.tearingDown) return;
-    if (this.authenticated && this.ws && this.ws.readyState === WS_OPEN) {
-      this.ws.send(JSON.stringify(event));
-      return;
-    }
-    this.pendingTerminalEvents.push(event);
-    if (this.pendingTerminalEvents.length > MAX_PENDING_TERMINAL_EVENTS) {
-      this.pendingTerminalEvents.splice(
-        0,
-        this.pendingTerminalEvents.length - MAX_PENDING_TERMINAL_EVENTS,
-      );
-    }
+    this.outbound.sendTerminal(event);
   }
 
   private sendChunkEvent(event: Record<string, unknown>): void {
-    if (this.authenticated && this.ws && this.ws.readyState === WS_OPEN) {
-      this.ws.send(JSON.stringify(event));
-      return;
-    }
-    this.pendingChunkEvents.push(event);
-    this.pendingChunkTimes.set(event, Date.now());
-    if (this.pendingChunkEvents.length > MAX_PENDING_CHUNK_EVENTS) {
-      this.pendingChunkEvents.splice(0, this.pendingChunkEvents.length - MAX_PENDING_CHUNK_EVENTS);
-    }
+    this.outbound.sendChunk(event);
   }
 
   private flushPendingChunkEvents(): void {
-    if (!this.authenticated || !this.ws || this.ws.readyState !== WS_OPEN) return;
-    const cutoff = Date.now() - MAX_PENDING_CHUNK_AGE_MS;
-    const events = this.pendingChunkEvents.splice(0);
-    const staleTaskIds = new Set<string>();
-    for (let index = 0; index < events.length; index++) {
-      const event = events[index];
-      if ((this.pendingChunkTimes.get(event) ?? 0) < cutoff) {
-        if (typeof event.taskId === "string") staleTaskIds.add(event.taskId);
-        continue;
-      }
-      try {
-        this.ws.send(JSON.stringify(event));
-      } catch (err) {
-        this.pendingChunkEvents.unshift(...events.slice(index));
-        throw err;
-      }
-    }
-    for (const taskId of staleTaskIds) {
-      this.ws.send(JSON.stringify({
-        type: "agent_stream_gap",
-        taskId,
-        reason: "offline_chunk_buffer_expired",
-      }));
-    }
+    this.outbound.flushChunks();
   }
 
   private flushPendingTerminalEvents(): void {
-    if (!this.authenticated || !this.ws || this.ws.readyState !== WS_OPEN) return;
-    const events = this.pendingTerminalEvents.splice(0);
-    for (let index = 0; index < events.length; index++) {
-      try {
-        this.ws.send(JSON.stringify(events[index]));
-      } catch (err) {
-        this.pendingTerminalEvents.unshift(...events.slice(index));
-        throw err;
-      }
-    }
+    this.outbound.flushTerminal();
   }
 
   private cleanupConnection(closeSocket = true): void {
@@ -505,17 +419,13 @@ export class ArinovaAgent extends ArinovaRestClient {
     this.tearingDown = true;
     // Clear queues BEFORE aborting — abort triggers markFinished → processNextTask,
     // which would dequeue and start tasks during disconnect if queues aren't empty.
-    this.conversationQueues.clear();
+    this.taskQueue.clear();
     this.activeConversationTasks.clear();
-    this.consecutiveTaskCount.clear();
-    this.agentWideLock = false;
     for (const controller of this.taskAbortControllers.values()) {
       controller.abort();
     }
     this.taskAbortControllers.clear();
-    this.pendingChunkEvents = [];
-    this.pendingChunkTimes = new WeakMap();
-    this.pendingTerminalEvents = [];
+    this.outbound.reset();
     this.tearingDown = false;
     this.rejectPendingActionCalls(reason);
   }
@@ -584,229 +494,143 @@ export class ArinovaAgent extends ArinovaRestClient {
     this.cleanupForReconnect();
     this.lastPongAt = null;
 
-    const wsUrl = `${this.serverUrl}/ws/agent`;
-
+    let socket: WebSocket;
     try {
-      this.ws = new WebSocket(wsUrl);
+      socket = new WebSocket(`${this.serverUrl}/ws/agent`);
+      this.ws = socket;
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.emit("error", error);
       this.scheduleReconnect();
       return;
     }
-    const socket = this.ws;
-
-    this.ws.onopen = () => {
-      this.lastPongAt = Date.now(); // Treat onopen as alive proof until the first pong.
-      const authMsg: Record<string, unknown> = {
-        type: "agent_auth",
-        botToken: this.botToken,
-        runtime: {
-          name: "arinova-agent-sdk",
-          version: SDK_VERSION,
-          language: "typescript",
-          platform: "node",
-        },
-        capabilities: {
-          actionCall: {
-            supported: true,
-            protocolVersion: ACTION_PROTOCOL_VERSION,
-            canEmitFrames: true,
-            supportsActionResultContinuation: true,
-            supportsGetSchema: true,
-            schemaCache: false,
-          },
-        },
-      };
-      if (this.skills.length > 0) {
-        authMsg.skills = this.skills;
-      }
-      this.sendBeforeAuth(authMsg);
-
-      this.pingTimer = setInterval(() => {
-        if (this.lastPongAt !== null && Date.now() - this.lastPongAt > this.pingTimeout) {
-          this.logger.warn("[arinova-agent-sdk] pong timeout, forcing reconnect");
-          this.cleanupForReconnect(false);
-          try { socket.close(); } catch {}
-          this.emit("disconnected");
-          this.scheduleReconnect();
-          return;
-        }
-        // The socket can sit in CLOSING before onclose fires (delayed TCP
-        // teardown); a throw here would be an uncaughtException inside the
-        // interval callback, so skip the ping and let onclose reconnect.
-        if (this.ws && this.ws.readyState === WS_OPEN) {
-          this.sendBeforeAuth({ type: "ping" });
-        }
-      }, this.pingInterval);
-    };
-
-    this.ws.onmessage = async (event) => {
-      try {
-        const decoded = decodeWebSocketFrame(
-          event.data,
-          this.maxInboundFrameBytes,
-        );
-        const data = decoded instanceof Promise ? await decoded : decoded;
-
-        if (data.type === "auth_ok") {
-          this.authenticated = true;
-          this.agentId = typeof data.agentId === "string" ? data.agentId : null;
-
-          // OB-11 AC8.7: surface the server-authored first-touch seed (if any)
-          // before connect() resolves below, so a consumer reading it right
-          // after `await connect()` sees it deterministically. Rides this
-          // existing auth_ok frame — no extra WS event. Absent on reconnect.
-          this.onboardingSeed = parseOnboardingSeed(data.onboardingSeed);
-
-          // Retained for forward compatibility. The current server only sends
-          // permanentToken on claim_ok, never auth_ok.
-          if (typeof data.permanentToken === "string" && data.permanentToken) {
-            this.botToken = data.permanentToken;
-            this.emit("token_claimed", { agentId: this.agentId, permanentToken: data.permanentToken });
-          }
-
-          this.emit("connected");
-
-          // Register SDK runtime commands from skills
-          if (this.skills.length > 0 && this.agentId) {
-            this.send({
-              type: "register_commands",
-              agentId: this.agentId,
-              commands: this.skills.map((s) => ({
-                name: s.id ?? s.name,
-                description: s.description ?? "",
-              })),
-            });
-          }
-
-          // Start heartbeat to extend Redis TTL every 60s
-          if (this.commandHeartbeatTimer) clearInterval(this.commandHeartbeatTimer);
-          if (this.skills.length > 0 && this.agentId) {
-            this.commandHeartbeatTimer = setInterval(() => {
-              this.send({ type: "heartbeat_commands", agentId: this.agentId });
-            }, 60_000);
-          }
-
-          // Auth succeeded — reset error state
-          this.authErrorCount = 0;
-          this.authRetryAttempt = 0;
-          this.isAuthRetrying = false;
-          this.reconnectAttempt = 0;
-
-          // Resolve the connect() promise on first successful auth
-          this.resolveConnect();
-          this.flushPendingChunkEvents();
-          this.flushPendingTerminalEvents();
-          return;
-        }
-
-        if (data.type === "claim_ok") {
-          // OB-3 onboarding claim: a bootstrap `obt_*` token is exchanged for a
-          // permanent `ari_*` token on this *separate* frame (never `auth_ok`),
-          // after which the server closes the socket (auth.rs returns `None`).
-          // We adopt the permanent token and let the normal close→reconnect path
-          // re-authenticate with it; that second connection is the genuine
-          // permanent-token `auth_ok`, which is the first connect that carries
-          // the onboarding seed (OB-11 §5.7). We deliberately do NOT resolve
-          // connect() here and never parse a seed off `claim_ok` — claim is token
-          // exchange only, and connect() must stay pending until the real
-          // `auth_ok` so a consumer reading getOnboardingSeed() after it sees the
-          // populated (or cleared) value from that frame.
-          if (typeof data.permanentToken === "string" && data.permanentToken) {
-            this.botToken = data.permanentToken;
-            this.agentId =
-              typeof data.agentId === "string" ? data.agentId : this.agentId;
-            this.emit("token_claimed", {
-              agentId: this.agentId,
-              permanentToken: data.permanentToken,
-            });
-          }
-          return;
-        }
-
-        if (data.type === "auth_error") {
-          this.handleAuthError(data);
-          return;
-        }
-
-        if (data.type === "pong") {
-          this.lastPongAt = Date.now();
-          return;
-        }
-
-        if (data.type === "action_result") {
-          this.handleActionResult(data);
-          return;
-        }
-
-        if (data.type === "task") {
-          this.handleTask(data);
-          return;
-        }
-
-        if (data.type === "cancel_task") {
-          const taskId = data.taskId as string;
-
-          // Check if the task is still queued (not yet started)
-          for (const [convId, queue] of this.conversationQueues) {
-            const idx = queue.findIndex((t) => t.taskId === taskId);
-            if (idx !== -1) {
-              const [cancelled] = queue.splice(idx, 1);
-              if (queue.length === 0) this.conversationQueues.delete(convId);
-              this.sendTerminal({
-                type: "agent_error",
-                taskId: cancelled.taskId,
-                error: "cancelled",
-                reason: "cancelled",
-              });
-              return;
-            }
-          }
-
-          // Active task — abort it (processNextTask will be called via markFinished)
-          const controller = this.taskAbortControllers.get(taskId);
-          if (controller) {
-            controller.abort();
-            this.taskAbortControllers.delete(taskId);
-          }
-          return;
-        }
-      } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
+    bindWebSocketHandlers({
+      socket,
+      maxInboundFrameBytes: this.maxInboundFrameBytes,
+      isCurrent: () => this.ws === socket,
+      onOpen: () => this.handleSocketOpen(socket),
+      onFrame: (data) => this.handleSocketFrame(data),
+      onFrameError: (error) => {
         this.emit("error", error);
-        if (error instanceof RangeError) {
-          socket.close();
-        }
-      }
-    };
+        if (error instanceof RangeError) socket.close();
+      },
+      onTerminal: () => {
+        this.handleSocketTerminal();
+      },
+    });
+  }
 
-    // Node 22's built-in (undici) WebSocket fires `error` without a follow-up
-    // `close` on handshake failures, so both paths must drive the reconnect
-    // flow. The flag dedupes when both events do fire (mid-session errors).
-    let terminalHandled = false;
-    const onTerminal = () => {
-      if (terminalHandled) return;
-      if (this.ws !== socket) return;
-      terminalHandled = true;
-      this.cleanupForReconnect(false);
-      this.emit("disconnected");
-      // Skip this one close if auth retry already scheduled its own reconnect
-      if (this.isAuthRetrying) {
-        this.logger.info("[arinova-agent-sdk] close handled by auth retry timer; skipping normal reconnect once");
-        this.isAuthRetrying = false; // Only skip once — subsequent closes reconnect normally
+  private handleSocketOpen(socket: WebSocket): void {
+    this.lastPongAt = Date.now();
+    this.sendBeforeAuth(createAgentAuthFrame(
+      this.botToken,
+      {
+        name: "arinova-agent-sdk",
+        version: SDK_VERSION,
+        language: "typescript",
+        platform: "node",
+      },
+      this.skills,
+    ));
+    this.pingTimer = setInterval(() => {
+      if (this.lastPongAt !== null && Date.now() - this.lastPongAt > this.pingTimeout) {
+        this.logger.warn("[arinova-agent-sdk] pong timeout, forcing reconnect");
+        this.cleanupForReconnect(false);
+        try { socket.close(); } catch {}
+        this.emit("disconnected");
+        this.scheduleReconnect();
         return;
       }
-      this.scheduleReconnect();
-    };
+      if (this.ws?.readyState === WS_OPEN) this.sendBeforeAuth({ type: "ping" });
+    }, this.pingInterval);
+  }
 
-    this.ws.onerror = () => {
-      onTerminal();
-    };
+  private handleSocketFrame(data: Record<string, unknown>): void {
+    if (data.type === "auth_ok") {
+      this.authenticated = true;
+      this.agentId = typeof data.agentId === "string" ? data.agentId : null;
+      this.onboardingSeed = parseOnboardingSeed(data.onboardingSeed);
+      if (typeof data.permanentToken === "string" && data.permanentToken) {
+        this.botToken = data.permanentToken;
+        this.emit("token_claimed", { agentId: this.agentId, permanentToken: data.permanentToken });
+      }
+      this.emit("connected");
+      if (this.skills.length > 0 && this.agentId) {
+        this.send({
+          type: "register_commands",
+          agentId: this.agentId,
+          commands: this.skills.map((skill) => ({
+            name: skill.id ?? skill.name,
+            description: skill.description ?? "",
+          })),
+        });
+      }
+      if (this.commandHeartbeatTimer) clearInterval(this.commandHeartbeatTimer);
+      if (this.skills.length > 0 && this.agentId) {
+        this.commandHeartbeatTimer = setInterval(() => {
+          this.send({ type: "heartbeat_commands", agentId: this.agentId });
+        }, 60_000);
+      }
+      this.authErrorCount = 0;
+      this.authRetryAttempt = 0;
+      this.isAuthRetrying = false;
+      this.reconnectAttempt = 0;
+      this.resolveConnect();
+      this.flushPendingChunkEvents();
+      this.flushPendingTerminalEvents();
+      return;
+    }
 
-    this.ws.onclose = () => {
-      onTerminal();
-    };
+    if (data.type === "claim_ok") {
+      if (typeof data.permanentToken === "string" && data.permanentToken) {
+        this.botToken = data.permanentToken;
+        this.agentId = typeof data.agentId === "string" ? data.agentId : this.agentId;
+        this.emit("token_claimed", {
+          agentId: this.agentId,
+          permanentToken: data.permanentToken,
+        });
+      }
+      return;
+    }
+    if (data.type === "auth_error") return this.handleAuthError(data);
+    if (data.type === "pong") {
+      this.lastPongAt = Date.now();
+      return;
+    }
+    if (data.type === "action_result") return this.handleActionResult(data);
+    if (data.type === "task") return this.handleTask(data);
+    if (data.type === "cancel_task" && typeof data.taskId === "string") {
+      this.handleCancelTask(data.taskId);
+    }
+  }
+
+  private handleCancelTask(taskId: string): void {
+    const cancelled = this.taskQueue.cancel(taskId);
+    if (cancelled) {
+      this.sendTerminal({
+        type: "agent_error",
+        taskId: cancelled.taskId,
+        error: "cancelled",
+        reason: "cancelled",
+      });
+      return;
+    }
+    const controller = this.taskAbortControllers.get(taskId);
+    if (controller) {
+      controller.abort();
+      this.taskAbortControllers.delete(taskId);
+    }
+  }
+
+  private handleSocketTerminal(): void {
+    this.cleanupForReconnect(false);
+    this.emit("disconnected");
+    if (this.isAuthRetrying) {
+      this.logger.info("[arinova-agent-sdk] close handled by auth retry timer; skipping normal reconnect once");
+      this.isAuthRetrying = false;
+      return;
+    }
+    this.scheduleReconnect();
   }
 
   private handleAuthError(rawFrame: unknown): void {
@@ -926,10 +750,7 @@ export class ArinovaAgent extends ArinovaRestClient {
     }
 
     const taskId = data.taskId as string;
-    if (this.taskAbortControllers.has(taskId)) return;
-    for (const queue of this.conversationQueues.values()) {
-      if (queue.some((queued) => queued.taskId === taskId)) return;
-    }
+    if (this.taskAbortControllers.has(taskId) || this.taskQueue.has(taskId)) return;
 
     // Platform wakeups (cron/trigger) carry no conversationId. They all
     // serialise under one sentinel key so per-conversation mode treats
@@ -937,62 +758,26 @@ export class ArinovaAgent extends ArinovaRestClient {
     // undefined.
     const convKey = taskConversationKey(data);
 
-    // Unbounded: no serialisation, run every task immediately.
-    if (this.concurrencyMode === "unbounded") {
-      this.executeTask(data);
-      return;
-    }
-
-    // agent-wide: any live task (in any conv) forces queueing. The flag is
-    // checked and flipped in one sync frame so cross-conv arrivals can't both
-    // decide "not queued" before either one has set the Map entries that
-    // active-task map would otherwise rely on.
-    // per-conversation: only a live task for THIS conv forces queueing.
-    let shouldQueue: boolean;
-    if (this.concurrencyMode === "agent-wide") {
-      if (this.agentWideLock) {
-        shouldQueue = true;
-      } else {
-        this.agentWideLock = true;
-        shouldQueue = false;
-      }
-    } else {
-      const activeTaskId = this.activeConversationTasks.get(convKey);
-      shouldQueue = !!(activeTaskId && this.taskAbortControllers.has(activeTaskId));
-    }
-
-    if (shouldQueue) {
-      let globalQueueSize = 0;
-      for (const queued of this.conversationQueues.values()) {
-        globalQueueSize += queued.length;
-      }
-      if (globalQueueSize >= this.maxQueuedTasks) {
+    const activeTaskId = this.activeConversationTasks.get(convKey);
+    const conversationActive = Boolean(
+      activeTaskId && this.taskAbortControllers.has(activeTaskId),
+    );
+    if (this.taskQueue.shouldQueue(conversationActive)) {
+      const queued = this.taskQueue.enqueue(convKey, data);
+      if (!queued.accepted) {
         this.send({
           type: "agent_error",
-          taskId: data.taskId as string,
+          taskId,
           error: "queue_overflow",
         });
         return;
       }
-      let queue = this.conversationQueues.get(convKey);
-      if (!queue) {
-        queue = [];
-        this.conversationQueues.set(convKey, queue);
-      }
-      queue.push(data);
-      // Notify the server that this task has been queued (not yet running).
-      // The rust-server side maps this onto its stream_queued broadcast so
-      // the web/iOS clients can render a "position N in queue" indicator.
-      // globalQueueSize spans every conv's queue — the UI uses it for the
-      // "跨 conv 前面 N 則" cross-conversation count.
-      globalQueueSize = 0;
-      for (const q of this.conversationQueues.values()) globalQueueSize += q.length;
       this.send({
         type: "task_queued",
-        taskId: data.taskId as string,
+        taskId,
         conversationId: data.conversationId as string | undefined,
-        queuePosition: queue.length - 1,
-        globalQueueSize,
+        queuePosition: queued.queuePosition,
+        globalQueueSize: queued.globalQueueSize,
       });
       return;
     }
@@ -1010,18 +795,7 @@ export class ArinovaAgent extends ArinovaRestClient {
     const abortController = new AbortController();
     this.taskAbortControllers.set(taskId, abortController);
     this.activeConversationTasks.set(convKey, taskId);
-
-    // agent-wide scheduler bookkeeping: count consecutive runs from this
-    // conv so processNextTask can rotate when the cap is reached. Also
-    // re-assert the lock — the drain path (markFinished → processNextTask
-    // → processNextTaskAgentWide → executeTask) releases the lock before
-    // the drain, so without this the next task would start with the flag
-    // cleared and a concurrent arrival could bypass the queue.
-    if (this.concurrencyMode === "agent-wide") {
-      this.agentWideLock = true;
-      const prev = this.consecutiveTaskCount.get(convKey) ?? 0;
-      this.consecutiveTaskCount.set(convKey, prev + 1);
-    }
+    this.taskQueue.markStarted(convKey);
 
     // Auto heartbeat: keep task alive while processing
     const heartbeatTimer = setInterval(() => {
@@ -1039,13 +813,7 @@ export class ArinovaAgent extends ArinovaRestClient {
       stopHeartbeat();
       this.taskAbortControllers.delete(taskId);
       this.activeConversationTasks.delete(convKey);
-      // Release the agent-wide lock before draining — processNextTask may
-      // synchronously call executeTask for the next queued task, which
-      // re-acquires the lock. If no task is drained, the lock stays false
-      // and the next arrival is free to run.
-      if (this.concurrencyMode === "agent-wide") {
-        this.agentWideLock = false;
-      }
+      this.taskQueue.markFinished();
       this.processNextTask(convKey);
       return true;
     };
@@ -1128,82 +896,8 @@ export class ArinovaAgent extends ArinovaRestClient {
   }
 
   private processNextTask(conversationId: string): void {
-    if (this.concurrencyMode === "agent-wide") {
-      this.processNextTaskAgentWide(conversationId);
-      return;
-    }
-    // per-conversation (and unbounded — unbounded never queues, so this is
-    // effectively a no-op for it).
-    const queue = this.conversationQueues.get(conversationId);
-    if (!queue || queue.length === 0) {
-      this.conversationQueues.delete(conversationId);
-      return;
-    }
-    const nextTask = queue.shift()!;
-    if (queue.length === 0) this.conversationQueues.delete(conversationId);
-    this.executeTask(nextTask);
-  }
-
-  /**
-   * agent-wide scheduling: prefer to keep draining the conv that just
-   * finished (up to maxConsecutive back-to-back), then rotate to any other
-   * conv with a non-empty queue. When every queue is empty, stop.
-   *
-   * Starvation-fix: whenever we pick a conv via rotation, we move its queue
-   * entry to the tail of conversationQueues (delete + re-insert) so the next
-   * rotation's insertion-order scan finds a different conv first. Without
-   * this, Map.keys() insertion order is stable and "pick first != finished"
-   * ping-pongs between the two oldest keys while later ones starve.
-   */
-  private processNextTaskAgentWide(finishedConvId: string): void {
-    const currentCount = this.consecutiveTaskCount.get(finishedConvId) ?? 0;
-    const sameQueue = this.conversationQueues.get(finishedConvId);
-
-    // Stay on the same conv if we still have budget AND more work queued.
-    // No reshuffle needed: rotation skips finishedConvId regardless of where
-    // its Map entry sits.
-    if (sameQueue && sameQueue.length > 0 && currentCount < this.maxConsecutive) {
-      const nextTask = sameQueue.shift()!;
-      if (sameQueue.length === 0) this.conversationQueues.delete(finishedConvId);
-      this.executeTask(nextTask);
-      return;
-    }
-
-    // Rotating away from finishedConvId — reset its counter so next time it
-    // gets picked it starts fresh.
-    this.consecutiveTaskCount.delete(finishedConvId);
-
-    // Look for another conv with a non-empty queue.
-    let nextConvId: string | null = null;
-    for (const convId of this.conversationQueues.keys()) {
-      if (convId !== finishedConvId) {
-        nextConvId = convId;
-        break;
-      }
-    }
-
-    // Only the just-finished conv still has work — run it even though we
-    // hit the consecutive cap; starvation beats idle.
-    if (!nextConvId) {
-      if (sameQueue && sameQueue.length > 0) {
-        nextConvId = finishedConvId;
-      } else {
-        return;
-      }
-    }
-
-    const queue = this.conversationQueues.get(nextConvId)!;
-    const nextTask = queue.shift()!;
-    if (queue.length === 0) {
-      this.conversationQueues.delete(nextConvId);
-    } else {
-      // Move this conv to the tail of insertion order — next rotation will
-      // find a different conv first. Fairness across 3+ convs with ongoing
-      // backlog depends on this reshuffle.
-      this.conversationQueues.delete(nextConvId);
-      this.conversationQueues.set(nextConvId, queue);
-    }
-    this.executeTask(nextTask);
+    const nextTask = this.taskQueue.takeNext(conversationId);
+    if (nextTask) this.executeTask(nextTask);
   }
 }
 
