@@ -286,6 +286,34 @@ describe("CLI command API request shapes", () => {
     );
   });
 
+  it("painter cover uploads use the managed cover endpoint", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "arinova-cli-painter-"));
+    tempDirs.push(dir);
+    const cover = join(dir, "cover.png");
+    await writeFile(cover, "png");
+    const program = createProgram(registerPainterCommands);
+
+    await program.parseAsync([
+      "node",
+      "arinova",
+      "painter",
+      "upload-cover",
+      "--id",
+      "album/a",
+      "--file",
+      cover,
+    ]);
+
+    expect(mocks.clientUpload).toHaveBeenCalledWith(
+      "/api/painter/albums/album%2Fa/cover",
+      expect.any(FormData),
+    );
+    const form = mocks.clientUpload.mock.calls[0][1] as FormData;
+    const uploaded = form.get("file") as File;
+    expect(uploaded.name).toBe("cover.png");
+    expect(uploaded.size).toBe(3);
+  });
+
   it("painter stats formats album statistics output", async () => {
     mocks.clientGet.mockResolvedValueOnce({
       name: "Watercolor",
@@ -842,6 +870,40 @@ describe("CLI command API request shapes", () => {
     ])).rejects.toMatchObject({ code: "UNSUPPORTED_COMMAND" });
     expect(mocks.patch).not.toHaveBeenCalled();
     expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it("sticker image uploads use the server's file multipart field", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "arinova-cli-sticker-"));
+    tempDirs.push(dir);
+    const image = join(dir, "sticker.png");
+    await writeFile(image, "png");
+    const program = createProgram(registerSticker);
+
+    await program.parseAsync([
+      "node", "arinova", "sticker", "upload-image", "pack/a", image,
+    ]);
+    await program.parseAsync([
+      "node", "arinova", "sticker", "cover", "pack/a", "--file", image,
+    ]);
+
+    expect(mocks.clientUpload).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/creator/stickers/pack%2Fa/stickers",
+      expect.any(FormData),
+    );
+    expect(mocks.clientUpload).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/creator/stickers/pack%2Fa/cover",
+      expect.any(FormData),
+    );
+
+    for (const [, form] of mocks.clientUpload.mock.calls) {
+      const uploaded = (form as FormData).get("file") as File;
+      expect(uploaded.name).toBe("sticker.png");
+      expect(uploaded.size).toBe(3);
+      expect((form as FormData).get("sticker")).toBeNull();
+      expect((form as FormData).get("cover")).toBeNull();
+    }
   });
 
   it("calendar create/update preserve typed event fields", async () => {
