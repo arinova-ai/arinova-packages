@@ -2,14 +2,18 @@ import type { Command } from "commander";
 import { encodePathSegment, resolveClient } from "../client.js";
 import { parseJsonOption } from "../json-options.js";
 import { printResult } from "../output.js";
+import { addPaginationOptions, paginationQuery } from "../pagination.js";
 
 export function registerAgentCommands(program: Command): void {
   const agent = program.command("agent").description("Agent management");
 
-  agent.command("list")
-    .description("List agents (JWT: all owned, bot token: self only)")
-    .action(async () => {
-      printResult(await resolveClient(agent).get("/api/agents"));
+  addPaginationOptions(
+    agent.command("list")
+      .description("List agents (JWT: all owned, bot token: self only)"),
+    { mode: "offset" },
+  )
+    .action(async (options: { limit?: number; offset?: number }) => {
+      printResult(await resolveClient(agent).get(`/api/agents${paginationQuery(options)}`));
     });
 
   agent.command("status")

@@ -10,8 +10,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   registerTheme,
   slugifyThemeId,
@@ -24,7 +24,8 @@ import {
 import { THEME_BRIDGE } from "../generated/theme-bridge.js";
 import { createZip } from "../zip.js";
 
-const bridgePath = fileURLToPath(new URL("../../../theme-sdk/src/bridge.js", import.meta.url));
+const require = createRequire(import.meta.url);
+const bridgePath = require.resolve("@arinova-ai/theme-sdk/bridge.js");
 const bridgeSource = readFileSync(bridgePath, "utf-8");
 
 // ── Minimal STORED-zip reader for round-trip validation ──
@@ -101,6 +102,7 @@ describe("validateManifestForBuild", () => {
     expect(validateManifestForBuild({ ...base, name: "" })).toMatch(/1-100/);
     expect(validateManifestForBuild({ ...base, entry: undefined })).toMatch(/entry/);
     expect(validateManifestForBuild({ ...base, price: -1 })).toMatch(/price/);
+    expect(validateManifestForBuild({ ...base, price: 1.5 })).toMatch(/integer/);
     expect(validateManifestForBuild({ ...base, entry: "../secret.js" })).toMatch(/bundle root/);
     expect(validateManifestForBuild({ ...base, preview: "/tmp/secret.png" })).toMatch(/bundle root/);
   });
@@ -243,5 +245,13 @@ describe("init → build (end to end)", () => {
     const themeJs = back.get("theme.js")!.toString();
     expect(themeJs).toContain("sdk.onResize");
     expect(themeJs).not.toContain(".currentTask.title");
+  });
+
+  it("rejects an invalid manifest before starting the dev server", async () => {
+    process.chdir(workdir);
+    writeFileSync(join(workdir, "theme.json"), JSON.stringify({ name: "Invalid" }));
+
+    await expect(makeProgram().parseAsync(["theme", "dev"], { from: "user" }))
+      .rejects.toThrow(/'id'/);
   });
 });

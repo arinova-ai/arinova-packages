@@ -2,6 +2,7 @@ import type { Command } from "commander";
 import { printResult as output } from "../output.js";
 import { buildQuery, encodePathSegment, resolveClient } from "../client.js";
 import { appendFileToForm } from "../file-upload.js";
+import { addPaginationOptions, paginationValues } from "../pagination.js";
 
 const e = encodePathSegment;
 
@@ -26,17 +27,20 @@ export function registerFileCommands(program: Command): void {
       output(await clientFor(file).upload("/api/v1/files/upload", form));
     });
 
-  file.command("list")
+  addPaginationOptions(file.command("list")
     .option("--source-type <type>")
     .option("--source-type-prefix <prefix>")
     .option("--content-type-prefix <prefix>")
     .option("--search <query>")
     .option("--conversation-id <id>")
     .option("--folder-id <id>")
-    .option("--sort <sort>", "created_at_desc, created_at_asc, name_asc, or size_desc")
+    .option("--sort <sort>", "created_at_desc, created_at_asc, name_asc, or size_desc"), {
+      mode: "offset",
+    })
     .action(async (opts: {
       sourceType?: string; sourceTypePrefix?: string; contentTypePrefix?: string;
       search?: string; conversationId?: string; folderId?: string; sort?: string;
+      limit?: number; offset?: number;
     }) => {
       output(await clientFor(file).get(`/api/v1/files${buildQuery({
         source_type: opts.sourceType,
@@ -46,6 +50,7 @@ export function registerFileCommands(program: Command): void {
         conversation_id: opts.conversationId,
         folder_id: opts.folderId,
         sort: opts.sort,
+        ...paginationValues(opts),
       })}`));
     });
 
@@ -112,9 +117,13 @@ export function registerFileCommands(program: Command): void {
   });
 
   const folder = file.command("folder").description("File folder commands");
-  folder.command("list").option("--space-id <id>").action(async (opts: { spaceId?: string }) => {
-    output(await clientFor(folder).get(`/api/v1/file-folders${buildQuery({ space_id: opts.spaceId })}`));
-  });
+  addPaginationOptions(folder.command("list").option("--space-id <id>"), { mode: "offset" })
+    .action(async (opts: { spaceId?: string; limit?: number; offset?: number }) => {
+      output(await clientFor(folder).get(`/api/v1/file-folders${buildQuery({
+        space_id: opts.spaceId,
+        ...paginationValues(opts),
+      })}`));
+    });
   folder.command("create")
     .requiredOption("--name <name>")
     .option("--color <color>")

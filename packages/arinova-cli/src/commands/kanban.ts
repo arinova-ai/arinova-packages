@@ -16,9 +16,12 @@ export function registerKanbanCommands(program: Command): void {
   const kanban = program.command("kanban").description("Kanban board commands");
 
   const board = kanban.command("board").description("Board management");
-  board.command("list").action(async () => {
-    printResult(await resolveClient(board).get("/api/v1/kanban/boards"));
-  });
+  addPaginationOptions(board.command("list"), { mode: "offset" })
+    .action(async (options: { limit?: number; offset?: number }) => {
+      printResult(await resolveClient(board).get(
+        `/api/v1/kanban/boards${paginationQuery(options)}`,
+      ));
+    });
   board.command("create").requiredOption("--name <name>", "Board name").action(async (opts: { name: string }) => {
     printResult(await resolveClient(board).post("/api/v1/kanban/boards", { name: opts.name }));
   });
@@ -41,8 +44,12 @@ export function registerKanbanCommands(program: Command): void {
   });
 
   const column = kanban.command("column").description("Column management");
-  column.command("list").requiredOption("--board-id <id>", "Board ID").action(async (opts: { boardId: string }) => {
-    printResult(await resolveClient(column).get(`/api/v1/kanban/boards/${e(opts.boardId)}/columns`));
+  addPaginationOptions(column.command("list").requiredOption("--board-id <id>", "Board ID"), {
+    mode: "offset",
+  }).action(async (opts: { boardId: string; limit?: number; offset?: number }) => {
+    printResult(await resolveClient(column).get(
+      `/api/v1/kanban/boards/${e(opts.boardId)}/columns${paginationQuery(opts)}`,
+    ));
   });
   column.command("create").requiredOption("--board-id <id>", "Board ID").requiredOption("--name <name>", "Column name").action(async (opts: { boardId: string; name: string }) => {
     printResult(await resolveClient(column).post(`/api/v1/kanban/boards/${e(opts.boardId)}/columns`, { name: opts.name }));
@@ -188,8 +195,12 @@ export function registerKanbanCommands(program: Command): void {
   });
 
   const label = kanban.command("label").description("Label management");
-  label.command("list").requiredOption("--board-id <id>", "Board ID").action(async (opts: { boardId: string }) => {
-    printResult(await resolveClient(label).get(`/api/v1/kanban/boards/${e(opts.boardId)}/labels`));
+  addPaginationOptions(label.command("list").requiredOption("--board-id <id>", "Board ID"), {
+    mode: "offset",
+  }).action(async (opts: { boardId: string; limit?: number; offset?: number }) => {
+    printResult(await resolveClient(label).get(
+      `/api/v1/kanban/boards/${e(opts.boardId)}/labels${paginationQuery(opts)}`,
+    ));
   });
   label.command("create").requiredOption("--board-id <id>", "Board ID").requiredOption("--name <name>", "Label name").requiredOption("--color <color>", "Color hex").action(async (opts: { boardId: string; name: string; color: string }) => {
     printResult(await resolveClient(label).post(`/api/v1/kanban/boards/${e(opts.boardId)}/labels`, {

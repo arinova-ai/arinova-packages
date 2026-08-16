@@ -1,16 +1,21 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { THEME_BRIDGE, THEME_BRIDGE_SOURCE_SHA256 } from "./generated/theme-bridge.js";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const require = createRequire(import.meta.url);
 
 describe("CLI build scripts", () => {
   it("embeds the exact theme bridge and its SHA-256", () => {
-    const source = readFileSync(resolve(packageRoot, "../theme-sdk/src/bridge.js"), "utf8");
+    const source = readFileSync(
+      require.resolve("@arinova-ai/theme-sdk/bridge.js"),
+      "utf8",
+    );
     expect(THEME_BRIDGE).toBe(source);
     expect(THEME_BRIDGE_SOURCE_SHA256).toBe(
       createHash("sha256").update(source).digest("hex"),

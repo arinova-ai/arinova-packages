@@ -71,7 +71,7 @@ export function validateManifestForBuild(manifest: unknown): string | null {
   ) {
     return "theme.json 'preview' must be an image filename at the bundle root.";
   }
-  if (m.price != null && (typeof m.price !== "number" || m.price < 0)) {
+  if (m.price != null && (typeof m.price !== "number" || !Number.isInteger(m.price) || m.price < 0)) {
     return "theme.json 'price' must be an integer ≥ 0.";
   }
   return null;

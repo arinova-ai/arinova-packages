@@ -2,7 +2,7 @@ import type { Command } from "commander";
 import { encodePathSegment, resolveClient } from "../client.js";
 import { appendFileToForm } from "../file-upload.js";
 import { printResult } from "../output.js";
-import { parseCount } from "../pagination.js";
+import { addPaginationOptions, paginationQuery, parseCount } from "../pagination.js";
 
 export function registerPainterCommands(program: Command): void {
   const e = encodePathSegment;
@@ -10,10 +10,15 @@ export function registerPainterCommands(program: Command): void {
 
   // ── Creator commands ────────────────────────────────
 
-  painter.command("list")
-    .description("List my albums")
-    .action(async () => {
-      printResult(await resolveClient(painter).get("/api/painter/albums"));
+  addPaginationOptions(
+    painter.command("list")
+      .description("List my albums"),
+    { mode: "offset" },
+  )
+    .action(async (options: { limit?: number; offset?: number }) => {
+      printResult(await resolveClient(painter).get(
+        `/api/painter/albums${paginationQuery(options)}`,
+      ));
     });
 
   painter.command("create")

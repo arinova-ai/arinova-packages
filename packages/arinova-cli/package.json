@@ -18,16 +18,18 @@
   "scripts": {
     "prebuild": "node scripts/inline-bridge.mjs",
     "build": "tsc",
+    "bridge:check": "node scripts/inline-bridge.mjs --check",
     "contracts:generate": "node scripts/generate-v1-routes.mjs",
     "dev": "tsc --watch",
     "lint": "tsc --noEmit",
-    "pretest": "node scripts/inline-bridge.mjs && tsc",
+    "pretest": "node scripts/inline-bridge.mjs --check && tsc",
     "test": "vitest run"
   },
   "dependencies": {
     "commander": "^12.1.0"
   },
   "devDependencies": {
+    "@arinova-ai/theme-sdk": "workspace:*",
     "@types/node": "^22.19.13",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"

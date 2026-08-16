@@ -154,6 +154,12 @@ const { registerAutoSendCommands } = await import("./auto-send.js");
 const { registerProfile } = await import("./profile.js");
 
 const tempDirs: string[] = [];
+const VALID_THEME_MANIFEST = JSON.stringify({
+  id: "dark",
+  name: "Dark",
+  version: "1.0.0",
+  entry: "theme.js",
+});
 
 function createProgram(register: (program: Command) => void) {
   const program = new Command();
@@ -197,6 +203,14 @@ describe("CLI command API request shapes", () => {
       "/api/v1/kanban/boards",
       { name: "Roadmap" },
     );
+  });
+
+  it("kanban board list always sends the bounded default page size", async () => {
+    const program = createProgram(registerKanbanCommands);
+
+    await program.parseAsync(["node", "arinova", "kanban", "board", "list"]);
+
+    expect(mocks.clientGet).toHaveBeenCalledWith("/api/v1/kanban/boards?limit=50");
   });
 
   it("kanban card list sends hex-looking text as a bounded server query", async () => {
@@ -417,24 +431,37 @@ describe("CLI command API request shapes", () => {
     tempDirs.push(dir);
     const manifest = join(dir, "theme.json");
     const bundle = join(dir, "bundle.zip");
-    await writeFile(manifest, "{\"name\":\"dark\"}");
+    await writeFile(manifest, VALID_THEME_MANIFEST);
     await writeFile(bundle, "zip-data");
+    mocks.clientUpload.mockResolvedValueOnce({ ok: true });
     const program = createProgram(registerTheme);
 
     await program.parseAsync(["node", "arinova", "theme", "upload", manifest, bundle]);
 
-    expect(mocks.uploadMultipart).toHaveBeenCalledWith("/api/v1/themes/upload", {
-      manifest: expect.any(Blob),
-      bundle: expect.any(Blob),
-    }, "POST");
+    expect(mocks.clientUpload).toHaveBeenCalledWith(
+      "/api/v1/themes/upload",
+      expect.any(FormData),
+      "POST",
+    );
+    const form = mocks.clientUpload.mock.calls[0][1] as FormData;
+    expect(form.get("manifest")).toBeInstanceOf(Blob);
+    expect(form.get("bundle")).toBeInstanceOf(Blob);
     expect(mocks.printResult).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it("theme list always sends the bounded default page size", async () => {
+    const program = createProgram(registerTheme);
+
+    await program.parseAsync(["node", "arinova", "theme", "list"]);
+
+    expect(mocks.clientGet).toHaveBeenCalledWith("/api/v1/creator/themes?limit=50");
   });
 
   it("theme upload rejects missing bundle paths before uploading", async () => {
     const dir = await mkdtemp(join(tmpdir(), "arinova-cli-theme-"));
     tempDirs.push(dir);
     const manifest = join(dir, "theme.json");
-    await writeFile(manifest, "{\"name\":\"dark\"}");
+    await writeFile(manifest, VALID_THEME_MANIFEST);
     const program = createProgram(registerTheme);
 
     await expect(program.parseAsync([
@@ -446,7 +473,7 @@ describe("CLI command API request shapes", () => {
       join(dir, "missing.zip"),
     ])).rejects.toThrow("File not found");
 
-    expect(mocks.uploadMultipart).not.toHaveBeenCalled();
+    expect(mocks.clientUpload).not.toHaveBeenCalled();
   });
 
   it("theme upload rejects invalid manifest JSON before uploading", async () => {
@@ -460,25 +487,41 @@ describe("CLI command API request shapes", () => {
       "node", "arinova", "theme", "upload", manifest,
     ])).rejects.toThrow("Invalid theme manifest JSON");
 
-    expect(mocks.uploadMultipart).not.toHaveBeenCalled();
+    expect(mocks.clientUpload).not.toHaveBeenCalled();
+  });
+
+  it("theme upload rejects a semantically invalid manifest before uploading", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "arinova-cli-theme-"));
+    tempDirs.push(dir);
+    const manifest = join(dir, "theme.json");
+    await writeFile(manifest, "{\"name\":\"dark\"}");
+    const program = createProgram(registerTheme);
+
+    await expect(program.parseAsync([
+      "node", "arinova", "theme", "upload", manifest,
+    ])).rejects.toThrow(/'id'/);
+
+    expect(mocks.clientUpload).not.toHaveBeenCalled();
   });
 
   it("theme update uses PUT multipart and reports API errors", async () => {
     const dir = await mkdtemp(join(tmpdir(), "arinova-cli-theme-"));
     tempDirs.push(dir);
     const manifest = join(dir, "theme.json");
-    await writeFile(manifest, "{\"name\":\"dark\"}");
+    await writeFile(manifest, VALID_THEME_MANIFEST);
     const error = new Error("upload failed");
-    mocks.uploadMultipart.mockRejectedValueOnce(error);
+    mocks.clientUpload.mockRejectedValueOnce(error);
     const program = createProgram(registerTheme);
 
     await expect(program.parseAsync([
       "node", "arinova", "theme", "update", "theme-1", manifest,
     ])).rejects.toThrow("upload failed");
 
-    expect(mocks.uploadMultipart).toHaveBeenCalledWith("/api/v1/themes/theme-1", {
-      manifest: expect.any(Blob),
-    }, "PUT");
+    expect(mocks.clientUpload).toHaveBeenCalledWith(
+      "/api/v1/themes/theme-1",
+      expect.any(FormData),
+      "PUT",
+    );
   });
 
   it("theme publish and unpublish patch status", async () => {
@@ -487,10 +530,10 @@ describe("CLI command API request shapes", () => {
     await program.parseAsync(["node", "arinova", "theme", "publish", "theme-1"]);
     await program.parseAsync(["node", "arinova", "theme", "unpublish", "theme-1"]);
 
-    expect(mocks.patch).toHaveBeenNthCalledWith(1, "/api/v1/themes/theme-1/status", {
+    expect(mocks.clientPatch).toHaveBeenNthCalledWith(1, "/api/v1/themes/theme-1/status", {
       status: "published",
     });
-    expect(mocks.patch).toHaveBeenNthCalledWith(2, "/api/v1/themes/theme-1/status", {
+    expect(mocks.clientPatch).toHaveBeenNthCalledWith(2, "/api/v1/themes/theme-1/status", {
       status: "draft",
     });
     expect(mocks.printResult).toHaveBeenCalledTimes(2);
