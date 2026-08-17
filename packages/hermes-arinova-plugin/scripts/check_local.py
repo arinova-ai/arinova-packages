@@ -33,6 +33,11 @@ def parse_args() -> argparse.Namespace:
         "--hermes-python",
         help="Python 3.10+ interpreter to use for checks that import ~/hermes-agent.",
     )
+    parser.add_argument(
+        "--skip-clean-install-npm-ci",
+        action="store_true",
+        help="Skip the registry install when the pinned agent SDK version is not published yet.",
+    )
     parser.add_argument("--sdk-root", default=str(DEFAULT_SDK_ROOT), help="Path to the agent-sdk checkout.")
     return parser.parse_args()
 
@@ -241,11 +246,21 @@ def main() -> int:
         return live_code
     live_skipped = LIVE_SKIP_PREFIX in live_output
     fixture_env = env_without_live_credentials()
+    clean_install_command = [
+        hermes_python,
+        "scripts/check_clean_install.py",
+        "--hermes-root",
+        hermes_root,
+        "--sdk-root",
+        sdk_root,
+    ]
+    if args.skip_clean_install_npm_ci:
+        clean_install_command.append("--skip-npm-ci")
     hermes_commands = (
         [hermes_python, "scripts/check_hermes_plugin_load.py", "--hermes-root", hermes_root],
         [hermes_python, "scripts/check_gateway_config_load.py", "--hermes-root", hermes_root],
         [hermes_python, "scripts/check_user_install.py", "--hermes-root", hermes_root, "--sdk-root", sdk_root],
-        [hermes_python, "scripts/check_clean_install.py", "--hermes-root", hermes_root, "--sdk-root", sdk_root],
+        clean_install_command,
     ) if hermes_available else ()
     for command in (
         *hermes_commands,
