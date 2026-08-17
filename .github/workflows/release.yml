@@ -86,6 +86,7 @@ jobs:
           title: "chore: version packages"
           commit: "chore: version packages"
           branch: main
+          version: pnpm version-packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -8,8 +8,10 @@
   "scripts": {
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
-    "test": "pnpm -r test",
-    "changeset": "changeset"
+    "test": "pnpm test:release-scripts && pnpm -r test",
+    "test:release-scripts": "node --test .github/scripts/*.test.mjs",
+    "changeset": "changeset",
+    "version-packages": "changeset version && pnpm --filter @arinova-ai/agent-sdk build && node .github/scripts/sync-sidecar-sdk-version.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1"
