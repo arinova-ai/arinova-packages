@@ -29,6 +29,7 @@ jobs:
       pull-requests: read
     outputs:
       head_sha: ${{ steps.pr.outputs.head_sha }}
+      skip_clean_install_npm_ci: ${{ steps.pr.outputs.skip_clean_install_npm_ci }}
     steps:
       - id: pr
         name: Match the dispatched payload to the live PR
@@ -65,13 +66,19 @@ jobs:
             exit 1
           fi
           case "$actual_head_ref" in
-            automation/*|changeset-release/*) ;;
+            automation/*)
+              skip_clean_install_npm_ci=false
+              ;;
+            changeset-release/*)
+              skip_clean_install_npm_ci=true
+              ;;
             *)
               echo "Untrusted automation PR branch: $actual_head_ref" >&2
               exit 1
               ;;
           esac
           echo "head_sha=$actual_head_sha" >> "$GITHUB_OUTPUT"
+          echo "skip_clean_install_npm_ci=$skip_clean_install_npm_ci" >> "$GITHUB_OUTPUT"
 
   check:
     name: Build, lint, and test all packages
@@ -166,11 +173,18 @@ jobs:
           packages/hermes-arinova-plugin/scripts/sync-sidecar-sdk.sh
 
       - name: Verify the plugin against Hermes
+        env:
+          SKIP_CLEAN_INSTALL_NPM_CI: ${{ needs.validate-automation.outputs.skip_clean_install_npm_ci }}
         run: |
           set -euo pipefail
+          clean_install_args=()
+          if [[ "$SKIP_CLEAN_INSTALL_NPM_CI" == "true" ]]; then
+            clean_install_args+=(--skip-clean-install-npm-ci)
+          fi
           python packages/hermes-arinova-plugin/scripts/check_local.py \
             --hermes-root "$GITHUB_WORKSPACE/.ci/hermes-agent" \
-            --hermes-python "$(command -v python)"
+            --hermes-python "$(command -v python)" \
+            "${clean_install_args[@]}"
 
   required:
     name: CI required gate

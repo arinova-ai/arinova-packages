@@ -187,12 +187,19 @@ jobs:
         env:
           ARINOVA_SERVER_URL: ${{ secrets.ARINOVA_SERVER_URL }}
           ARINOVA_BOT_TOKEN: ${{ secrets.ARINOVA_BOT_TOKEN }}
+          UNPUBLISHED_PACKAGES: ${{ needs.version.outputs.unpublished_packages }}
         run: |
           set -euo pipefail
+          clean_install_args=()
+          if jq -e 'any(.[]; startswith("@arinova-ai/agent-sdk@"))' \
+            <<<"$UNPUBLISHED_PACKAGES" >/dev/null; then
+            clean_install_args+=(--skip-clean-install-npm-ci)
+          fi
           python packages/hermes-arinova-plugin/scripts/check_local.py \
             --hermes-root "$GITHUB_WORKSPACE/.ci/hermes-agent" \
             --hermes-python "$(command -v python)" \
-            --require-credentials
+            --require-credentials \
+            "${clean_install_args[@]}"
 
   publish:
     name: Publish changesets to npm
@@ -237,6 +244,27 @@ jobs:
           publish: pnpm changeset publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify the published SDK through the sidecar lockfile
+        run: |
+          set -euo pipefail
+          sidecar=packages/hermes-arinova-plugin/sidecar
+          installed=false
+          for attempt in 1 2 3 4 5; do
+            if npm --prefix "$sidecar" ci --ignore-scripts; then
+              installed=true
+              break
+            fi
+            if [[ "$attempt" -lt 5 ]]; then
+              echo "Published SDK is not available yet; retrying sidecar install ($attempt/5)"
+              sleep 5
+            fi
+          done
+          if [[ "$installed" != "true" ]]; then
+            echo "Sidecar lockfile could not install the published SDK" >&2
+            exit 1
+          fi
+          npm --prefix "$sidecar" run check
 
   publish-package:
     name: Verify and publish selected package
