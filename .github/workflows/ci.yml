@@ -174,7 +174,11 @@ jobs:
 
       - name: Verify the plugin against Hermes
         env:
-          SKIP_CLEAN_INSTALL_NPM_CI: ${{ needs.validate-automation.outputs.skip_clean_install_npm_ci }}
+          # Version PRs point the sidecar lockfile at the new workspace SDK
+          # version before that tarball exists on npm. repository_dispatch
+          # gets this value from the validated PR metadata; an approved,
+          # same-repository pull_request run must derive it from its payload.
+          SKIP_CLEAN_INSTALL_NPM_CI: ${{ needs.validate-automation.outputs.skip_clean_install_npm_ci == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'changeset-release/')) }}
         run: |
           set -euo pipefail
           clean_install_args=()
