@@ -59,7 +59,7 @@ If `ARINOVA_API_URL` is omitted, it is derived from `ARINOVA_SERVER_URL` by repl
 
 1. On startup, the MCP server initializes with an Arinova bot token.
 2. It fetches the scoped action manifest from the backend HTTP API.
-3. Each backend action becomes an MCP tool (e.g. `arinova.kanban.add_commit` becomes `arinova_kanban_add_commit`).
+3. Each backend action becomes an MCP tool (e.g. `arinova.email.list_inbound` becomes `arinova_email_list_inbound`).
 4. When an MCP client calls a tool, the server posts to `/api/v1/actions/call` and returns the structured action result.
 5. Backend permissions, confirmations, and audit logging are preserved.
 
