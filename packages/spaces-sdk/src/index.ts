@@ -11,4 +11,5 @@
  */
 export { Arinova } from "./client.js";
 export { ArinovaError } from "./http.js";
+export { WagerApi } from "./resources.js";
 export * from "./types.js";

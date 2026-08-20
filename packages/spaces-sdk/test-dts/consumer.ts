@@ -10,6 +10,7 @@ void browser.commerce.products(options);
 void browser.commerce.inventory(options);
 void browser.commerce.consume("coins.small", { quantity: 1, idempotencyKey: "consume-1" }, options);
 void browser.commerce.requestPurchase("coins.small");
+void browser.wager.requestBuyIn("11111111-1111-4111-8111-111111111111", 500);
 void browser.storage.list<{ level: number }>(options);
 void browser.storage.set("save", { level: 1 }, options);
 const server = new ArinovaServer({ clientId: "app", clientSecret: "secret" });

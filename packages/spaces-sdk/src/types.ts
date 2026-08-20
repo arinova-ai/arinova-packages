@@ -197,6 +197,22 @@ export interface SpacePurchaseResult {
   [key: string]: unknown;
 }
 
+// ── Managed Space wager sessions ────────────────────────────────
+export interface WagerBuyInOptions {
+  /** Host confirmation deadline in milliseconds. Default: 60 seconds. */
+  timeout?: number;
+}
+
+export interface WagerBuyInResult {
+  sessionId: string;
+  status: "accepted" | "cancelled" | "error";
+  protocolVersion: 1;
+  errorCode?: string;
+  retryAfterMs?: number;
+  stakeId?: string;
+  [key: string]: unknown;
+}
+
 // ── Managed Space per-user storage ───────────────────────────────
 export interface SpaceStorageEntry<T = unknown> {
   key: string;

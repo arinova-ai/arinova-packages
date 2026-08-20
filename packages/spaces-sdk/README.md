@@ -114,6 +114,24 @@ await arinova.commerce.consume("coins.small", {
 and a 1–128-character visible-ASCII idempotency key before sending. The server
 returns the remaining quantity and an idempotent replay flag.
 
+## Managed wager buy-ins
+
+Games request each buy-in through the native Arinova confirmation surface. The
+host, not the iframe, loads the authoritative session limits and creates the
+idempotency key:
+
+```ts
+const result = await arinova.wager.requestBuyIn(
+  "11111111-1111-4111-8111-111111111111",
+  500,
+);
+if (result.status === "accepted") console.log(result.stakeId);
+```
+
+The SDK accepts only a result from the configured parent origin, exact parent
+window, fragment-bound bridge token, session ID, and protocol version. Only one
+wager buy-in may be pending per client.
+
 ## Per-user Space storage
 
 Storage is convenient save data, not trusted inventory or entitlement state:
@@ -182,6 +200,7 @@ Resources use the current token automatically:
 | `commerce.inventory()` | Space-bound session |
 | `commerce.consume(productKey, params)` | Space-bound session |
 | `commerce.requestPurchase(productKey)` | Embedded Space bridge |
+| `wager.requestBuyIn(sessionId, amountPoints)` | Embedded Space bridge |
 | `storage.list/get/set/delete` | Space-bound session |
 
 Embedded manifests may request only `profile`, `agents`, and `economy`, and
