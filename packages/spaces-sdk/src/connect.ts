@@ -5,6 +5,7 @@ import type {
   ArinovaSession,
   ArinovaUser,
   SpacePurchaseResult,
+  WagerBuyInResult,
 } from "./types.js";
 
 type AuthPayload = {
@@ -19,6 +20,7 @@ type AuthPayload = {
 /** Origin-validated authentication channel for embedded Spaces. */
 export class EmbeddedConnector {
   private purchaseInFlight: Promise<SpacePurchaseResult> | null = null;
+  private wagerInFlight: Promise<WagerBuyInResult> | null = null;
 
   constructor(
     private readonly authUrl: string,
@@ -168,6 +170,124 @@ export class EmbeddedConnector {
     return operation;
   }
 
+  requestWagerBuyIn(
+    sessionId: string,
+    amountPoints: number,
+    options: { timeout?: number } = {},
+  ): Promise<WagerBuyInResult> {
+    if (typeof window === "undefined" || window.self === window.top) {
+      return Promise.reject(new ArinovaError(
+        "requestWagerBuyIn() is only available inside an embedded Space",
+        0,
+        "embedded_only",
+      ));
+    }
+    if (!validUuid(sessionId)) {
+      return Promise.reject(new ArinovaError(
+        "sessionId must be a UUID",
+        0,
+        "invalid_wager_session_id",
+      ));
+    }
+    if (!Number.isSafeInteger(amountPoints) || amountPoints < 1 || amountPoints > 1_000_000) {
+      return Promise.reject(new ArinovaError(
+        "amountPoints must be an integer from 1 to 1000000",
+        0,
+        "invalid_wager_amount",
+      ));
+    }
+    if (this.wagerInFlight) {
+      return Promise.reject(new ArinovaError(
+        "Another wager buy-in request is already pending",
+        0,
+        "wager_buy_in_pending",
+      ));
+    }
+
+    let bridgeToken: string;
+    try {
+      bridgeToken = this.requireBridgeToken();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const timeout = options.timeout ?? 60_000;
+    if (!Number.isFinite(timeout) || timeout <= 0) {
+      return Promise.reject(new ArinovaError(
+        "timeout must be a positive number",
+        0,
+        "invalid_timeout",
+      ));
+    }
+
+    const expectedOrigin = new URL(this.authUrl).origin;
+    const operation = new Promise<WagerBuyInResult>((resolve, reject) => {
+      let settled = false;
+      const finish = (action: () => void): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        window.removeEventListener("message", onMessage);
+        action();
+      };
+      const onMessage = (event: MessageEvent): void => {
+        if (event.origin !== expectedOrigin || event.source !== window.parent) return;
+        const data = event.data as {
+          type?: string;
+          bridgeToken?: string;
+          payload?: Partial<WagerBuyInResult>;
+        };
+        if (!data || data.type !== "arinova:wager-buyin-result") return;
+        if (data.bridgeToken !== bridgeToken) return;
+        const payload = data.payload;
+        if (payload?.protocolVersion !== 1) {
+          finish(() => reject(new ArinovaError(
+            `Unsupported Space bridge protocol version: ${String(payload?.protocolVersion)}`,
+            0,
+            "protocol_mismatch",
+          )));
+          return;
+        }
+        if (!payload || payload.sessionId !== sessionId) return;
+        if (!matchesWagerStatus(payload.status)) {
+          finish(() => reject(new ArinovaError(
+            "Arinova sent an invalid wager buy-in result",
+            0,
+            "invalid_wager_result",
+          )));
+          return;
+        }
+        finish(() => resolve({
+          ...payload,
+          sessionId,
+          status: payload.status,
+          protocolVersion: 1,
+        } as WagerBuyInResult));
+      };
+      const timer = setTimeout(
+        () => finish(() => reject(new ArinovaError(
+          "Wager buy-in confirmation timed out",
+          0,
+          "wager_buy_in_timeout",
+        ))),
+        timeout,
+      );
+      window.addEventListener("message", onMessage);
+      window.parent.postMessage(
+        {
+          type: "arinova:wager-buyin-request",
+          bridgeToken,
+          payload: { sessionId, amountPoints, protocolVersion: 1 },
+        },
+        expectedOrigin,
+      );
+    });
+    this.wagerInFlight = operation;
+    void operation.finally(() => {
+      if (this.wagerInFlight === operation) this.wagerInFlight = null;
+    }).catch(() => undefined);
+    return operation;
+  }
+
   private awaitAuth(
     timeout: number,
     accept?: (session: ArinovaSession) => boolean,
@@ -293,6 +413,14 @@ export class EmbeddedConnector {
 
 function validProductKey(value: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value);
+}
+
+function validUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function matchesWagerStatus(value: unknown): value is WagerBuyInResult["status"] {
+  return value === "accepted" || value === "cancelled" || value === "error";
 }
 
 function matchesPurchaseStatus(

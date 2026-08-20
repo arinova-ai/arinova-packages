@@ -8,6 +8,7 @@ import {
   ResourceTransport,
   StorageApi,
   UserApi,
+  WagerApi,
 } from "./resources.js";
 import type {
   ArinovaConfig,
@@ -36,6 +37,7 @@ export class Arinova {
   readonly economy: EconomyApi;
   readonly commerce: CommerceApi;
   readonly storage: StorageApi;
+  readonly wager: WagerApi;
   readonly agent: AgentApi;
 
   private _session: ArinovaSession | null = null;
@@ -82,6 +84,11 @@ export class Arinova {
       (productKey, options) => this.embedded.requestPurchase(productKey, options),
     );
     this.storage = new StorageApi(this.resources);
+    this.wager = new WagerApi(
+      (sessionId, amountPoints, options) => (
+        this.embedded.requestWagerBuyIn(sessionId, amountPoints, options)
+      ),
+    );
     this.agent = new AgentApi(this.resources);
   }
 

@@ -584,6 +584,79 @@ describe("connect() iframe mode — origin validation", () => {
     });
     await expect(pending).rejects.toMatchObject({ code: "protocol_mismatch" });
   });
+
+  it("requests one origin-bound native wager buy-in at a time", async () => {
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    stubIframeWindow();
+    const c = client();
+    const pending = c.wager.requestBuyIn(sessionId, 500, { timeout: 1000 });
+    expect((parentWindow as { postMessage: ReturnType<typeof vi.fn> }).postMessage).toHaveBeenCalledWith(
+      {
+        type: "arinova:wager-buyin-request",
+        bridgeToken: "bridge-1",
+        payload: { sessionId, amountPoints: 500, protocolVersion: 1 },
+      },
+      "https://ui.test",
+    );
+    await expect(c.wager.requestBuyIn(sessionId, 600)).rejects.toMatchObject({
+      code: "wager_buy_in_pending",
+    });
+    dispatch({
+      origin: "https://evil.test",
+      source: parentWindow as Window,
+      data: {
+        type: "arinova:wager-buyin-result",
+        bridgeToken: "bridge-1",
+        payload: { protocolVersion: 1, sessionId, status: "accepted" },
+      },
+    });
+    dispatch({
+      origin: "https://ui.test",
+      source: parentWindow as Window,
+      data: {
+        type: "arinova:wager-buyin-result",
+        bridgeToken: "wrong",
+        payload: { protocolVersion: 1, sessionId, status: "accepted" },
+      },
+    });
+    dispatch({
+      origin: "https://ui.test",
+      source: parentWindow as Window,
+      data: {
+        type: "arinova:wager-buyin-result",
+        bridgeToken: "bridge-1",
+        payload: { protocolVersion: 1, sessionId, status: "accepted", stakeId: "stake-1" },
+      },
+    });
+    await expect(pending).resolves.toMatchObject({
+      sessionId,
+      status: "accepted",
+      stakeId: "stake-1",
+    });
+  });
+
+  it("validates wager inputs and rejects mismatched wager protocols", async () => {
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    stubIframeWindow();
+    const c = client();
+    await expect(c.wager.requestBuyIn("not-a-uuid", 500)).rejects.toMatchObject({
+      code: "invalid_wager_session_id",
+    });
+    await expect(c.wager.requestBuyIn(sessionId, 0)).rejects.toMatchObject({
+      code: "invalid_wager_amount",
+    });
+    const pending = c.wager.requestBuyIn(sessionId, 500, { timeout: 1000 });
+    dispatch({
+      origin: "https://ui.test",
+      source: parentWindow as Window,
+      data: {
+        type: "arinova:wager-buyin-result",
+        bridgeToken: "bridge-1",
+        payload: { protocolVersion: 2, sessionId, status: "error" },
+      },
+    });
+    await expect(pending).rejects.toMatchObject({ code: "protocol_mismatch" });
+  });
 });
 
 describe("browser/server split", () => {

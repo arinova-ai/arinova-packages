@@ -17,6 +17,8 @@ import type {
   SpaceStorageListResponse,
   TransactionsParams,
   TransactionsResponse,
+  WagerBuyInOptions,
+  WagerBuyInResult,
 } from "./types.js";
 
 export class ResourceTransport {
@@ -260,6 +262,24 @@ export class CommerceApi {
       params,
       options,
     );
+  }
+}
+
+export class WagerApi {
+  constructor(
+    private readonly buyInBridge: (
+      sessionId: string,
+      amountPoints: number,
+      options?: WagerBuyInOptions,
+    ) => Promise<WagerBuyInResult>,
+  ) {}
+
+  requestBuyIn(
+    sessionId: string,
+    amountPoints: number,
+    options?: WagerBuyInOptions,
+  ): Promise<WagerBuyInResult> {
+    return this.buyInBridge(sessionId, amountPoints, options);
   }
 }
 
