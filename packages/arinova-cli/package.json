@@ -1,6 +1,6 @@
 {
   "name": "@arinova-ai/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Arinova CLI — manage messages, notes, kanban, memory, creator tools, and more",
   "license": "MIT",
   "repository": {

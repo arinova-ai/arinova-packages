@@ -1,6 +1,6 @@
 {
   "name": "@arinova-ai/openclaw-arinova-ai",
-  "version": "0.0.74",
+  "version": "0.1.0",
   "description": "OpenClaw plugin for Arinova Chat — channel (A2A streaming) + Virtual Office (agent status tracking via SSE)",
   "license": "MIT",
   "repository": {

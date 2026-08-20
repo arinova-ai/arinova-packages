@@ -1,5 +1,11 @@
 # @arinova-ai/mcp-server
 
+## 0.1.1
+
+### Patch Changes
+
+- 0b24386: Split manifest ETag caching, bounded request limiting, and HTTP action execution out of the MCP client coordinator while preserving connection, drain, abort, and error-normalization behavior.
+
 ## 0.1.0
 
 ### Minor Changes
