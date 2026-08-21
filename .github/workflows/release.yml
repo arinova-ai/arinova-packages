@@ -3,9 +3,10 @@ name: Release
 # Changesets release flow:
 # 1. A successful main CI run starts this workflow.
 # 2. Pending changesets create or update the version-packages PR.
-# 3. After that PR is merged, unpublished versions must pass the pinned
-#    Hermes host integration and offline SDK/sidecar checks.
-# 4. Only then can npm Trusted Publishing run.
+# 3. After that PR is merged, staging candidates must pass the pinned Hermes
+#    host integration and offline SDK/sidecar checks.
+# 4. Automation publishes prerelease builds only to the npm staging dist-tag.
+# 5. A stable production version can only be published manually to latest.
 #
 # NPM_PUBLISH_ENABLED remains an explicit repository-level kill switch.
 
@@ -22,16 +23,11 @@ on:
         type: choice
         options:
           - agent-sdk
+          - arinova-cli
+          - mcp-server
+          - openclaw-plugin
           - spaces-sdk
           - theme-sdk
-      tag:
-        description: npm dist-tag
-        required: true
-        default: latest
-        type: choice
-        options:
-          - latest
-          - staging
 
 permissions: {}
 
@@ -41,7 +37,7 @@ concurrency:
 
 jobs:
   version:
-    name: Version PR / detect unpublished packages
+    name: Version PR / detect staging packages
     if: >-
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.conclusion == 'success' &&
@@ -54,8 +50,10 @@ jobs:
     outputs:
       has_changesets: ${{ steps.changesets.outputs.hasChangesets }}
       has_unpublished: ${{ steps.unpublished.outputs.has_unpublished || 'false' }}
+      has_staging: ${{ steps.staging.outputs.has_staging || 'false' }}
       tested_sha: ${{ steps.context.outputs.tested_sha }}
       unpublished_packages: ${{ steps.unpublished.outputs.packages || '[]' }}
+      staging_packages: ${{ steps.staging.outputs.packages || '[]' }}
     steps:
       - id: context
         name: Record the CI-tested commit
@@ -111,7 +109,7 @@ jobs:
             }' | gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" --input -
 
       - id: unpublished
-        name: Detect versions that are not on npm
+        name: Detect stable versions that are not on npm
         if: steps.changesets.outputs.hasChangesets == 'false'
         run: |
           set -euo pipefail
@@ -124,13 +122,27 @@ jobs:
             echo "Unpublished packages: $unpublished"
           fi
 
+      - id: staging
+        name: Detect packages not aligned on the staging dist-tag
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        run: |
+          set -euo pipefail
+          staging="$(node .github/scripts/staging-release.mjs detect)"
+          echo "packages=$staging" >> "$GITHUB_OUTPUT"
+          if [[ "$staging" == "[]" ]]; then
+            echo "has_staging=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_staging=true" >> "$GITHUB_OUTPUT"
+            echo "Staging packages: $staging"
+          fi
+
   release-gate:
     name: Hermes release gate
     needs: version
     if: >-
       needs.version.result == 'success' &&
       needs.version.outputs.has_changesets == 'false' &&
-      needs.version.outputs.has_unpublished == 'true' &&
+      needs.version.outputs.has_staging == 'true' &&
       vars.NPM_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -187,7 +199,7 @@ jobs:
             "${clean_install_args[@]}"
 
   publish:
-    name: Publish changesets to npm
+    name: Publish prereleases to npm staging
     needs:
       - version
       - release-gate
@@ -195,14 +207,13 @@ jobs:
       always() &&
       needs.version.result == 'success' &&
       needs.version.outputs.has_changesets == 'false' &&
-      needs.version.outputs.has_unpublished == 'true' &&
+      needs.version.outputs.has_staging == 'true' &&
       needs.release-gate.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write
+      contents: read
       id-token: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -219,16 +230,27 @@ jobs:
           npm install -g npm@11 pnpm@10.28.2
           pnpm install --frozen-lockfile
 
-      - name: Build
+      - id: staging
+        name: Prepare staging prerelease versions
+        env:
+          STAGING_PACKAGES: ${{ needs.version.outputs.staging_packages }}
+        run: |
+          set -euo pipefail
+          prepared="$(node .github/scripts/staging-release.mjs prepare)"
+          echo "packages=$prepared" >> "$GITHUB_OUTPUT"
+          packages/hermes-arinova-plugin/scripts/sync-sidecar-sdk.sh
+
+      - name: Build staging packages
         run: pnpm -r build
 
-      - name: Publish to npm
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
-        with:
-          branch: main
-          publish: pnpm changeset publish
+      - name: Publish to the staging dist-tag
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STAGING_PACKAGES: ${{ steps.staging.outputs.packages }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r directory; do
+            npm publish "./packages/$directory" --access public --tag staging
+          done < <(jq -r '.[].directory' <<<"$STAGING_PACKAGES")
 
       - name: Verify the published SDK through the sidecar lockfile
         run: |
@@ -252,7 +274,7 @@ jobs:
           npm --prefix "$sidecar" run check
 
   publish-package:
-    name: Verify and publish selected package
+    name: Verify and publish selected production package
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -314,4 +336,8 @@ jobs:
 
       - name: Publish
         working-directory: packages/${{ inputs.package }}
-        run: npm publish --access public --tag "${{ inputs.tag }}"
+        run: |
+          set -euo pipefail
+          node "$GITHUB_WORKSPACE/.github/scripts/staging-release.mjs" \
+            prepare-production "${{ inputs.package }}"
+          npm publish --access public --tag latest
