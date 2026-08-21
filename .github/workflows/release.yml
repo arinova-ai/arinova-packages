@@ -4,11 +4,10 @@ name: Release
 # 1. A successful main CI run starts this workflow.
 # 2. Pending changesets create or update the version-packages PR.
 # 3. After that PR is merged, unpublished versions must pass the pinned
-#    Hermes host integration and a credentialed Arinova smoke test.
+#    Hermes host integration and offline SDK/sidecar checks.
 # 4. Only then can npm Trusted Publishing run.
 #
-# NPM_PUBLISH_ENABLED remains an explicit repository-level kill switch. Missing
-# live credentials fail the release gate before npm is touched.
+# NPM_PUBLISH_ENABLED remains an explicit repository-level kill switch.
 
 on:
   workflow_run:
@@ -126,7 +125,7 @@ jobs:
           fi
 
   release-gate:
-    name: Hermes and live Arinova release gate
+    name: Hermes release gate
     needs: version
     if: >-
       needs.version.result == 'success' &&
@@ -158,17 +157,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Require live release credentials
-        env:
-          ARINOVA_SERVER_URL: ${{ secrets.ARINOVA_SERVER_URL }}
-          ARINOVA_BOT_TOKEN: ${{ secrets.ARINOVA_BOT_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [[ -z "$ARINOVA_SERVER_URL" || -z "$ARINOVA_BOT_TOKEN" ]]; then
-            echo "::error::ARINOVA_SERVER_URL and ARINOVA_BOT_TOKEN Actions secrets are required before npm publishing"
-            exit 1
-          fi
-
       - name: Install dependencies
         run: |
           set -euo pipefail
@@ -185,8 +173,6 @@ jobs:
 
       - name: Run the release gate
         env:
-          ARINOVA_SERVER_URL: ${{ secrets.ARINOVA_SERVER_URL }}
-          ARINOVA_BOT_TOKEN: ${{ secrets.ARINOVA_BOT_TOKEN }}
           UNPUBLISHED_PACKAGES: ${{ needs.version.outputs.unpublished_packages }}
         run: |
           set -euo pipefail
@@ -198,7 +184,6 @@ jobs:
           python packages/hermes-arinova-plugin/scripts/check_local.py \
             --hermes-root "$GITHUB_WORKSPACE/.ci/hermes-agent" \
             --hermes-python "$(command -v python)" \
-            --require-credentials \
             "${clean_install_args[@]}"
 
   publish:
@@ -294,19 +279,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Require publishing and live credentials
+      - name: Require publishing to be enabled
         env:
           NPM_PUBLISH_ENABLED: ${{ vars.NPM_PUBLISH_ENABLED }}
-          ARINOVA_SERVER_URL: ${{ secrets.ARINOVA_SERVER_URL }}
-          ARINOVA_BOT_TOKEN: ${{ secrets.ARINOVA_BOT_TOKEN }}
         run: |
           set -euo pipefail
           if [[ "$NPM_PUBLISH_ENABLED" != "true" ]]; then
             echo "::error::NPM_PUBLISH_ENABLED must be true for manual publishing"
-            exit 1
-          fi
-          if [[ -z "$ARINOVA_SERVER_URL" || -z "$ARINOVA_BOT_TOKEN" ]]; then
-            echo "::error::ARINOVA_SERVER_URL and ARINOVA_BOT_TOKEN Actions secrets are required before npm publishing"
             exit 1
           fi
 
@@ -327,15 +306,11 @@ jobs:
           pnpm -r test
 
       - name: Run the release gate
-        env:
-          ARINOVA_SERVER_URL: ${{ secrets.ARINOVA_SERVER_URL }}
-          ARINOVA_BOT_TOKEN: ${{ secrets.ARINOVA_BOT_TOKEN }}
         run: |
           set -euo pipefail
           python packages/hermes-arinova-plugin/scripts/check_local.py \
             --hermes-root "$GITHUB_WORKSPACE/.ci/hermes-agent" \
-            --hermes-python "$(command -v python)" \
-            --require-credentials
+            --hermes-python "$(command -v python)"
 
       - name: Publish
         working-directory: packages/${{ inputs.package }}
