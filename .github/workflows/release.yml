@@ -238,10 +238,12 @@ jobs:
           set -euo pipefail
           prepared="$(node .github/scripts/staging-release.mjs prepare)"
           echo "packages=$prepared" >> "$GITHUB_OUTPUT"
-          packages/hermes-arinova-plugin/scripts/sync-sidecar-sdk.sh
 
       - name: Build staging packages
-        run: pnpm -r build
+        run: |
+          set -euo pipefail
+          pnpm -r build
+          packages/hermes-arinova-plugin/scripts/sync-sidecar-sdk.sh
 
       - name: Publish to the staging dist-tag
         env:
