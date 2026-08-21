@@ -1,5 +1,15 @@
 # @arinova-ai/agent-sdk
 
+## 0.2.0
+
+### Minor Changes
+
+- 4a0ebd3: Route OpenClaw CLI commands through typed agent SDK methods, bound list results by default, and remove the retired wiki and unsupported card-archive commands. Add typed reply, bounded board-list, and board-unarchive REST helpers to the agent SDK.
+
+### Patch Changes
+
+- 6964b9d: Split WebSocket connection binding, authentication retry, outbound buffering, and fair task scheduling into focused modules while preserving the `ArinovaAgent` API. Export the runtime and aggregate board result type contracts from the package entry point.
+
 ## 0.1.0
 
 ### Minor Changes

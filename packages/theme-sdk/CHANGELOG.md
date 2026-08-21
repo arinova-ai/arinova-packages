@@ -1,5 +1,11 @@
 # @arinova-ai/theme-sdk
 
+## 0.2.1
+
+### Patch Changes
+
+- 1c96b21: Harden credential-bearing endpoints, inbound group authorization, office event forwarding, and theme asset loading. The deprecated `HookEvent` and `HookEventType` aliases are removed; use `InternalEvent` and `InternalEventType`.
+
 ## 0.2.0
 
 ### Minor Changes
