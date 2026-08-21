@@ -172,13 +172,27 @@ jobs:
           pnpm -r build
           packages/hermes-arinova-plugin/scripts/sync-sidecar-sdk.sh
 
+      - id: unpublished-sdk
+        name: Detect an unpublished workspace SDK on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          unpublished="$(node .github/scripts/find-unpublished-packages.mjs)"
+          if jq -e 'any(.[]; startswith("@arinova-ai/agent-sdk@"))' \
+            <<<"$unpublished" >/dev/null; then
+            echo "skip_clean_install_npm_ci=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip_clean_install_npm_ci=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Verify the plugin against Hermes
         env:
           # Version PRs point the sidecar lockfile at the new workspace SDK
-          # version before that tarball exists on npm. repository_dispatch
-          # gets this value from the validated PR metadata; an approved,
-          # same-repository pull_request run must derive it from its payload.
-          SKIP_CLEAN_INSTALL_NPM_CI: ${{ needs.validate-automation.outputs.skip_clean_install_npm_ci == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'changeset-release/')) }}
+          # version before that tarball exists on npm. This remains true after
+          # the version PR merges to main and until the release workflow can
+          # publish it. Dispatch runs use validated PR metadata; direct PR
+          # runs derive the decision from their same-repository branch.
+          SKIP_CLEAN_INSTALL_NPM_CI: ${{ steps.unpublished-sdk.outputs.skip_clean_install_npm_ci == 'true' || needs.validate-automation.outputs.skip_clean_install_npm_ci == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'changeset-release/')) }}
         run: |
           set -euo pipefail
           clean_install_args=()
