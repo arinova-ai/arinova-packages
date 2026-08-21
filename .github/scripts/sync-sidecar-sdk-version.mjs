@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { execFileSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,27 +23,16 @@ export function alignSidecarSdkMetadata({
   sdkPackage,
   sidecarPackage,
   sidecarLock,
-  packedSdk,
 }) {
   const sdk = cloneJson(requireObject(sdkPackage, "agent SDK package.json"));
   const sidecar = cloneJson(requireObject(sidecarPackage, "sidecar package.json"));
   const lock = cloneJson(requireObject(sidecarLock, "sidecar package-lock.json"));
-  const packed = requireObject(packedSdk, "npm pack result");
 
   if (sdk.name !== SDK_PACKAGE_NAME) {
     throw new Error(`Expected ${SDK_PACKAGE_NAME}, received ${String(sdk.name)}`);
   }
   if (typeof sdk.version !== "string" || sdk.version.length === 0) {
     throw new Error("Agent SDK package version must be a non-empty string");
-  }
-  if (packed.name !== sdk.name || packed.version !== sdk.version) {
-    throw new Error(
-      `Packed SDK metadata ${String(packed.name)}@${String(packed.version)} ` +
-        `does not match ${sdk.name}@${sdk.version}`,
-    );
-  }
-  if (typeof packed.integrity !== "string" || !packed.integrity.startsWith("sha512-")) {
-    throw new Error("Packed SDK must provide a sha512 integrity value");
   }
 
   const dependencies = requireObject(sidecar.dependencies, "sidecar dependencies");
@@ -64,7 +52,12 @@ export function alignSidecarSdkMetadata({
   lockedSdk.version = sdk.version;
   lockedSdk.resolved =
     `https://registry.npmjs.org/${SDK_PACKAGE_NAME}/-/agent-sdk-${sdk.version}.tgz`;
-  lockedSdk.integrity = packed.integrity;
+  // The version PR is created before this tarball exists. npm and pnpm do not
+  // necessarily produce byte-identical tarballs, so a local pack integrity
+  // would make npm ci reject the package after it is published. Keep the exact
+  // version and registry URL; npm verifies the fetched tarball against the
+  // integrity advertised by the registry.
+  delete lockedSdk.integrity;
   lockedSdk.license = sdk.license;
   if (sdk.engines === undefined) {
     delete lockedSdk.engines;
@@ -83,19 +76,6 @@ async function writeJson(filePath, value) {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function packSdk(sdkDirectory) {
-  const output = execFileSync(
-    "npm",
-    ["pack", "--json", "--dry-run", "--ignore-scripts"],
-    { cwd: sdkDirectory, encoding: "utf8" },
-  );
-  const results = JSON.parse(output);
-  if (!Array.isArray(results) || results.length !== 1) {
-    throw new Error("npm pack must return exactly one package result");
-  }
-  return results[0];
-}
-
 export async function syncSidecarSdkVersion(root = repositoryRoot) {
   const sdkDirectory = path.join(root, "packages/agent-sdk");
   const sdkPackagePath = path.join(sdkDirectory, "package.json");
@@ -112,12 +92,10 @@ export async function syncSidecarSdkVersion(root = repositoryRoot) {
     );
     return;
   }
-  const packedSdk = packSdk(sdkDirectory);
   const aligned = alignSidecarSdkMetadata({
     sdkPackage,
     sidecarPackage,
     sidecarLock,
-    packedSdk,
   });
 
   await writeJson(sidecarPackagePath, aligned.sidecarPackage);

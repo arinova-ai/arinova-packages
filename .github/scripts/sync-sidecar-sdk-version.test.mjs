@@ -40,15 +40,10 @@ function fixture() {
         },
       },
     },
-    packedSdk: {
-      name: packageName,
-      version: "0.2.0",
-      integrity: "sha512-new",
-    },
   };
 }
 
-test("aligns the sidecar manifest and lockfile to the packed SDK", () => {
+test("aligns the sidecar manifest without guessing unpublished tarball integrity", () => {
   const input = fixture();
   const result = alignSidecarSdkMetadata(input);
   const packageName = input.sdkPackage.name;
@@ -62,19 +57,18 @@ test("aligns the sidecar manifest and lockfile to the packed SDK", () => {
     version: "0.2.0",
     resolved:
       "https://registry.npmjs.org/@arinova-ai/agent-sdk/-/agent-sdk-0.2.0.tgz",
-    integrity: "sha512-new",
     license: "MIT",
     engines: { node: ">=22" },
   });
   assert.equal(input.sidecarPackage.dependencies[packageName], "0.1.0");
 });
 
-test("rejects pack metadata that does not match the versioned SDK", () => {
+test("rejects an unexpected SDK package", () => {
   const input = fixture();
-  input.packedSdk.version = "0.1.0";
+  input.sdkPackage.name = "@arinova-ai/not-agent-sdk";
 
   assert.throws(
     () => alignSidecarSdkMetadata(input),
-    /does not match @arinova-ai\/agent-sdk@0\.2\.0/,
+    /Expected @arinova-ai\/agent-sdk/,
   );
 });
