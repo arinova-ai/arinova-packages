@@ -215,8 +215,8 @@ def assert_sidecar_lock_matches_local(sidecar_dir: Path, sdk_root: Path) -> None
     if locked_package.get("license") != local_package.get("license"):
         raise RuntimeError("Hermes sidecar install lockfile SDK package license differs from local agent-sdk package")
     integrity = locked_package.get("integrity")
-    if not isinstance(integrity, str) or not integrity.startswith("sha512-"):
-        raise RuntimeError("Hermes sidecar install lockfile SDK package integrity is missing or not sha512")
+    if integrity is not None and (not isinstance(integrity, str) or not integrity.startswith("sha512-")):
+        raise RuntimeError("Hermes sidecar install lockfile SDK package integrity is not sha512")
 
 
 def assert_required_plugin_files(plugin_dir: Path) -> None:

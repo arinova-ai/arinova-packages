@@ -306,8 +306,9 @@ def sidecar_lockfile_error(
         return "sidecar package-lock.json SDK package tarball drifted"
     if locked_sdk.get("license") != sdk_package.get("license"):
         return "sidecar package-lock.json SDK package license drifted"
-    if not isinstance(locked_sdk.get("integrity"), str) or not locked_sdk.get("integrity", "").startswith("sha512-"):
-        return "sidecar package-lock.json SDK package integrity is missing or not sha512"
+    integrity = locked_sdk.get("integrity")
+    if integrity is not None and (not isinstance(integrity, str) or not integrity.startswith("sha512-")):
+        return "sidecar package-lock.json SDK package integrity is not sha512"
     return None
 
 

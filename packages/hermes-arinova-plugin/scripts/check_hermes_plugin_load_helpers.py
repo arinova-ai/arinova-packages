@@ -1258,10 +1258,13 @@ def main() -> int:
             try:
                 adapter._start_sidecar()
             except RuntimeError as exc:
-                if "sidecar package-lock.json SDK package integrity is missing or not sha512" not in str(exc):
+                if "sidecar package-lock.json SDK package integrity is not sha512" not in str(exc):
                     raise RuntimeError(f"_start_sidecar failed with unexpected sidecar lockfile error: {exc}") from exc
             else:
                 raise RuntimeError("_start_sidecar passed with invalid sidecar package-lock.json SDK integrity")
+            write_fake_lockfile(integrity=None)
+            if not loaded.module.adapter.check_requirements():
+                raise RuntimeError("check_requirements rejected an omitted unpublished SDK integrity")
             write_fake_lockfile()
             if not loaded.module.adapter.check_requirements():
                 raise RuntimeError("check_requirements failed with valid SDK package marker present")
