@@ -1,5 +1,11 @@
 # @arinova-ai/spaces-sdk
 
+## 0.5.0
+
+### Minor Changes
+
+- 2ee0d47: Add confidential Managed Space LLM and wager-session helpers with scoped service-token caching, typed lifecycle responses, input validation, and one-time token refresh.
+
 ## 0.4.0
 
 ### Minor Changes
