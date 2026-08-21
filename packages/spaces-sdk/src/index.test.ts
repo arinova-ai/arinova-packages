@@ -664,13 +664,15 @@ describe("browser/server split", () => {
 
   it("the browser entry exposes no server/secret surface", () => {
     expect(browserEntry).not.toHaveProperty("ArinovaServer");
+    expect(browserEntry).not.toHaveProperty("SpaceLlmApi");
+    expect(browserEntry).not.toHaveProperty("SpaceWagerApi");
     const c = new Arinova({ clientId: "x", apiUrl: "https://api.test", redirectUri: "https://a/cb" });
     expect((c.economy as Record<string, unknown>).charge).toBeUndefined();
     expect((c.economy as Record<string, unknown>).award).toBeUndefined();
     expect((c.economy as Record<string, unknown>).purchase).toBeUndefined();
   });
 
-  it("ArinovaServer only exposes confidential exchangeCode", async () => {
+  it("ArinovaServer keeps confidential exchangeCode on the server entry", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({
       access_token: "token-1",
       token_type: "Bearer",

@@ -225,8 +225,61 @@ const server = new ArinovaServer({
 await server.exchangeCode({ code, redirectUri, codeVerifier });
 ```
 
-`ArinovaServer` exposes confidential authorization-code exchange only. Never
-put its client secret in a browser or Space bundle.
+`ArinovaServer` also wraps the managed Space LLM endpoint. It exchanges and
+caches a one-hour `client_credentials` token with the `llm` scope for each
+Space, while keeping the app secret on your backend:
+
+```ts
+const result = await server.spaceLlm.generate({
+  spaceId: "11111111-1111-4111-8111-111111111111",
+  system: "Return valid JSON.",
+  input: "Generate one quiz question.",
+  jsonSchema: {
+    type: "object",
+    required: ["question", "answer"],
+  },
+  maxOutputTokens: 4096,
+  idempotencyKey: "quiz-room-42-generation",
+});
+
+console.log(result.text, result.usage, result.actualPoints);
+```
+
+The helper defaults to a 40-second request deadline because the provider route
+has a 30-second timeout. Reuse the same visible-ASCII `idempotencyKey` for every
+retry of one logical call. Provider text is returned unchanged; callers remain
+responsible for JSON parsing and schema validation. Never put `ArinovaServer`
+or its client secret in a browser or Space bundle.
+
+It also manages the creator-operated wager session lifecycle with a separate
+`wager` service token. Player buy-ins intentionally remain on the native host
+confirmation bridge shown above:
+
+```ts
+const session = await server.wager.open({
+  spaceId: "11111111-1111-4111-8111-111111111111",
+  spaceVersionId: "22222222-2222-4222-8222-222222222222",
+  minBuyInPoints: 100,
+  maxBuyInPoints: 1_000,
+  rakeBps: 250,
+});
+
+await server.wager.lock({ spaceId: session.spaceId, sessionId: session.id });
+await server.wager.settle({
+  spaceId: session.spaceId,
+  sessionId: session.id,
+  sequenceNo: 1,
+  isFinal: true,
+  expectedTotalStakePoints: session.potPoints,
+  payouts: [{ userId: "winning-user-id", payoutPoints: 975 }],
+  rakePoints: 25,
+});
+```
+
+The namespace provides `open`, `get`, `heartbeat`, `lock`, `settle`, and
+`cancel`. Settlement `sequenceNo` is the idempotency boundary: replay the exact
+same payload for the same sequence number, and never reuse it for a different
+result.
 
 ## License
 
