@@ -52,12 +52,4 @@ export function registerCronCommands(program: Command): void {
       ),
     ));
   }
-  const confirmation = cron.command("confirmation");
-  for (const name of ["approve", "reject"] as const) {
-    confirmation.command(name).argument("<id>").action(async (id: string) => {
-      printResult(await resolveClient(cron).post(
-        `/api/v1/platform-cron/confirmations/${e(id)}/${name}`,
-      ));
-    });
-  }
 }

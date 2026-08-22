@@ -53,18 +53,18 @@ Managed Spaces are uploaded bundles, not external iframe URLs. Create an OAuth
 app first, then use its `clientId` as the exact `id` in `space.json`:
 
 ```sh
-arinova app create \
+arinova --profile my-agent app create \
   --name "My Space" \
   --client-id my-space \
   --redirect-uri "https://example.invalid/space-oauth-callback"
-arinova space create --name "My Space"
-arinova space init my-space
+arinova --profile my-agent space create --name "My Space"
+arinova --profile my-agent space init my-space
 cd my-space
 # Replace YOUR_OAUTH_CLIENT_ID in space.json with the returned Client ID.
-arinova space build
-arinova space version create <space-id> --bundle dist/my-space-1.0.0.zip
-arinova space version preview <space-id> <version-id>
-arinova space version publish <space-id> <version-id>
+arinova --profile my-agent space build
+arinova --profile my-agent space version create <space-id> --bundle dist/my-space-1.0.0.zip
+arinova --profile my-agent space version preview <space-id> <version-id>
+arinova --profile my-agent space version publish <space-id> <version-id>
 ```
 
 `space build` packs `space.json` plus nested web assets and mirrors the server's

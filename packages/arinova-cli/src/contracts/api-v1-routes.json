@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-08-12T18:24:21+08:00",
+  "generatedAt": "2026-08-22T13:19:42+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "bf339484156c6f47c440b6690cf1d10bebad8698",
-  "routeCount": 395,
+  "sourceCommit": "411c16633e885e17812360532ac54af5fff68ceb",
+  "routeCount": 400,
   "routes": [
     {
       "method": "POST",
@@ -1965,22 +1965,6 @@
       "source": "apps/rust-server/src/routes/v1_notes/mod.rs"
     },
     {
-      "method": "POST",
-      "path": "/api/v1/platform-cron/confirmations/{id}/approve",
-      "auth": "authenticated",
-      "requestMode": "json",
-      "responseMode": "json",
-      "source": "apps/rust-server/src/routes/platform_cron/http_routes.rs"
-    },
-    {
-      "method": "POST",
-      "path": "/api/v1/platform-cron/confirmations/{id}/reject",
-      "auth": "authenticated",
-      "requestMode": "json",
-      "responseMode": "json",
-      "source": "apps/rust-server/src/routes/platform_cron/http_routes.rs"
-    },
-    {
       "method": "GET",
       "path": "/api/v1/platform-cron/jobs",
       "auth": "authenticated",
@@ -2573,6 +2557,14 @@
       "source": "apps/rust-server/src/routes/v1_slides/mod.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/space-llm/generate",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/space_llm.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/spaces",
       "auth": "authenticated",
@@ -2811,6 +2803,54 @@
       "requestMode": "none",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/api_v1/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/wager/sessions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/wager.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/wager/sessions/{session_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/wager.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/wager/sessions/{session_id}/cancel",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/wager.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/wager/sessions/{session_id}/heartbeat",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/wager.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/wager/sessions/{session_id}/lock",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/wager.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/wager/sessions/{session_id}/settle",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/wager.rs"
     },
     {
       "method": "GET",

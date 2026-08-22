@@ -44,6 +44,14 @@ describe("non-interactive confirmation", () => {
     ).not.toThrow();
   });
 
+  it.each(["init", "build"])("allows local Space %s without --yes", (name) => {
+    expect(() =>
+      requireNonInteractiveConfirmation(nestedCommand(["space", name]), {
+        isTTY: false,
+      }),
+    ).not.toThrow();
+  });
+
   it.each([
     [["community", "add-agent"], {}],
     [["file", "batch"], { op: "delete" }],
