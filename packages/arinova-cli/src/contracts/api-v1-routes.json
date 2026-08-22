@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-08-22T15:51:05+08:00",
+  "generatedAt": "2026-08-22T19:04:19+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "78161b8a6c425056fcc8d6f9aa637c0f09f752e4",
+  "sourceCommit": "c95dee4a686f8486c993b359e63cac91ee54fa45",
   "routeCount": 400,
   "routes": [
     {
