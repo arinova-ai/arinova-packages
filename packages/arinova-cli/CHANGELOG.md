@@ -1,5 +1,11 @@
 # @arinova-ai/cli
 
+## 0.2.1
+
+### Patch Changes
+
+- 779f8c9: Fix managed Space list and version commands, remove retired cron confirmation endpoints, allow local Space build commands in non-interactive use, and refresh the server route/auth contracts.
+
 ## 0.2.0
 
 ### Minor Changes
