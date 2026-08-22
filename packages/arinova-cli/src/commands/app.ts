@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { encodePathSegment, resolveClient } from "../client.js";
-import { printResult, printSuccess, printNote, table } from "../output.js";
+import { printNote, printResult, printSuccess, printWarning, table } from "../output.js";
 import { addPaginationOptions, paginationQuery } from "../pagination.js";
 
 export function registerApp(program: Command): void {
@@ -30,7 +30,7 @@ export function registerApp(program: Command): void {
   app
     .command("create")
     .description(
-      "Create an OAuth app (public/PKCE client). Its Client ID can also be used as a managed Space manifest id."
+      "Create an OAuth app. Public/PKCE is the default; use --confidential for a service client."
     )
     .requiredOption("--name <name>", "App name")
     .requiredOption(
@@ -41,6 +41,14 @@ export function registerApp(program: Command): void {
     .option("--external-url <url>", "Public website URL (separate from the OAuth redirect URI)")
     .option("--description <desc>", "Description")
     .option("--category <cat>", "Category (game, tool, social, etc.)", "other")
+    .option(
+      "--confidential",
+      "Create a confidential client that receives a one-time client_secret"
+    )
+    .option(
+      "--allowed-scopes <scopes>",
+      "Comma-separated OAuth scopes (profile,email,agents,economy,wager,llm)"
+    )
     .action(
       async (opts: {
         name: string;
@@ -49,21 +57,43 @@ export function registerApp(program: Command): void {
         externalUrl?: string;
         description?: string;
         category: string;
+        confidential?: boolean;
+        allowedScopes?: string;
       }) => {
-        const data = await resolveClient(app).post("/api/v1/developer/apps", {
+        const allowedScopes = opts.allowedScopes == null
+          ? undefined
+          : [...new Set(opts.allowedScopes.split(",").map((scope) => scope.trim()).filter(Boolean))];
+        if (allowedScopes?.length === 0) {
+          throw new Error("--allowed-scopes must contain at least one scope");
+        }
+        const body: Record<string, unknown> = {
           name: opts.name,
           clientId: opts.clientId,
           description: opts.description,
           category: opts.category,
           externalUrl: opts.externalUrl,
           redirectUri: opts.redirectUri,
+          isPublic: !opts.confidential,
+        };
+        if (allowedScopes) body.allowedScopes = allowedScopes;
+        const data = await resolveClient(app).post("/api/v1/developer/apps", {
+          ...body,
         });
         printResult(data);
         const d = data as Record<string, unknown>;
         if (d.clientId) {
           printNote(`\n  Client ID:    ${d.clientId}`);
           printNote(`  Redirect URI: ${(d.redirectUri as string) ?? opts.redirectUri}`);
-          printNote("  Type:         Public (PKCE) — no client_secret needed");
+          if (opts.confidential) {
+            printNote("  Type:         Confidential service client");
+            if (d.clientSecret) {
+              printWarning(
+                "Store the client_secret securely now. It is shown only once and cannot be retrieved later."
+              );
+            }
+          } else {
+            printNote("  Type:         Public (PKCE) — no client_secret needed");
+          }
         }
       }
     );

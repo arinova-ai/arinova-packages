@@ -6,10 +6,20 @@ interface AuthRule {
   identities: string[];
 }
 
+interface CommandAuthMatrix {
+  schemaVersion: number;
+  sourceCommit: string;
+  rules: AuthRule[];
+}
+
 const matrix = JSON.parse(readFileSync(
   new URL("./command-auth.json", import.meta.url),
   "utf8",
-)) as { schemaVersion: number; rules: AuthRule[] };
+)) as CommandAuthMatrix;
+const routeFixture = JSON.parse(readFileSync(
+  new URL("./api-v1-routes.json", import.meta.url),
+  "utf8",
+)) as { sourceCommit: string };
 
 const expectedTopLevel = [
   "action", "agent", "app", "auth", "auto-send", "autopilot", "calendar",
@@ -23,6 +33,11 @@ const expectedTopLevel = [
 ];
 
 describe("command auth matrix", () => {
+  it("is pinned to the same server commit as the route fixture", () => {
+    expect(matrix.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
+    expect(matrix.sourceCommit).toBe(routeFixture.sourceCommit);
+  });
+
   it("classifies every top-level command and uses known identities", () => {
     const classified = new Set(matrix.rules.flatMap((rule) =>
       rule.commands.map((command) => command.split(" ")[0])

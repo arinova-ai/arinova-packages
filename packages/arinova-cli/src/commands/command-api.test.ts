@@ -1168,6 +1168,51 @@ describe("CLI command API request shapes", () => {
     expect(mocks.clientGet).toHaveBeenNthCalledWith(3, "/api/v1/creator/revenue?period=7d");
   });
 
+  it("app create supports confidential clients and normalized allowed scopes", async () => {
+    mocks.clientPost.mockResolvedValueOnce({
+      clientId: "quiz-battle",
+      clientSecret: "ari_secret_once",
+      redirectUri: "https://example.test/oauth/callback",
+    });
+
+    await createProgram(registerApp).parseAsync([
+      "node", "arinova", "app", "create",
+      "--name", "Quiz Battle",
+      "--client-id", "quiz-battle",
+      "--redirect-uri", "https://example.test/oauth/callback",
+      "--confidential",
+      "--allowed-scopes", "profile, wager, wager, llm",
+    ]);
+
+    expect(mocks.clientPost).toHaveBeenCalledWith("/api/v1/developer/apps", {
+      name: "Quiz Battle",
+      clientId: "quiz-battle",
+      description: undefined,
+      category: "other",
+      externalUrl: undefined,
+      redirectUri: "https://example.test/oauth/callback",
+      isPublic: false,
+      allowedScopes: ["profile", "wager", "llm"],
+    });
+    expect(mocks.printResult).toHaveBeenCalledWith(expect.objectContaining({
+      clientSecret: "ari_secret_once",
+    }));
+    expect(mocks.printWarning).toHaveBeenCalledWith(expect.stringContaining("shown only once"));
+  });
+
+  it("app create remains an explicit public PKCE client by default", async () => {
+    await createProgram(registerApp).parseAsync([
+      "node", "arinova", "app", "create",
+      "--name", "Browser App",
+      "--redirect-uri", "https://example.test/oauth/callback",
+    ]);
+
+    expect(mocks.clientPost).toHaveBeenCalledWith("/api/v1/developer/apps", expect.objectContaining({
+      isPublic: true,
+    }));
+    expect(mocks.printWarning).not.toHaveBeenCalled();
+  });
+
   it("profile list remains local and auto-send fails before any request", async () => {
     mocks.listProfiles.mockReturnValue([{ name: "bot", profile: { type: "bot", apiKey: "ari_secret" } }]);
     await createProgram(registerProfile).parseAsync(["node", "arinova", "profile", "list"]);

@@ -60,6 +60,15 @@ describe("API v1 route contract fixture", () => {
     expect(keys.size).toBe(fixture.routeCount);
   });
 
+  it("identifies the two confidential Space service extractors", () => {
+    const authFor = (path: string) => fixture.routes
+      .filter((route) => route.path === path)
+      .map((route) => route.auth);
+
+    expect(authFor("/api/v1/wager/sessions")).toEqual(["space-service"]);
+    expect(authFor("/api/v1/space-llm/generate")).toEqual(["space-llm"]);
+  });
+
   it("contains no known stale endpoint literals in command sources", () => {
     const source = [
       ...readProductionTypeScriptSources(commandsDirectory),
