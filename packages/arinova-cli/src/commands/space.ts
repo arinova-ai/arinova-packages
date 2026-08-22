@@ -85,7 +85,8 @@ function booleanOption(value: unknown, option: string): boolean | undefined {
 }
 
 function printSpaces(data: unknown): void {
-  const spaces = (data as Record<string, unknown>)?.spaces ?? data;
+  const record = data as Record<string, unknown> | null;
+  const spaces = record?.spaces ?? record?.items ?? data;
   if (Array.isArray(spaces)) {
     table(spaces as Record<string, unknown>[], [
       { key: "id", label: "ID" },
@@ -247,12 +248,8 @@ export function registerSpace(program: Command): void {
     });
 
   const version = space.command("version").description("Managed Space bundle versions");
-  addPaginationOptions(version.command("list").argument("<space-id>"), {
-    mode: "cursor",
-  }).action(async (spaceId: string, options) => {
-    printResult(await api().get(
-      `/api/v1/spaces/${e(spaceId)}/versions${paginationQuery(options)}`,
-    ));
+  version.command("list").argument("<space-id>").action(async (spaceId: string) => {
+    printResult(await api().get(`/api/v1/spaces/${e(spaceId)}/versions`));
   });
   version.command("create")
     .argument("<space-id>")

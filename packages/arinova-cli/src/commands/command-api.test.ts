@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   printNote: vi.fn(),
   printResult: vi.fn(),
   printSuccess: vi.fn(),
+  table: vi.fn(),
   printWarning: vi.fn(),
   uploadMultipart: vi.fn(),
   listProfiles: vi.fn((): Array<{
@@ -101,7 +102,7 @@ vi.mock("../output.js", () => ({
   printResult: mocks.printResult,
   printSuccess: mocks.printSuccess,
   printWarning: mocks.printWarning,
-  table: vi.fn(),
+  table: mocks.table,
 }));
 
 // theme.ts resolves keys via config.resolveApiKey — mock it so tests stay
@@ -740,6 +741,7 @@ describe("CLI command API request shapes", () => {
     await program.parseAsync(["node", "arinova", "space", "list", "--search", "game"]);
     await program.parseAsync(["node", "arinova", "space", "owned"]);
     await program.parseAsync(["node", "arinova", "space", "storage", "set", "space/a", "save/1", "--value", '{"score":9}']);
+    await program.parseAsync(["node", "arinova", "space", "version", "list", "space/a"]);
     await program.parseAsync(["node", "arinova", "space", "version", "create", "space/a", "--bundle", bundle]);
     await program.parseAsync(["node", "arinova", "space", "version", "publish", "space/a", "version/a"]);
     await program.parseAsync(["node", "arinova", "space", "version", "preview", "space/a", "version/a"]);
@@ -762,6 +764,7 @@ describe("CLI command API request shapes", () => {
     expect(mocks.clientPut).toHaveBeenCalledWith("/api/v1/spaces/space%2Fa/storage/save%2F1", {
       value: { score: 9 },
     });
+    expect(mocks.clientGet).toHaveBeenCalledWith("/api/v1/spaces/space%2Fa/versions");
     expect(mocks.clientUpload).toHaveBeenCalledWith(
       "/api/v1/spaces/space%2Fa/versions",
       expect.any(FormData),
@@ -797,6 +800,28 @@ describe("CLI command API request shapes", () => {
     expect(mocks.clientPost).toHaveBeenCalledWith(
       "/api/v1/creator/spaces/space%2Fa/products/pro.monthly/wind-down",
     );
+  });
+
+  it("renders the paginated Space items envelope as a table", async () => {
+    mocks.clientGet.mockResolvedValueOnce({
+      items: [{ id: "space-1", name: "Puzzle Room", status: "active" }],
+      total: 1,
+      page: 1,
+      limit: 50,
+    });
+    const program = createProgram(registerSpace);
+
+    await program.parseAsync(["node", "arinova", "space", "list"]);
+
+    expect(mocks.table).toHaveBeenCalledWith(
+      [{ id: "space-1", name: "Puzzle Room", status: "active" }],
+      [
+        { key: "id", label: "ID" },
+        { key: "name", label: "Name" },
+        { key: "status", label: "Status" },
+      ],
+    );
+    expect(mocks.printResult).not.toHaveBeenCalled();
   });
 
   it("space publish fails locally and points to version publish", async () => {
@@ -1053,6 +1078,13 @@ describe("CLI command API request shapes", () => {
       "/api/v1/platform-triggers/triggers/trigger%2Fa/enabled",
       { enabled: false },
     );
+  });
+
+  it("does not expose retired cron confirmation commands", () => {
+    const program = createProgram(registerAutomationCommands);
+    const cron = program.commands.find((command) => command.name() === "cron");
+
+    expect(cron?.commands.map((command) => command.name())).toEqual(["job"]);
   });
 
   it("webhook management excludes inbound and delivery ack carries idempotency", async () => {

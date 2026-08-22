@@ -78,9 +78,7 @@ describe("API v1 route contract fixture", () => {
   });
 
   it("maps every literal CLI method/path call to a server route", () => {
-    const files = readdirSync(commandsDirectory)
-      .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
-      .map((name) => readFileSync(join(commandsDirectory, name), "utf8"));
+    const files = readProductionTypeScriptSources(commandsDirectory);
     const calls = new Set<string>();
     const add = (method: string, rawPath: string) => {
       const path = rawPath

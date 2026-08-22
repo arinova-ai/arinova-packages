@@ -32,4 +32,12 @@ describe("command auth matrix", () => {
       ["userApiKey", "botToken", "oauthUser", "local"].includes(identity)
     )).toBe(true);
   });
+
+  it("classifies Space runtime storage as OAuth-only", () => {
+    const storageRule = matrix.rules.find((rule) =>
+      rule.commands.includes("space storage")
+    );
+
+    expect(storageRule?.identities).toEqual(["oauthUser"]);
+  });
 });

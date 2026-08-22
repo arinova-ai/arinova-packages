@@ -1,11 +1,12 @@
 import type { Command } from "commander";
 
-// Unknown leaves are side effects by default. This allowlist contains only
-// commands whose handlers are expected to observe state without changing
-// remote or local durable state.
+// Unknown leaves are side effects by default. This allowlist contains
+// observation-only commands plus init/build leaves whose effects stay local
+// and never issue an API request.
 const READ_ONLY_COMMANDS = new Set([
   "agent-manifest",
   "agents",
+  "build",
   "categories",
   "completion",
   "content",
@@ -16,6 +17,7 @@ const READ_ONLY_COMMANDS = new Set([
   "history",
   "hub-data",
   "info",
+  "init",
   "installed",
   "list",
   "list-agents",
