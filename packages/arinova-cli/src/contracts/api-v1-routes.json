@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-08-22T20:55:50+08:00",
+  "generatedAt": "2026-08-22T23:11:41+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "3f932947a0a518f9987274405058853565429dc0",
-  "routeCount": 400,
+  "sourceCommit": "c809a94213f737f963c5dc4df9ca140f3eb4efcb",
+  "routeCount": 401,
   "routes": [
     {
       "method": "POST",
@@ -1965,6 +1965,14 @@
       "source": "apps/rust-server/src/routes/v1_notes/mod.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/oauth/token",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/oauth/mod.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/platform-cron/jobs",
       "auth": "authenticated",
@@ -2559,7 +2567,7 @@
     {
       "method": "POST",
       "path": "/api/v1/space-llm/generate",
-      "auth": "authenticated",
+      "auth": "space-llm",
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/space_llm.rs"
@@ -2807,7 +2815,7 @@
     {
       "method": "POST",
       "path": "/api/v1/wager/sessions",
-      "auth": "authenticated",
+      "auth": "space-service",
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/wager.rs"
@@ -2815,7 +2823,7 @@
     {
       "method": "GET",
       "path": "/api/v1/wager/sessions/{session_id}",
-      "auth": "authenticated",
+      "auth": "space-service",
       "requestMode": "none",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/wager.rs"
@@ -2823,7 +2831,7 @@
     {
       "method": "POST",
       "path": "/api/v1/wager/sessions/{session_id}/cancel",
-      "auth": "authenticated",
+      "auth": "space-service",
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/wager.rs"
@@ -2831,7 +2839,7 @@
     {
       "method": "POST",
       "path": "/api/v1/wager/sessions/{session_id}/heartbeat",
-      "auth": "authenticated",
+      "auth": "space-service",
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/wager.rs"
@@ -2839,7 +2847,7 @@
     {
       "method": "POST",
       "path": "/api/v1/wager/sessions/{session_id}/lock",
-      "auth": "authenticated",
+      "auth": "space-service",
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/wager.rs"
@@ -2847,7 +2855,7 @@
     {
       "method": "POST",
       "path": "/api/v1/wager/sessions/{session_id}/settle",
-      "auth": "authenticated",
+      "auth": "space-service",
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/wager.rs"

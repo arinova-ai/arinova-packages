@@ -82,6 +82,10 @@ version.
 `space storage *` is a runtime API. Pass a Space-bound OAuth access token via
 the global `--token`; a creator API key is not valid for these commands.
 
+Backends that call confidential Managed Space services can create the app with
+`--confidential --allowed-scopes profile,wager,llm`. The returned
+`clientSecret` is shown once; store it securely when the app is created.
+
 Creator catalog management is available under `space products` (`list`,
 `create`, `update`, `deactivate`, and `wind-down`). Deactivation blocks new
 purchases but leaves existing subscription renewals active; `wind-down`

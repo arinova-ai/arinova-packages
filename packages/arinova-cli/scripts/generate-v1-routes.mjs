@@ -19,6 +19,8 @@ const outputPath = join(packageRoot, "src/contracts/api-v1-routes.json");
 function authKind(path) {
   if (path === "/api/v1/hud") return "websocket";
   if (path.startsWith("/api/v1/webhooks/inbound/")) return "signed-public";
+  if (path.startsWith("/api/v1/wager/")) return "space-service";
+  if (path.startsWith("/api/v1/space-llm/")) return "space-llm";
   if (
     path.startsWith("/api/v1/user/") ||
     path.startsWith("/api/v1/agent/chat") ||
