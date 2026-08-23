@@ -81,7 +81,7 @@ export function registerSticker(program: Command): void {
     .action(async (packId: string, file: string) => {
       const data = await resolveClient(sticker).upload(
         `/api/v1/creator/stickers/${encodePathSegment(packId)}/stickers`,
-        await imageForm(file, "sticker"),
+        await imageForm(file, "file"),
       );
       printResult(data);
     });
@@ -128,7 +128,7 @@ export function registerSticker(program: Command): void {
       printResult(
         await resolveClient(sticker).upload(
           `/api/v1/creator/stickers/${encodePathSegment(id)}/cover`,
-          await imageForm(opts.file, "cover"),
+          await imageForm(opts.file, "file"),
         ),
       );
     });

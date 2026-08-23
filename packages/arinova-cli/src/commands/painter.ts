@@ -81,6 +81,21 @@ export function registerPainterCommands(program: Command): void {
       );
     });
 
+  painter.command("upload-cover")
+    .description("Upload an album cover")
+    .requiredOption("--id <id>", "Album ID")
+    .requiredOption("--file <path>", "Cover image path")
+    .action(async (opts: { id: string; file: string }) => {
+      const form = new FormData();
+      await appendFileToForm(form, "file", opts.file);
+      printResult(
+        await resolveClient(painter).upload(
+          `/api/painter/albums/${e(opts.id)}/cover`,
+          form,
+        ),
+      );
+    });
+
   painter.command("set-prompt")
     .description("Set album system prompt")
     .requiredOption("--id <id>", "Album ID")
