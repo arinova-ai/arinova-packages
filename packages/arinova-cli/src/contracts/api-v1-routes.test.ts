@@ -93,6 +93,9 @@ describe("API v1 route contract fixture", () => {
     expect(authFor("/api/v1/wager/sessions")).toEqual(["space-service"]);
     expect(authFor("/api/v1/space-llm/generate")).toEqual(["space-llm"]);
     expect(authFor("/api/v1/oauth/token")).toEqual(["public"]);
+    expect(authFor("/api/v1/skill-catalog-operator/personas")).toEqual([
+      "catalog-operator",
+    ]);
   });
 
   it("contains no known stale endpoint literals in command sources", () => {

@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-08-23T13:23:08+08:00",
+  "generatedAt": "2026-08-24T00:38:23+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "f920ef9d301146e6c50e24badfa601b39c044247",
-  "routeCount": 402,
+  "sourceCommit": "40c59e69c1cb91e056df1409f010fcead3fa13a7",
+  "routeCount": 408,
   "routes": [
     {
       "method": "POST",
@@ -2131,6 +2131,54 @@
       "requestMode": "none",
       "responseMode": "binary",
       "source": "apps/rust-server/src/routes/search_content/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skill-catalog-operator/imports/{job_id}",
+      "auth": "catalog-operator",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/skill_catalog_operator.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skill-catalog-operator/imports/{job_id}/retry",
+      "auth": "catalog-operator",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/skill_catalog_operator.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skill-catalog-operator/packages/{slug}/imports",
+      "auth": "catalog-operator",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/skill_catalog_operator.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skill-catalog-operator/persona-package-options",
+      "auth": "catalog-operator",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/skill_catalog_operator.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skill-catalog-operator/personas",
+      "auth": "catalog-operator",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/skill_catalog_operator.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/skill-catalog-operator/personas/{id}",
+      "auth": "catalog-operator",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/skill_catalog_operator.rs"
     },
     {
       "method": "DELETE",
