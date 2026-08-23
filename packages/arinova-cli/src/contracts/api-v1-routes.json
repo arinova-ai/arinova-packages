@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-08-22T23:55:13+08:00",
+  "generatedAt": "2026-08-23T13:23:08+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "829e80cdb12e8408ec1b3be826b3fd77d6dfac51",
-  "routeCount": 401,
+  "sourceCommit": "f920ef9d301146e6c50e24badfa601b39c044247",
+  "routeCount": 402,
   "routes": [
     {
       "method": "POST",
@@ -1967,7 +1967,7 @@
     {
       "method": "POST",
       "path": "/api/v1/oauth/token",
-      "auth": "authenticated",
+      "auth": "public",
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/oauth/mod.rs"
@@ -2857,6 +2857,14 @@
       "path": "/api/v1/wager/sessions/{session_id}/settle",
       "auth": "space-service",
       "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/wager.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/wager/space/version",
+      "auth": "space-service",
+      "requestMode": "none",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/wager.rs"
     },
