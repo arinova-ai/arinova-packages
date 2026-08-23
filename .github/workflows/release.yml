@@ -7,6 +7,8 @@ name: Release
 #    host integration and offline SDK/sidecar checks.
 # 4. Automation publishes prerelease builds only to the npm staging dist-tag.
 # 5. A stable production version can only be published manually to latest.
+#    The same dispatch may optionally refresh the staging prerelease from the
+#    exact verified commit after the stable publish succeeds.
 #
 # NPM_PUBLISH_ENABLED remains an explicit repository-level kill switch.
 
@@ -28,6 +30,11 @@ on:
           - openclaw-plugin
           - spaces-sdk
           - theme-sdk
+      refresh_staging:
+        description: Publish a fresh staging prerelease from the same verified commit
+        required: true
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -343,3 +350,76 @@ jobs:
           node "$GITHUB_WORKSPACE/.github/scripts/staging-release.mjs" \
             prepare-production "${{ inputs.package }}"
           npm publish --access public --tag latest
+
+  publish-staging-package:
+    name: Publish selected package to npm staging
+    needs: publish-package
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.refresh_staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm install -g npm@11 pnpm@10.28.2
+          pnpm install --frozen-lockfile
+
+      - id: staging
+        name: Prepare a fresh staging prerelease
+        env:
+          PACKAGE_DIRECTORY: ${{ inputs.package }}
+        run: |
+          set -euo pipefail
+          manifest="packages/${PACKAGE_DIRECTORY}/package.json"
+          package_spec="$(jq -er '.name + "@" + .version' "$manifest")"
+          STAGING_PACKAGES="$(jq -cn --arg package_spec "$package_spec" '[$package_spec]')"
+          export STAGING_PACKAGES
+          prepared="$(node .github/scripts/staging-release.mjs prepare)"
+          test "$(jq -er 'length' <<<"$prepared")" -eq 1
+          test "$(jq -er '.[0].directory' <<<"$prepared")" = "$PACKAGE_DIRECTORY"
+          echo "packages=$prepared" >> "$GITHUB_OUTPUT"
+
+      - name: Build the staging package
+        run: |
+          set -euo pipefail
+          pnpm -r build
+          packages/hermes-arinova-plugin/scripts/sync-sidecar-sdk.sh
+
+      - name: Publish to the staging dist-tag
+        env:
+          PACKAGE_DIRECTORY: ${{ inputs.package }}
+        run: |
+          set -euo pipefail
+          npm publish "./packages/${PACKAGE_DIRECTORY}" --access public --tag staging
+
+      - name: Verify the staging dist-tag
+        env:
+          STAGING_PACKAGES: ${{ steps.staging.outputs.packages }}
+        run: |
+          set -euo pipefail
+          package_name="$(jq -er '.[0].name' <<<"$STAGING_PACKAGES")"
+          expected_version="$(jq -er '.[0].stagingVersion' <<<"$STAGING_PACKAGES")"
+          observed=""
+          for attempt in 1 2 3 4 5; do
+            observed="$(npm view "${package_name}@staging" version 2>/dev/null || true)"
+            if [ "$observed" = "$expected_version" ]; then
+              break
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              echo "staging dist-tag has not propagated yet; retrying ($attempt/5)"
+              sleep 5
+            fi
+          done
+          test "$observed" = "$expected_version"
