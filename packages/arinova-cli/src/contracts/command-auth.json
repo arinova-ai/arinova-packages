@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sourceCommit": "f920ef9d301146e6c50e24badfa601b39c044247",
+  "sourceCommit": "40c59e69c1cb91e056df1409f010fcead3fa13a7",
   "identities": {
     "userApiKey": "ari_ key created by a signed-in user",
     "botToken": "ari_ token scoped to one agent",
