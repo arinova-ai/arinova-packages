@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,16 +33,41 @@ function readProductionTypeScriptSources(directory: string): string[] {
   });
 }
 
+function readServerRouteKeys(serverRoot: string): string[] {
+  const inventory = readFileSync(
+    join(serverRoot, "docs/rust-backend-route-inventory.md"),
+    "utf8",
+  );
+  const keys = new Set<string>();
+  for (const line of inventory.split("\n")) {
+    const match = line.match(
+      /^\| `([A-Z]+)` \| `(\/api\/v1[^`]*)` \| [^|]+ \| [^|]+ \| `([^`]+)` \|$/,
+    );
+    if (!match || !["GET", "POST", "PUT", "PATCH", "DELETE"].includes(match[1])) continue;
+    keys.add(`${match[1]} ${match[2]}`);
+  }
+  return [...keys].sort();
+}
+
 describe("API v1 route contract fixture", () => {
-  it("is internally fresh and matches the configured server checkout", () => {
+  it("is internally fresh and matches the configured server route set", () => {
     expect(fixture.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
     expect(fixture.routeCount).toBeGreaterThan(0);
     expect(fixture.routes).toHaveLength(fixture.routeCount);
     if (process.env.ARINOVA_SERVER_ROOT) {
+      const serverRoot = resolve(process.env.ARINOVA_SERVER_ROOT);
       const head = execFileSync("git", ["rev-parse", "HEAD"], {
-        cwd: resolve(process.env.ARINOVA_SERVER_ROOT), encoding: "utf8",
+        cwd: serverRoot, encoding: "utf8",
       }).trim();
-      expect(fixture.sourceCommit).toBe(head);
+      const ancestry = spawnSync(
+        "git",
+        ["merge-base", "--is-ancestor", fixture.sourceCommit, head],
+        { cwd: serverRoot, encoding: "utf8" },
+      );
+      expect(ancestry.status, ancestry.stderr).toBe(0);
+      expect(readServerRouteKeys(serverRoot)).toEqual(
+        [...new Set(fixture.routes.map((route) => `${route.method} ${route.path}`))].sort(),
+      );
     }
   });
 
@@ -60,13 +85,14 @@ describe("API v1 route contract fixture", () => {
     expect(keys.size).toBe(fixture.routeCount);
   });
 
-  it("identifies the two confidential Space service extractors", () => {
+  it("identifies confidential Space services and the public token exchange", () => {
     const authFor = (path: string) => fixture.routes
       .filter((route) => route.path === path)
       .map((route) => route.auth);
 
     expect(authFor("/api/v1/wager/sessions")).toEqual(["space-service"]);
     expect(authFor("/api/v1/space-llm/generate")).toEqual(["space-llm"]);
+    expect(authFor("/api/v1/oauth/token")).toEqual(["public"]);
   });
 
   it("contains no known stale endpoint literals in command sources", () => {
