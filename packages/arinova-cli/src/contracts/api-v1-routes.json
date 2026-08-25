@@ -1,9 +1,97 @@
 {
-  "generatedAt": "2026-08-24T00:38:23+08:00",
+  "generatedAt": "2026-08-25T15:53:43+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "40c59e69c1cb91e056df1409f010fcead3fa13a7",
-  "routeCount": 408,
+  "sourceCommit": "3afe8868cb32a3cdb5ad0b066af3a2aa8df5fc69",
+  "routeCount": 678,
   "routes": [
+    {
+      "method": "GET",
+      "path": "/api/v1/accounts",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/accounts/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/accounts/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/accounts/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/accounts/{id}/analytics",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/accounts/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/accounts/{id}/diaries",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/accounts/v1.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/accounts/{id}/diaries",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/accounts/v1.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/accounts/{id}/diaries/{diary_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/accounts/v1.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/accounts/{id}/diaries/{diary_id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/accounts/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/accounts/{id}/fans",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/accounts/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/accounts/{id}/gifts",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/accounts/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/accounts/{id}/gifts/leaderboard",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/accounts/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/accounts/{id}/voice-samples",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/accounts/v1.rs"
+    },
     {
       "method": "POST",
       "path": "/api/v1/actions/{call_id}/cancel",
@@ -77,6 +165,14 @@
       "source": "apps/rust-server/src/actions/routes/mod.rs"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/agent-hub/agents/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_hub/mod.rs"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/agent-skill-packages/{install_id}/disable",
       "auth": "authenticated",
@@ -133,6 +229,86 @@
       "source": "apps/rust-server/src/routes/api_v1/mod.rs"
     },
     {
+      "method": "PATCH",
+      "path": "/api/v1/agents/{agent_id}/email-inbox",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_email/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/{agent_id}/email-inbox/allowlist",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_email/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agents/{agent_id}/email-inbox/allowlist",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_email/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/agents/{agent_id}/email-inbox/allowlist/{entry_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_email/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/agents/{agent_id}/email-inbox/allowlist/{entry_id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_email/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/{agent_id}/email-inbox/quarantine",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_email/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agents/{agent_id}/email-inbox/quarantine/{email_id}/discard",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_email/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/{agent_id}/email-inbox/quarantine/{email_id}/release",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_email/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agents/{agent_id}/email-inbox/quarantine/{email_id}/release",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_email/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/{agent_id}/email-inbox/usage",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_email/mod.rs"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/agents/{agent_id}/skill-package-resources/query",
       "auth": "authenticated",
@@ -149,10 +325,26 @@
       "source": "apps/rust-server/src/routes/skills/mod.rs"
     },
     {
+      "method": "PATCH",
+      "path": "/api/v1/agents/{agent_id}/skills/{skill_id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/skills/mod.rs"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/agents/{agentId}/conversations",
       "auth": "authenticated",
       "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/{agentId}/export",
+      "auth": "authenticated",
+      "requestMode": "none",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/v1_resources.rs"
     },
@@ -165,12 +357,44 @@
       "source": "apps/rust-server/src/routes/v1_resources.rs"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/agents/{agentId}/security-logs",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/{agentId}/stats",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/self/queue-health",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/queue_inspector.rs"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/analytics/track",
       "auth": "authenticated",
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/analytics/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/attachments/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/uploads.rs"
     },
     {
       "method": "GET",
@@ -214,6 +438,78 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/bookmark-folders",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/bookmark-folders",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/bookmark-folders/{folderId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/bookmark-folders/{folderId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bookmarks",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/bookmarks",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/bookmarks/{bookmarkId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/bookmarks/{bookmarkId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/bookmarks/{bookmarkId}/folder",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/calendar/events",
       "auth": "authenticated",
       "requestMode": "none",
@@ -254,6 +550,22 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/calendar/events/{eventId}/export",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_calendar/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/calendar/import",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_calendar/mod.rs"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/calendars",
       "auth": "authenticated",
       "requestMode": "none",
@@ -265,6 +577,14 @@
       "path": "/api/v1/calendars",
       "auth": "authenticated",
       "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_calendar/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/calendars/{calendarId}",
+      "auth": "authenticated",
+      "requestMode": "none",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/v1_calendar/mod.rs"
     },
@@ -277,6 +597,38 @@
       "source": "apps/rust-server/src/routes/v1_calendar/mod.rs"
     },
     {
+      "method": "PATCH",
+      "path": "/api/v1/calendars/{calendarId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_calendar/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/calendars/{calendarId}/members",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_calendar/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/calendars/{calendarId}/members",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_calendar/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/calendars/{calendarId}/members/{userId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_calendar/mod.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/communities",
       "auth": "authenticated",
@@ -291,6 +643,78 @@
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{communityId}/channels",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{communityId}/channels",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{communityId}/channels/{channelId}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{communityId}/channels/{channelId}/join",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{communityId}/channels/{channelId}/leave",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{communityId}/channels/{channelId}/settings",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/communities/{communityId}/channels/{channelId}/settings",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{communityId}/reports",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/reports.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/communities/{communityId}/reports/{reportId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/reports.rs"
     },
     {
       "method": "DELETE",
@@ -341,6 +765,158 @@
       "source": "apps/rust-server/src/routes/community/mod.rs"
     },
     {
+      "method": "PATCH",
+      "path": "/api/v1/communities/{id}/agents/{listing_id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{id}/applications",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{id}/applications/{app_id}/review",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{id}/apply",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{id}/avatar",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{id}/bans",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/communities/{id}/bans/{userId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{id}/cover",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{id}/hidden-users",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{id}/hidden-users",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/communities/{id}/hidden-users/{userId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{id}/invites",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{id}/invites",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/communities/{id}/invites/{invite_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{id}/join",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{id}/keyword-filters",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{id}/keyword-filters",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/communities/{id}/keyword-filters/{filter_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{id}/leave",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/communities/{id}/members",
       "auth": "authenticated",
@@ -349,10 +925,338 @@
       "source": "apps/rust-server/src/routes/community/mod.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/communities/{id}/members",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/communities/{id}/members/{user_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{id}/members/{user_id}/profile",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/communities/{id}/members/{user_id}/role",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{id}/members/bulk-role",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/communities/{id}/members/me/preferences",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{id}/mute-member",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{id}/my-application",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{id}/role-permissions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/communities/{id}/role-permissions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/{id}/transfer",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{id}/unmute-member",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/communities/by-conversation/{conversationId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/join-by-invite/{code}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/community-invites/{invite_id}/accept",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/community-invites/{invite_id}/reject",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/community-invites/my",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/conversation-tags",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/conversation-tags",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/conversation-tags/{tagId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/conversation-tags/{tagId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/conversations",
       "auth": "authenticated",
       "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/conversations/{conversationId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/conversations/{conversationId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/conversations/{conversationId}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/conversations/{conversationId}/export",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_conversation_exports.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/conversations/{conversationId}/export/{jobId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_conversation_exports.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/conversations/{conversationId}/export/{jobId}/download",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "binary",
+      "source": "apps/rust-server/src/routes/v1_conversation_exports.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/conversations/{conversationId}/members",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_conversation_members.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/conversations/{conversationId}/members",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_conversation_members.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/conversations/{conversationId}/messages/{messageId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/conversations/{conversationId}/messages/{messageId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/conversations/{conversationId}/messages/forward",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/conversations/{conversationId}/pins",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/conversations/{conversationId}/pins/{messageId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/conversations/{conversationId}/pins/{messageId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/conversations/{conversationId}/tags/{tagId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/conversations/{conversationId}/tags/{tagId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/conversations/{conversationId}/threads",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/conversations/{conversationId}/threads/{threadId}/messages",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/conversations/{conversationId}/unarchive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/conversations/{conversationId}/withdraw-self",
+      "auth": "authenticated",
+      "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/v1_resources.rs"
     },
@@ -371,6 +1275,78 @@
       "requestMode": "none",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/creator.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/creator/downloads",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/creator.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/creator/experts",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/creator/experts",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/creator/experts/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/creator/experts/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/creator/experts/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/creator/experts/{id}/featured-asks/{askId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/creator/experts/{id}/featured-asks/{askId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/creator/experts/{id}/featured-candidates",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
     },
     {
       "method": "GET",
@@ -502,6 +1478,14 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/creator/users",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/creator.rs"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/deliveries",
       "auth": "authenticated",
       "requestMode": "none",
@@ -614,9 +1598,73 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/docs/{id}/export",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_docs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/docs/{id}/export/{job_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_docs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/docs/{id}/export/{job_id}/download",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "binary",
+      "source": "apps/rust-server/src/routes/v1_docs.rs"
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/docs/{id}/unarchive",
       "auth": "authenticated",
       "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_docs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/docs/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/docs/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_versions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/docs/{id}/versions/{version_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/docs/{id}/versions/{version_id}/restore",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/docs/import",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/v1_docs.rs"
     },
@@ -659,6 +1707,206 @@
       "requestMode": "none",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/api_v1/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/expert-hub",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/expert-hub/{expertId}/examples/{exampleId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/expert-hub/{expertId}/examples/{exampleId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/expert-hub/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/expert-hub/{id}/ask",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/expert-hub/{id}/examples",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/expert-hub/{id}/examples",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/expert-hub/{id}/examples/order",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/expert-hub/{id}/favorite",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/expert-hub/{id}/favorite",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/expert-hub/{id}/favorite",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/expert-hub/{id}/featured-asks",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/expert-hub/{id}/history",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/expert-hub/{id}/knowledge",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/expert-hub/{id}/knowledge",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/expert-hub/{id}/knowledge/rebuild",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/expert-hub/{id}/knowledge/sources/{sourceId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/expert-hub/{id}/knowledge/sources/{sourceId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/expert-hub/{id}/knowledge/sources/{sourceId}/reindex",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/expert-hub/{id}/knowledge/upload",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/expert-hub/{id}/reports",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/expert-hub/asks/{askId}/rate",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/expert-hub/favorites",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/expert-hub/history",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/expert-hub/models",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/expert_hub/mod.rs"
     },
     {
       "method": "GET",
@@ -893,8 +2141,32 @@
       "source": "apps/rust-server/src/routes/v1_forms/mod.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/forms/{id}/regenerate-token",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_forms/mod.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/forms/{id}/responses",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/forms/{id}/responses/{responseId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/forms/{id}/responses/export",
       "auth": "authenticated",
       "requestMode": "none",
       "responseMode": "json",
@@ -947,6 +2219,22 @@
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/v1_versions.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/forms/fields/{fieldId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_forms/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/forms/fields/{fieldId}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_forms/mod.rs"
     },
     {
       "method": "GET",
@@ -1158,6 +2446,30 @@
     },
     {
       "method": "DELETE",
+      "path": "/api/v1/kanban/boards/{boardId}/members/{userId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/kanban/boards/{boardId}/members/{userId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/kanban/boards/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/kanban/boards/{id}",
       "auth": "authenticated",
       "requestMode": "none",
@@ -1229,6 +2541,22 @@
       "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/kanban/boards/{id}/members",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/boards/{id}/members",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/kanban/boards/{id}/unarchive",
       "auth": "authenticated",
@@ -1294,9 +2622,25 @@
     },
     {
       "method": "DELETE",
+      "path": "/api/v1/kanban/cards/{cardId}/commits/{commitHash}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "DELETE",
       "path": "/api/v1/kanban/cards/{cardId}/labels/{labelId}",
       "auth": "authenticated",
       "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/cards/{cardId}/share-to/{conversationId}",
+      "auth": "authenticated",
+      "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
     },
@@ -1311,6 +2655,46 @@
     {
       "method": "PATCH",
       "path": "/api/v1/kanban/cards/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/kanban/cards/{id}/agents",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/cards/{id}/agents",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/cards/{id}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/kanban/cards/{id}/attachments",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/cards/{id}/attachments",
       "auth": "authenticated",
       "requestMode": "json",
       "responseMode": "json",
@@ -1349,6 +2733,30 @@
       "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/kanban/cards/{id}/public-share",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/cards/{id}/public-share",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/kanban/cards/{id}/unarchive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/kanban/cards/bulk-move",
       "auth": "authenticated",
@@ -1373,6 +2781,14 @@
       "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/kanban/comments/{commentId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/kanban/comments/{commentId}",
       "auth": "authenticated",
@@ -1381,6 +2797,14 @@
       "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
     },
     {
+      "method": "PATCH",
+      "path": "/api/v1/kanban/comments/{commentId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
       "method": "DELETE",
       "path": "/api/v1/kanban/labels/{id}",
       "auth": "authenticated",
@@ -1447,6 +2871,14 @@
     {
       "method": "POST",
       "path": "/api/v1/memo/{pageId}/comments",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memo/{pageId}/copy-to-notebook",
       "auth": "authenticated",
       "requestMode": "json",
       "responseMode": "json",
@@ -1459,6 +2891,38 @@
       "requestMode": "none",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memo/pages/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memo/pages/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_versions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memo/pages/{id}/versions/{version_number}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memo/pages/{id}/versions/{version_number}/restore",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_versions.rs"
     },
     {
       "method": "GET",
@@ -1662,6 +3126,38 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/messages/{messageId}/reactions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/messages/{messageId}/reactions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/messages/{messageId}/reactions/{emoji}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/messages/{messageId}/report",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/reports.rs"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/messages/search",
       "auth": "authenticated",
       "requestMode": "none",
@@ -1709,8 +3205,24 @@
       "source": "apps/rust-server/src/routes/v1_mindmaps/mod.rs"
     },
     {
+      "method": "PATCH",
+      "path": "/api/v1/mindmaps/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_mindmaps/mod.rs"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/mindmaps/{id}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mindmaps/{id}/export",
       "auth": "authenticated",
       "requestMode": "json",
       "responseMode": "json",
@@ -1743,6 +3255,22 @@
     {
       "method": "PUT",
       "path": "/api/v1/mindmaps/{id}/outline",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/mindmaps/{id}/public-share",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_mindmaps/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mindmaps/{id}/public-share",
       "auth": "authenticated",
       "requestMode": "json",
       "responseMode": "json",
@@ -1803,6 +3331,14 @@
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mindmaps/import",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_mindmaps/mod.rs"
     },
     {
       "method": "DELETE",
@@ -1885,6 +3421,30 @@
       "source": "apps/rust-server/src/routes/v1_notes/mod.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/notebooks/{id}/export",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/data_export/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notebooks/{id}/export/{jobId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/data_export/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notebooks/{id}/export/{jobId}/download",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "binary",
+      "source": "apps/rust-server/src/routes/data_export/mod.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/notebooks/{id}/notes",
       "auth": "authenticated",
@@ -1901,6 +3461,14 @@
       "source": "apps/rust-server/src/routes/v1_notes/mod.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/notebooks/import",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_notes/mod.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/notes",
       "auth": "authenticated",
@@ -1915,6 +3483,38 @@
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notes/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/notes/{id}/versions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_versions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notes/{id}/versions/{version_number}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/notes/{id}/versions/{version_number}/restore",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_versions.rs"
     },
     {
       "method": "DELETE",
@@ -1941,6 +3541,14 @@
       "source": "apps/rust-server/src/routes/v1_notes/mod.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/notes/{noteId}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_notes/mod.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/notes/{noteId}/linked-cards",
       "auth": "authenticated",
@@ -1949,6 +3557,30 @@
       "source": "apps/rust-server/src/routes/v1_notes/mod.rs"
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/notes/{noteId}/public-share",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/notes/{noteId}/public-share",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/notes/{noteId}/share-to/{conversationId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_notes/mod.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/notes/{noteId}/thread",
       "auth": "authenticated",
@@ -1966,11 +3598,331 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/notes/{noteId}/unarchive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_notes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/notifications/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/notifications/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/notifications/{id}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/notifications/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/notifications/{id}/read",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/notifications/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/preferences",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/notifications/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/notifications/preferences",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/notifications/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/notifications/preferences",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/notifications/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/notifications/read-all",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/notifications/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/notifications/unread",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/notifications/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/unread-count",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/notifications/mod.rs"
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/oauth/token",
       "auth": "public",
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/oauth/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office/activity",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/activity.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office/analytics/user-activity/feature-breakdown",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/user_activity.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office/analytics/user-activity/summary",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/user_activity.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office/analytics/user-activity/top-conversations",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/user_activity.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office/analytics/user-activity/trend",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/user_activity.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office/dashboard/agents",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/dashboard.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office/dashboard/agents/{agentId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_analytics.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office/dashboard/agents/{agentId}/export",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_analytics.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office/dashboard/agents/{agentId}/tools",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_analytics.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office/dashboard/agents/{agentId}/trend",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_analytics.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office/dashboard/summary",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/dashboard.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office/dashboard/usage",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/dashboard.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/painter/albums",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/painter/albums",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/painter/albums/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/painter/albums/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/painter/albums/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/painter/albums/{id}/cover",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/painter/albums/{id}/cover",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/painter/albums/{id}/images",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/painter/albums/{id}/images/{imageId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/painter/albums/{id}/images/{imageId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/painter/albums/{id}/preview-generate",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/painter/albums/{id}/preview-results/{generationId}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/painter/albums/{id}/stats",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/painter/generations",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/painter/generations/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/painter/image-models",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/painter/v1.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform-agents",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/agent_hub/mod.rs"
     },
     {
       "method": "GET",
@@ -2099,6 +4051,54 @@
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/platform_trigger/http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/polls",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_polls.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/polls/{pollId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_polls.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/polls/{pollId}/close",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_polls.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/polls/{pollId}/vote",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_polls.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/promotions/active",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/promotions/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/reports",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/accounts/mod.rs"
     },
     {
       "method": "POST",
@@ -2346,7 +4346,7 @@
       "auth": "authenticated",
       "requestMode": "none",
       "responseMode": "json",
-      "source": "apps/rust-server/src/routes/v1_resources.rs"
+      "source": "apps/rust-server/src/routes/skills/mod.rs"
     },
     {
       "method": "GET",
@@ -2661,6 +4661,14 @@
       "source": "apps/rust-server/src/routes/spaces/mod.rs"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/spaces/{id}/catalog",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/space_products.rs"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/spaces/{id}/cover",
       "auth": "authenticated",
@@ -2805,6 +4813,54 @@
       "source": "apps/rust-server/src/routes/spaces/mod.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/support/images",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/support.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/support/images/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/support.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/support/tickets",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/support.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/support/tickets",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/support.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/support/tickets/{id}/messages",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/support.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/themes",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/themes/mod.rs"
+    },
+    {
       "method": "DELETE",
       "path": "/api/v1/themes/{themeId}",
       "auth": "authenticated",
@@ -2829,10 +4885,26 @@
       "source": "apps/rust-server/src/routes/themes/mod.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/themes/{themeId}/reports",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/themes/mod.rs"
+    },
+    {
       "method": "PATCH",
       "path": "/api/v1/themes/{themeId}/status",
       "auth": "authenticated",
       "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/themes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/themes/owned",
+      "auth": "authenticated",
+      "requestMode": "none",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/themes/mod.rs"
     },
@@ -2843,6 +4915,22 @@
       "requestMode": "multipart-or-json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/themes/mod.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/themes/upload-file",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/themes/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/uploads/policy",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/uploads.rs"
     },
     {
       "method": "GET",
@@ -2859,6 +4947,62 @@
       "requestMode": "none",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/api_v1/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users/{userId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/users.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/users/me/dnd",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/user_settings/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users/me/dnd",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/user_settings/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/users/me/dnd",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/user_settings/mod.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/users/me/status",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/user_settings/mod.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/users/me/status",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/user_settings/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users/search",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/users.rs"
     },
     {
       "method": "POST",
@@ -3267,6 +5411,22 @@
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/workflows/v1_http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workspaces/documents/copy",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/office_document_copies.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workspaces/documents/move",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/workspaces/mod.rs"
     }
   ]
 }
