@@ -85,13 +85,19 @@ describe("API v1 route contract fixture", () => {
     expect(keys.size).toBe(fixture.routeCount);
   });
 
-  it("identifies confidential Space services and the public token exchange", () => {
+  it("identifies confidential services and the public token exchange", () => {
     const authFor = (path: string) => fixture.routes
       .filter((route) => route.path === path)
       .map((route) => route.auth);
 
     expect(authFor("/api/v1/wager/sessions")).toEqual(["space-service"]);
     expect(authFor("/api/v1/space-llm/generate")).toEqual(["space-llm"]);
+    expect(authFor("/api/v1/office-plugin-s2s/whoami")).toEqual([
+      "office-plugin-service",
+    ]);
+    expect(authFor("/api/v1/office-plugin-s2s/authorize")).toEqual([
+      "office-plugin-service",
+    ]);
     expect(authFor("/api/v1/oauth/token")).toEqual(["public"]);
     expect(authFor("/api/v1/skill-catalog-operator/personas")).toEqual([
       "catalog-operator",
