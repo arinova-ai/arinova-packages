@@ -23,6 +23,7 @@ function authKind(path) {
   if (path.startsWith("/api/v1/webhooks/inbound/")) return "signed-public";
   if (path.startsWith("/api/v1/wager/")) return "space-service";
   if (path.startsWith("/api/v1/space-llm/")) return "space-llm";
+  if (path.startsWith("/api/v1/office-plugin-s2s/")) return "office-plugin-service";
   if (
     path.startsWith("/api/v1/user/") ||
     path.startsWith("/api/v1/agent/chat") ||
