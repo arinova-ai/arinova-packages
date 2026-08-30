@@ -111,6 +111,9 @@ export interface ActionProgressOptions {
   conversationId?: string;
 }
 
+/** Structured metadata copied from the user message that triggered an agent task. */
+export type AgentMessageMetadata = Readonly<Record<string, unknown>>;
+
 /** Context passed to the task handler. */
 export interface TaskContext {
   /** Complete server task payload for forward-compatible access to new fields. */
@@ -162,6 +165,8 @@ export interface TaskContext {
   attachments?: TaskAttachment[];
   /** Skills installed on this agent — use fetchSkillPrompt() to get the full prompt content. */
   availableSkills?: { slug: string; name: string; slashCommand: string | null; description: string }[];
+  /** Structured metadata copied from the user message that triggered this task. */
+  messageMetadata?: AgentMessageMetadata;
   /** Send a streaming delta (new characters only) to the user. */
   sendChunk: (delta: string) => void;
   /** Mark the task as complete with the full response content. */

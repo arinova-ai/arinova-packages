@@ -17,7 +17,7 @@ const TASK_CONTRACT = JSON.parse(TASK_CONTRACT_SOURCE) as {
   optionalKeys: string[];
   typedSdkKeys: string[];
 };
-const TASK_CONTRACT_SHA256 = "69825ac4ca4147f382ba7a4d21b54a2a738cc3861a00cae26f0ed5dd6d2f656e";
+const TASK_CONTRACT_SHA256 = "b821e843a688b189decb1a36482f84f6fdd3145928dc07fcfe066198309d4cea";
 
 it("pins and preserves the shared server task-payload contract", () => {
   expect(createHash("sha256").update(TASK_CONTRACT_SOURCE).digest("hex")).toBe(TASK_CONTRACT_SHA256);
@@ -577,6 +577,7 @@ describe("per-conversation task queue", () => {
       senderAgentId: "agent-linda",
       senderAgentName: "Linda",
       availableSkills: [{ slug: "draw", name: "Draw", slashCommand: "/draw", description: "Draw an image" }],
+      messageMetadata: { sourceMessageId: "message-1", surface: "chat" },
       agentMemories: [{ summary: "raw memory" }],
       metadata: { chainDepth: 2 },
     });
@@ -590,6 +591,7 @@ describe("per-conversation task queue", () => {
     expect(captured!.availableSkills).toEqual([
       { slug: "draw", name: "Draw", slashCommand: "/draw", description: "Draw an image" },
     ]);
+    expect(captured!.messageMetadata).toEqual({ sourceMessageId: "message-1", surface: "chat" });
     expect(captured!.raw).toMatchObject({
       agentMemories: [{ summary: "raw memory" }],
       metadata: { chainDepth: 2 },

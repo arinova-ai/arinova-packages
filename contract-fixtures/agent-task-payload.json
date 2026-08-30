@@ -42,6 +42,7 @@
     "replyTo",
     "history",
     "attachments",
-    "availableSkills"
+    "availableSkills",
+    "messageMetadata"
   ]
 }

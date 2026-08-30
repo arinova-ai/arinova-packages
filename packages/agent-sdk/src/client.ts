@@ -835,6 +835,7 @@ export class ArinovaAgent extends ArinovaRestClient {
       history: data.history as { role: string; content: string; senderAgentName?: string; senderUsername?: string; createdAt: string }[] | undefined,
       attachments: data.attachments as TaskAttachment[] | undefined,
       availableSkills: data.availableSkills as TaskContext["availableSkills"],
+      messageMetadata: data.messageMetadata as TaskContext["messageMetadata"],
       sendChunk: (delta: string) => {
         if (taskFinished) return;
         this.sendChunkEvent({ type: "agent_chunk", taskId, chunk: delta });
