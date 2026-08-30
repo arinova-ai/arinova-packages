@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import type {
   ActionCallOptions,
   ActionCallResult,
+  AgentMessageMetadata,
   AgentRuntimeInfo,
   ListBoardsResult,
   TokenClaimedData,
@@ -11,6 +12,13 @@ import type {
 } from "./index.js";
 
 describe("agent SDK type contracts", () => {
+  it("exposes message metadata on task contexts", () => {
+    expectTypeOf<TaskContext["messageMetadata"]>()
+      .toEqualTypeOf<AgentMessageMetadata | undefined>();
+    expectTypeOf<AgentMessageMetadata>()
+      .toEqualTypeOf<Readonly<Record<string, unknown>>>();
+  });
+
   it("supports action call context and file-reference arguments", () => {
     const options = {
       callId: "call-1",
