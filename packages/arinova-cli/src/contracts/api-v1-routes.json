@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-08-27T02:15:23+08:00",
+  "generatedAt": "2026-09-04T21:11:57+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "699df72a4cc3d751d8dce00505d0442fe7ca2930",
-  "routeCount": 680,
+  "sourceCommit": "c3e283125fda2abe8b23138fc73fffa6f594871b",
+  "routeCount": 699,
   "routes": [
     {
       "method": "GET",
@@ -1665,6 +1665,14 @@
       "path": "/api/v1/docs/import",
       "auth": "authenticated",
       "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_docs.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/docs/import-text",
+      "auth": "authenticated",
+      "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/v1_docs.rs"
     },
@@ -3933,6 +3941,142 @@
       "source": "apps/rust-server/src/routes/painter/v1.rs"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/pdfs",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pdfs",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/pdfs/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pdfs/{id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/pdfs/{id}",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pdfs/{id}/agent-permissions",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/pdfs/{id}/agent-permissions",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/pdfs/{id}/annotations",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pdfs/{id}/archive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pdfs/{id}/content",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "binary",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pdfs/{id}/export",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pdfs/{id}/export/{job_id}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pdfs/{id}/export/{job_id}/download",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "binary",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pdfs/{id}/pages",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pdfs/{id}/text",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pdfs/{id}/unarchive",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pdfs/import",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_pdf.rs"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/platform-agents",
       "auth": "authenticated",
@@ -4611,6 +4755,14 @@
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/v1_versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/slides/decks/import",
+      "auth": "authenticated",
+      "requestMode": "multipart-or-json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_slides/mod.rs"
     },
     {
       "method": "GET",
