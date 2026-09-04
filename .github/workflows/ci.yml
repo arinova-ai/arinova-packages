@@ -163,8 +163,7 @@ jobs:
           set -euo pipefail
           npm install -g pnpm@10.28.2
           pnpm install --frozen-lockfile
-          python -m pip install --disable-pip-version-check -e \
-            "git+https://github.com/NousResearch/hermes-agent.git@f51aa6a9b5ce514e15f8e337777f522fd5cc6fa2#egg=hermes-agent"
+          python -m pip install --disable-pip-version-check -e .ci/hermes-agent
 
       - name: Build and sync the workspace SDK
         run: |
