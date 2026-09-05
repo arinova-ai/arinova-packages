@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-09-04T21:11:57+08:00",
+  "generatedAt": "2026-09-05T12:01:22+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "c3e283125fda2abe8b23138fc73fffa6f594871b",
-  "routeCount": 699,
+  "sourceCommit": "c09709b0fd05ab5b764e7b5fd4416e8612c64c0a",
+  "routeCount": 701,
   "routes": [
     {
       "method": "GET",
@@ -4127,6 +4127,22 @@
     {
       "method": "PATCH",
       "path": "/api/v1/platform-cron/jobs/{id}/enabled",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/platform_cron/http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/platform-cron/jobs/{id}/fires",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/platform_cron/http_routes.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform-cron/jobs/{id}/run-now",
       "auth": "authenticated",
       "requestMode": "json",
       "responseMode": "json",
