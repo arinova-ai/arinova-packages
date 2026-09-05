@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-09-05T12:01:22+08:00",
+  "generatedAt": "2026-09-05T19:34:21+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "728e8525b555b710922222f5fdd598bb908fbca7",
-  "routeCount": 701,
+  "sourceCommit": "5308cf0d04c3d9c1f23a8e2bcf924a005a95754b",
+  "routeCount": 703,
   "routes": [
     {
       "method": "GET",
@@ -2827,6 +2827,22 @@
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/v1_kanban/mod.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/knowledge/documents/{documentKey}",
+      "auth": "agent",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/knowledge/index",
+      "auth": "agent",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
     },
     {
       "method": "GET",

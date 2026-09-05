@@ -90,6 +90,8 @@ describe("API v1 route contract fixture", () => {
       .filter((route) => route.path === path)
       .map((route) => route.auth);
 
+    expect(authFor("/api/v1/knowledge/index")).toEqual(["agent"]);
+    expect(authFor("/api/v1/knowledge/documents/{documentKey}")).toEqual(["agent"]);
     expect(authFor("/api/v1/wager/sessions")).toEqual(["space-service"]);
     expect(authFor("/api/v1/space-llm/generate")).toEqual(["space-llm"]);
     expect(authFor("/api/v1/office-plugin-s2s/whoami")).toEqual([
