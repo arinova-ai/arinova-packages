@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-09-05T19:34:21+08:00",
+  "generatedAt": "2026-09-07T02:45:04+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "5308cf0d04c3d9c1f23a8e2bcf924a005a95754b",
-  "routeCount": 703,
+  "sourceCommit": "27c3e5e74316f6e2b29e6fcba5b07e1291911abe",
+  "routeCount": 704,
   "routes": [
     {
       "method": "GET",
@@ -695,6 +695,14 @@
     {
       "method": "PATCH",
       "path": "/api/v1/communities/{communityId}/channels/{channelId}/settings",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/communities/{communityId}/channels/{channelId}/unarchive",
       "auth": "authenticated",
       "requestMode": "json",
       "responseMode": "json",
