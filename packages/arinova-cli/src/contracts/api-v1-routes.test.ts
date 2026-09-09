@@ -85,6 +85,17 @@ describe("API v1 route contract fixture", () => {
     expect(keys.size).toBe(fixture.routeCount);
   });
 
+  it("requires JSON for batch import-entry deletion but not single-entry deletion", () => {
+    const batch = fixture.routes.find((route) =>
+      route.method === "DELETE" && route.path === "/api/v1/memories/import/{capsuleId}/entries"
+    );
+    expect(batch).toMatchObject({ auth: "authenticated", requestMode: "json", responseMode: "json" });
+    const single = fixture.routes.find((route) =>
+      route.method === "DELETE" && route.path === "/api/v1/memories/import/{capsuleId}/entries/{entryId}"
+    );
+    expect(single?.requestMode).toBe("none");
+  });
+
   it("identifies confidential services and the public token exchange", () => {
     const authFor = (path: string) => fixture.routes
       .filter((route) => route.path === path)
