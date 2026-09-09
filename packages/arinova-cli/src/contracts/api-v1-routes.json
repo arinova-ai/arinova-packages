@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-09-07T02:45:04+08:00",
+  "generatedAt": "2026-09-10T01:48:24+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "27c3e5e74316f6e2b29e6fcba5b07e1291911abe",
-  "routeCount": 704,
+  "sourceCommit": "0b905fb907fbf8b2041add4a99abd2452a122deb",
+  "routeCount": 705,
   "routes": [
     {
       "method": "GET",
@@ -3081,6 +3081,14 @@
       "path": "/api/v1/memories/import/{capsuleId}/duplicates",
       "auth": "authenticated",
       "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/memories/import/{capsuleId}/entries",
+      "auth": "authenticated",
+      "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/v1_resources.rs"
     },
