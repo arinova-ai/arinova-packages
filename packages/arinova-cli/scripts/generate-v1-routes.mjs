@@ -37,6 +37,9 @@ function authKind(path) {
 }
 
 function requestMode(method, path) {
+  if (method === "DELETE" && path === "/api/v1/memories/import/{capsuleId}/entries") {
+    return "json";
+  }
   if (method === "GET" || method === "DELETE") return "none";
   if (
     path.includes("/upload") ||
