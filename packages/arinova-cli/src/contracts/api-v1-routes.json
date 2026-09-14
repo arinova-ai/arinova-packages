@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-09-07T02:45:04+08:00",
+  "generatedAt": "2026-09-14T10:59:59+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "27c3e5e74316f6e2b29e6fcba5b07e1291911abe",
-  "routeCount": 704,
+  "sourceCommit": "ee95151fb63a89d8ab67c759665acf313a10a8ec",
+  "routeCount": 708,
   "routes": [
     {
       "method": "GET",
@@ -2061,6 +2061,14 @@
       "source": "apps/rust-server/src/routes/v1_files/mod.rs"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/files/trash",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_files/mod.rs"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/files/upload",
       "auth": "authenticated",
@@ -3081,6 +3089,14 @@
       "path": "/api/v1/memories/import/{capsuleId}/duplicates",
       "auth": "authenticated",
       "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/memories/import/{capsuleId}/entries",
+      "auth": "authenticated",
+      "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/v1_resources.rs"
     },
@@ -5061,6 +5077,14 @@
       "source": "apps/rust-server/src/routes/support.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/support/tickets/{id}/resolve",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/support.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/themes",
       "auth": "authenticated",
@@ -5577,6 +5601,14 @@
       "path": "/api/v1/workflows/{id}/activate",
       "auth": "authenticated",
       "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/workflows/v1_http_routes.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/audit",
+      "auth": "authenticated",
+      "requestMode": "none",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/workflows/v1_http_routes.rs"
     },
