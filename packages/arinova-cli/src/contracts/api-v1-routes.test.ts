@@ -117,6 +117,19 @@ describe("API v1 route contract fixture", () => {
     ]);
   });
 
+  it("classifies Office Plugin file capability transport metadata", () => {
+    const uploadCapability = fixture.routes.find((route) =>
+      route.method === "POST"
+      && route.path === "/api/v1/office-plugin-s2s/files/upload-capability"
+    );
+
+    expect(uploadCapability).toMatchObject({
+      auth: "office-plugin-service",
+      requestMode: "json",
+      responseMode: "json",
+    });
+  });
+
   it("contains no known stale endpoint literals in command sources", () => {
     const source = [
       ...readProductionTypeScriptSources(commandsDirectory),
