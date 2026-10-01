@@ -96,6 +96,17 @@ describe("API v1 route contract fixture", () => {
     expect(single?.requestMode).toBe("none");
   });
 
+  it("describes staged memory-preview reuse without a second multipart upload", () => {
+    const start = fixture.routes.find((route) =>
+      route.method === "POST" && route.path === "/api/v1/memories/import/previews/{previewId}/start"
+    );
+    expect(start).toMatchObject({ auth: "authenticated", requestMode: "json", responseMode: "json" });
+    const discard = fixture.routes.find((route) =>
+      route.method === "DELETE" && route.path === "/api/v1/memories/import/previews/{previewId}"
+    );
+    expect(discard).toMatchObject({ auth: "authenticated", requestMode: "none", responseMode: "json" });
+  });
+
   it("identifies confidential services and the public token exchange", () => {
     const authFor = (path: string) => fixture.routes
       .filter((route) => route.path === path)
