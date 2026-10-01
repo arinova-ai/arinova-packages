@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-09-20T05:53:57+08:00",
+  "generatedAt": "2026-10-02T05:31:45+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "ec1672655483fe772b478b52290bfd3fe53c301f",
-  "routeCount": 720,
+  "sourceCommit": "dd393e9fa1e2de3c6d94deeb70094d203085d614",
+  "routeCount": 722,
   "routes": [
     {
       "method": "GET",
@@ -2090,7 +2090,7 @@
       "auth": "authenticated",
       "requestMode": "none",
       "responseMode": "json",
-      "source": "apps/rust-server/src/routes/v1_forms/query_tests.rs"
+      "source": "apps/rust-server/src/routes/v1_forms/mod.rs"
     },
     {
       "method": "POST",
@@ -3127,6 +3127,22 @@
     {
       "method": "POST",
       "path": "/api/v1/memories/import/preview",
+      "auth": "authenticated",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/memories/import/previews/{previewId}",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/v1_resources.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memories/import/previews/{previewId}/start",
       "auth": "authenticated",
       "requestMode": "json",
       "responseMode": "json",
@@ -4410,7 +4426,7 @@
       "auth": "authenticated",
       "requestMode": "json",
       "responseMode": "json",
-      "source": "apps/rust-server/src/routes/accounts/mod.rs"
+      "source": "apps/rust-server/src/routes/accounts/router/public.rs"
     },
     {
       "method": "POST",
