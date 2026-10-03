@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-10-02T05:31:45+08:00",
+  "generatedAt": "2026-10-04T02:21:01+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "dd393e9fa1e2de3c6d94deeb70094d203085d614",
-  "routeCount": 722,
+  "sourceCommit": "585a5114c8d825cbda34269b09acb8f21fbd337d",
+  "routeCount": 724,
   "routes": [
     {
       "method": "GET",
@@ -973,6 +973,14 @@
       "source": "apps/rust-server/src/routes/community/mod.rs"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/communities/{id}/members/me/preferences",
+      "auth": "authenticated",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/community/mod.rs"
+    },
+    {
       "method": "PATCH",
       "path": "/api/v1/communities/{id}/members/me/preferences",
       "auth": "authenticated",
@@ -1473,6 +1481,14 @@
       "path": "/api/v1/creator/stickers/{pack_id}/stickers/{sticker_id}",
       "auth": "authenticated",
       "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/stickers/mod.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/creator/stickers/{pack_id}/stickers/{sticker_id}",
+      "auth": "authenticated",
+      "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/stickers/mod.rs"
     },
