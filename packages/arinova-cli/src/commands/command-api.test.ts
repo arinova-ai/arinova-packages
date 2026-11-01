@@ -1142,6 +1142,37 @@ describe("CLI command API request shapes", () => {
     );
   });
 
+  it("routes deprecated trigger delete through cancel and warns", async () => {
+    const program = createProgram(registerAutomationCommands);
+
+    await program.parseAsync(["node", "arinova", "trigger", "delete", "trigger/a"]);
+
+    expect(mocks.clientPost).toHaveBeenCalledExactlyOnceWith(
+      "/api/v1/platform-triggers/triggers/trigger%2Fa/cancel",
+      {},
+    );
+    expect(mocks.clientDelete).not.toHaveBeenCalled();
+    expect(mocks.printWarning).toHaveBeenCalledExactlyOnceWith(
+      "trigger delete is deprecated and now cancels the trigger; use arinova trigger cancel instead.",
+    );
+    expect(mocks.printResult).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it("keeps trigger cancel reason handling without a deprecation warning", async () => {
+    const program = createProgram(registerAutomationCommands);
+
+    await program.parseAsync([
+      "node", "arinova", "trigger", "cancel", "trigger/a", "--reason", "No longer needed",
+    ]);
+
+    expect(mocks.clientPost).toHaveBeenCalledExactlyOnceWith(
+      "/api/v1/platform-triggers/triggers/trigger%2Fa/cancel",
+      { reason: "No longer needed" },
+    );
+    expect(mocks.clientDelete).not.toHaveBeenCalled();
+    expect(mocks.printWarning).not.toHaveBeenCalled();
+  });
+
   it("does not expose retired cron confirmation commands", () => {
     const program = createProgram(registerAutomationCommands);
     const cron = program.commands.find((command) => command.name() === "cron");
