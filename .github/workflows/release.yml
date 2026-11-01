@@ -262,8 +262,15 @@ jobs:
           done < <(jq -r '.[].directory' <<<"$STAGING_PACKAGES")
 
       - name: Verify the published SDK through the sidecar lockfile
+        env:
+          UNPUBLISHED_PACKAGES: ${{ needs.version.outputs.unpublished_packages }}
         run: |
           set -euo pipefail
+          if jq -e 'any(.[]; startswith("@arinova-ai/agent-sdk@"))' \
+            <<<"$UNPUBLISHED_PACKAGES" >/dev/null; then
+            echo "Skipping stable sidecar lockfile verification: the target agent-sdk version is not published yet."
+            exit 0
+          fi
           sidecar=packages/hermes-arinova-plugin/sidecar
           installed=false
           for attempt in 1 2 3 4 5; do
@@ -339,9 +346,19 @@ jobs:
       - name: Run the release gate
         run: |
           set -euo pipefail
+          UNPUBLISHED_PACKAGES="$(node .github/scripts/find-unpublished-packages.mjs)"
+          clean_install_args=()
+          if jq -e 'any(.[]; startswith("@arinova-ai/agent-sdk@"))' \
+            <<<"$UNPUBLISHED_PACKAGES" >/dev/null; then
+            clean_install_args+=(--skip-clean-install-npm-ci)
+            echo "Target agent-sdk is unpublished; skipping sidecar clean-install npm ci for this bootstrap."
+          else
+            echo "Target agent-sdk is published; running full sidecar clean-install npm ci."
+          fi
           python packages/hermes-arinova-plugin/scripts/check_local.py \
             --hermes-root "$GITHUB_WORKSPACE/.ci/hermes-agent" \
-            --hermes-python "$(command -v python)"
+            --hermes-python "$(command -v python)" \
+            "${clean_install_args[@]}"
 
       - name: Publish
         working-directory: packages/${{ inputs.package }}
