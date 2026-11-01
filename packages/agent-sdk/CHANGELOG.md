@@ -1,5 +1,11 @@
 # @arinova-ai/agent-sdk
 
+## 0.2.1
+
+### Patch Changes
+
+- 1c72014: Expose inbound task message metadata through the typed agent SDK context.
+
 ## 0.2.0
 
 ### Minor Changes
