@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { buildQuery, encodePathSegment, resolveClient } from "../../client.js";
 import { parseJsonObject } from "../../json-options.js";
-import { printResult } from "../../output.js";
+import { printResult, printWarning } from "../../output.js";
 import { addPaginationOptions, paginationValues } from "../../pagination.js";
 
 const e = encodePathSegment;
@@ -29,7 +29,8 @@ export function registerTriggerCommands(program: Command): void {
       parseJsonObject(options.body, "--body"),
     )));
   trigger.command("delete").argument("<id>").action(async (id: string) => {
-    printResult(await resolveClient(trigger).delete(`/api/v1/platform-triggers/triggers/${e(id)}`));
+    printWarning("trigger delete is deprecated and now cancels the trigger; use arinova trigger cancel instead.");
+    printResult(await resolveClient(trigger).post(`/api/v1/platform-triggers/triggers/${e(id)}/cancel`, {}));
   });
   for (const [name, enabled] of [["enable", true], ["disable", false]] as const) {
     trigger.command(name).argument("<id>").action(async (id: string) => printResult(
