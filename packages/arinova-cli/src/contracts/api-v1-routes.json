@@ -1,8 +1,8 @@
 {
   "generatedAt": "2026-10-04T02:21:01+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "585a5114c8d825cbda34269b09acb8f21fbd337d",
-  "routeCount": 724,
+  "sourceCommit": "4ec801a8616064168a7228094d89653cb0e7dc56",
+  "routeCount": 723,
   "routes": [
     {
       "method": "GET",
@@ -281,14 +281,6 @@
       "path": "/api/v1/agents/{agent_id}/email-inbox/quarantine/{email_id}/discard",
       "auth": "authenticated",
       "requestMode": "json",
-      "responseMode": "json",
-      "source": "apps/rust-server/src/routes/agent_email/mod.rs"
-    },
-    {
-      "method": "GET",
-      "path": "/api/v1/agents/{agent_id}/email-inbox/quarantine/{email_id}/release",
-      "auth": "authenticated",
-      "requestMode": "none",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/agent_email/mod.rs"
     },
