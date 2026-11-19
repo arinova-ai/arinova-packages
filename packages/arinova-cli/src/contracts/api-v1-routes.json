@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-09-14T10:59:59+08:00",
+  "generatedAt": "2026-09-20T05:53:57+08:00",
   "sourceRepository": "arinova-chat",
-  "sourceCommit": "ee95151fb63a89d8ab67c759665acf313a10a8ec",
-  "routeCount": 708,
+  "sourceCommit": "ec1672655483fe772b478b52290bfd3fe53c301f",
+  "routeCount": 720,
   "routes": [
     {
       "method": "GET",
@@ -3747,6 +3747,102 @@
       "requestMode": "json",
       "responseMode": "json",
       "source": "apps/rust-server/src/routes/office_plugins/service_tokens.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office-plugin-s2s/files",
+      "auth": "office-plugin-service",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/office_plugins/files.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/office-plugin-s2s/files/{file_id}",
+      "auth": "office-plugin-service",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/office_plugins/files.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office-plugin-s2s/files/{file_id}",
+      "auth": "office-plugin-service",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/office_plugins/files.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/office-plugin-s2s/files/{file_id}",
+      "auth": "office-plugin-service",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/office_plugins/files.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/office-plugin-s2s/files/{file_id}/copy",
+      "auth": "office-plugin-service",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/office_plugins/files.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/office-plugin-s2s/files/{file_id}/read-capability",
+      "auth": "office-plugin-service",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/office_plugins/files.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/office-plugin-s2s/files/{file_id}/restore",
+      "auth": "office-plugin-service",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/office_plugins/files.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office-plugin-s2s/files/folders",
+      "auth": "office-plugin-service",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/office_plugins/files.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office-plugin-s2s/files/personal-root",
+      "auth": "office-plugin-service",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/office_plugins/files.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office-plugin-s2s/files/root",
+      "auth": "office-plugin-service",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/office_plugins/files.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/office-plugin-s2s/files/search",
+      "auth": "office-plugin-service",
+      "requestMode": "none",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/office_plugins/files.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/office-plugin-s2s/files/upload-capability",
+      "auth": "office-plugin-service",
+      "requestMode": "json",
+      "responseMode": "json",
+      "source": "apps/rust-server/src/routes/office_plugins/files.rs"
     },
     {
       "method": "GET",

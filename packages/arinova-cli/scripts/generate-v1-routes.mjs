@@ -41,6 +41,7 @@ function requestMode(method, path) {
     return "json";
   }
   if (method === "GET" || method === "DELETE") return "none";
+  if (path.endsWith("/upload-capability")) return "json";
   if (
     path.includes("/upload") ||
     path.endsWith("/import") ||
